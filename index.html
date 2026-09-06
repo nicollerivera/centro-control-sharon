@@ -53,6 +53,16 @@ button{font-family:inherit;}
 .topbar{padding:22px 18px 14px; position:sticky; top:0; z-index:20; background:linear-gradient(180deg, var(--bg) 70%, rgba(250,249,252,0));}
 .topbar .greet{font-size:13px; color:var(--text-dim); font-weight:500; text-transform:uppercase; letter-spacing:.08em;}
 .topbar h1{font-size:26px; margin:2px 0 0; font-weight:700;}
+.topbar-row{display:flex; align-items:center; justify-content:space-between; gap:10px;}
+.sync{display:inline-flex; align-items:center; gap:6px; flex:none; border:1px solid var(--border); background:var(--surface); color:var(--text-muted); font-size:11px; font-weight:600; letter-spacing:.02em; padding:5px 10px; border-radius:999px; cursor:pointer;}
+.sync-dot{width:7px; height:7px; border-radius:50%; background:var(--text-dim); flex:none;}
+.sync[data-state="ok"]{color:var(--done); background:var(--done-soft); border-color:transparent;}
+.sync[data-state="ok"] .sync-dot{background:var(--done);}
+.sync[data-state="sync"]{color:var(--accent); background:var(--accent-soft); border-color:transparent;}
+.sync[data-state="sync"] .sync-dot{background:var(--accent); animation:pulse 1s ease-in-out infinite;}
+.sync[data-state="off"],.sync[data-state="lock"]{color:var(--urgent); background:var(--urgent-soft); border-color:transparent;}
+.sync[data-state="off"] .sync-dot,.sync[data-state="lock"] .sync-dot{background:var(--urgent);}
+@keyframes pulse{0%,100%{opacity:1;} 50%{opacity:.3;}}
 .linework{width:100%; height:14px; margin-top:10px; opacity:.6;}
 
 /* ---------- view container ---------- */
@@ -228,7 +238,10 @@ button{font-family:inherit;}
 <div class="app">
 
   <div class="topbar">
-    <div class="greet" id="greetLabel">Hoy</div>
+    <div class="topbar-row">
+      <div class="greet" id="greetLabel">Hoy</div>
+      <button class="sync" id="syncBtn" type="button" data-state="sync" aria-live="polite" title="Estado de sincronización — tocar para sincronizar ahora"><span class="sync-dot"></span><span id="syncText">Conectando…</span></button>
+    </div>
     <h1 id="dateLabel">—</h1>
     <svg class="linework" viewBox="0 0 400 14" preserveAspectRatio="none"><path d="M0 7 Q 20 1, 40 7 T 80 7 T 120 7 T 160 7 T 200 7 T 240 7 T 280 7 T 320 7 T 360 7 T 400 7" stroke="#8B6CF9" stroke-width="1.2" fill="none" opacity="0.6"/></svg>
   </div>
@@ -326,9 +339,13 @@ button{font-family:inherit;}
 <script>
 /* ============================================================
    STORAGE
-   Guarda en el almacenamiento del navegador (localStorage).
+   Fuente de verdad: un JSON en Vercel Blob, vía /api/data.
+   localStorage queda como caché local (arranque instantáneo y offline).
 ============================================================ */
 const STORAGE_KEY = 'centro-control-sharon';
+const DIRTY_KEY   = 'centro-control-sharon:pendiente';
+const PASS_KEY    = 'centro-control-sharon:pin';
+const API_URL     = '/api/data';
 let DATA = {
   events: [],
   subjects: [],
@@ -348,18 +365,134 @@ let DATA = {
   cycle: { starts: [], avgLen: 28, periodLen: 5 }
 };
 let saveTimer=null;
+let dirty=false;        // hay cambios locales que todavía no subieron
+let pushing=false;      // hay un guardado en vuelo
+let pendingPush=false;  // llegó otro cambio mientras subíamos
+let SYNC_STATE='sync';
+const SYNC_LABELS = { ok:'Sincronizado', sync:'Sincronizando…', off:'Sin conexión', lock:'Bloqueado' };
+
+function setSync(state){
+  SYNC_STATE = state;
+  const btn = document.getElementById('syncBtn');
+  const txt = document.getElementById('syncText');
+  if(!btn || !txt) return;
+  btn.dataset.state = state;
+  txt.textContent = SYNC_LABELS[state] || '';
+}
+function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+function lsDel(k){ try{ localStorage.removeItem(k); }catch(e){} }
+
+function setDirty(v){
+  dirty = v;
+  if(v) lsSet(DIRTY_KEY,'1'); else lsDel(DIRTY_KEY);
+}
+function cacheLocal(){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(DATA)); }
+  catch(e){ console.warn('No se pudo guardar la copia local', e); }
+}
+/* Copia solo las claves que la app conoce: ignora basura y campos viejos. */
+function mergeInto(src){
+  if(!src || typeof src!=='object') return false;
+  Object.keys(DATA).forEach(k=>{ if(k in src && src[k]!=null) DATA[k] = src[k]; });
+  return true;
+}
+function hasLocalData(){
+  return !!(DATA.events.length || DATA.subjects.length || DATA.routines.length || DATA.reminders.length ||
+    DATA.academicTasks.length || DATA.courseSchedule.length || DATA.courseTasks.length || DATA.courseModules.length ||
+    DATA.nexxaEvents.length || DATA.workClients.length || DATA.workSessions.length || DATA.installments.length ||
+    DATA.personalItems.length || (DATA.cycle && DATA.cycle.starts.length) || DATA.period || DATA.courseNotes);
+}
+
+function askPass(){
+  const p = prompt('PIN de acceso del Centro de Control:');
+  if(p===null) return false;
+  lsSet(PASS_KEY, p.trim());
+  return true;
+}
+async function apiRequest(method, body, retry){
+  const headers = { 'Content-Type':'application/json' };
+  const pass = lsGet(PASS_KEY);
+  if(pass) headers['x-app-password'] = pass;
+  const res = await fetch(API_URL, { method, headers, cache:'no-store', body: body ? JSON.stringify(body) : undefined });
+  if(res.status===401){
+    if(retry!==false && askPass()) return apiRequest(method, body, false);
+    const err = new Error('PIN incorrecto'); err.code = 401; throw err;
+  }
+  if(!res.ok){
+    let detail=''; try{ detail = (await res.json()).error || ''; }catch(e){}
+    throw new Error(detail || ('HTTP '+res.status));
+  }
+  return res.json();
+}
+
+/* Baja el estado remoto y pisa el local. Solo se llama cuando no hay cambios pendientes. */
+async function pullRemote(){
+  setSync('sync');
+  try{
+    const out = await apiRequest('GET');
+    if(out && out.data){ mergeInto(out.data); cacheLocal(); }
+    else if(hasLocalData()){ setDirty(true); }  // primera vez en la nube: sube lo que ya había acá
+    setSync(dirty ? 'sync' : 'ok');
+    return true;
+  }catch(e){
+    console.warn('No se pudo leer desde Vercel Blob', e);
+    setSync(e.code===401 ? 'lock' : 'off');
+    return false;
+  }
+}
+
+/* Sube el estado completo (último que escribe, gana). */
+async function pushRemote(){
+  if(!dirty) return true;
+  if(pushing){ pendingPush = true; return false; }
+  pushing = true; setSync('sync');
+  const before = JSON.stringify(DATA);
+  try{
+    await apiRequest('POST', { data: DATA });
+    if(JSON.stringify(DATA)===before){ setDirty(false); setSync('ok'); }
+    else { pendingPush = true; }
+    return true;
+  }catch(e){
+    console.warn('No se pudo guardar en Vercel Blob', e);
+    setSync(e.code===401 ? 'lock' : 'off');
+    return false;
+  }finally{
+    pushing = false;
+    if(pendingPush){ pendingPush = false; setTimeout(pushRemote, 0); }
+  }
+}
+
 async function loadData(){
   try{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if(raw){ DATA = Object.assign(DATA, JSON.parse(raw)); }
-  }catch(e){ console.warn('No se pudieron leer los datos guardados', e); }
+    const raw = lsGet(STORAGE_KEY);
+    if(raw) mergeInto(JSON.parse(raw));
+  }catch(e){ console.warn('No se pudieron leer los datos locales', e); }
+
+  if(lsGet(DIRTY_KEY)==='1'){
+    /* Quedó algo sin subir de la sesión anterior: no lo pisamos con lo remoto. */
+    dirty = true;
+    await pushRemote();
+  }else{
+    await pullRemote();
+    if(dirty) await pushRemote();
+  }
 }
+
 function saveData(){
+  setDirty(true);
+  cacheLocal();
+  setSync('sync');
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(()=>{
-    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(DATA)); }
-    catch(e){ console.warn('No se pudieron guardar los datos', e); }
-  }, 250);
+  saveTimer = setTimeout(pushRemote, 600);
+}
+
+/* Sincroniza al volver a la app / recuperar red. */
+async function syncNow(){
+  if(dirty) return pushRemote();
+  const ok = await pullRemote();
+  if(ok) renderAll();
+  return ok;
 }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 
@@ -1361,7 +1494,18 @@ function renderAll(){
   if(active==='yo') renderYo();
 }
 
-(async function init(){ await loadData(); renderAll(); })();
+(async function init(){
+  await loadData();
+  renderAll();
+
+  document.getElementById('syncBtn').onclick = ()=>{
+    if(SYNC_STATE==='lock' && !askPass()) return;
+    syncNow();
+  };
+  window.addEventListener('online', syncNow);
+  window.addEventListener('offline', ()=>setSync('off'));
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') syncNow(); });
+})();
 </script>
 </body>
 </html>
