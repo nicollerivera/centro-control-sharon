@@ -1,0 +1,1367 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<title>Centro de Control — Sharon</title>
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23FAF9FC'/%3E%3Cpath d='M30 65 L30 35 L50 55 L70 35 L70 65' stroke='%238B6CF9' stroke-width='6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#FAF9FC">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#FAF9FC;
+  --surface:#FFFFFF;
+  --surface-2:#F3F1F8;
+  --surface-3:#ECE8F3;
+  --border:#E3DEED;
+  --text:#221F2B;
+  --text-muted:#6B6478;
+  --text-dim:#9C94A8;
+  --accent:#8B6CF9;
+  --accent-soft:rgba(139,108,249,.12);
+  --urgent:#E94BB2;
+  --urgent-soft:rgba(233,75,178,.12);
+  --done:#3FA372;
+  --done-soft:rgba(63,163,114,.12);
+  --c-uni:#3E7FC4;
+  --c-nexxa:#8B6CF9;
+  --c-ads:#C2559E;
+  --c-work:#1EA89A;
+  --c-fin:#DB4F97;
+  --c-personal:#6E6B85;
+  --c-ciclo:#D6467E;
+  --radius:16px;
+  --radius-sm:10px;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+html,body{height:100%;}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:'Inter',system-ui,sans-serif;
+  padding-bottom:calc(78px + env(safe-area-inset-bottom));
+  overscroll-behavior-y:none;
+}
+h1,h2,h3,.display{font-family:'Space Grotesk',sans-serif; letter-spacing:-0.01em;}
+button{font-family:inherit;}
+.app{max-width:560px; margin:0 auto; position:relative;}
+
+/* ---------- header ---------- */
+.topbar{padding:22px 18px 14px; position:sticky; top:0; z-index:20; background:linear-gradient(180deg, var(--bg) 70%, rgba(250,249,252,0));}
+.topbar .greet{font-size:13px; color:var(--text-dim); font-weight:500; text-transform:uppercase; letter-spacing:.08em;}
+.topbar h1{font-size:26px; margin:2px 0 0; font-weight:700;}
+.linework{width:100%; height:14px; margin-top:10px; opacity:.6;}
+
+/* ---------- view container ---------- */
+.view{padding:4px 18px 20px; display:none; animation:fade .25s ease;}
+.view.active{display:block;}
+@keyframes fade{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);}}
+
+.section-title{font-size:12px; text-transform:uppercase; letter-spacing:.09em; color:var(--text-dim); font-weight:700; margin:22px 0 10px; display:flex; align-items:center; justify-content:space-between; gap:8px;}
+.section-title:first-child{margin-top:4px;}
+.section-title .count{color:var(--accent); font-weight:700;}
+
+/* ---------- cards ---------- */
+.card{background:var(--surface); border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:var(--radius); padding:14px; margin-bottom:10px;}
+.empty-card{background:var(--surface); border:1px dashed var(--border); border-radius:var(--radius); padding:20px 16px; text-align:center; color:var(--text-dim); font-size:13.5px;}
+
+.item{display:flex; align-items:flex-start; gap:11px; background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--accent); border-radius:var(--radius-sm); padding:12px; margin-bottom:8px; cursor:pointer;}
+.item:active{background:var(--surface-2);}
+.item .body{flex:1; min-width:0;}
+.item .row1{display:flex; align-items:center; justify-content:space-between; gap:8px;}
+.item .title{font-size:14.5px; font-weight:600; line-height:1.3;}
+.item.done .title{color:var(--text-dim); text-decoration:line-through;}
+.item .meta{font-size:12px; color:var(--text-dim); margin-top:3px; display:flex; gap:8px; flex-wrap:wrap;}
+.tag{font-size:10.5px; padding:2px 7px; border-radius:20px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; flex-shrink:0;}
+.status-btn{width:26px; height:26px; border-radius:50%; border:1.5px solid var(--border); background:transparent; flex-shrink:0; margin-top:1px;}
+.status-btn.progreso{border-color:var(--accent); background:conic-gradient(var(--accent) 50%, transparent 0);}
+.status-btn.hecho{border-color:var(--done); background:var(--done);}
+
+/* ---------- bottom nav ---------- */
+.bottomnav{position:fixed; bottom:0; left:0; right:0; z-index:30; background:rgba(255,255,255,.9); backdrop-filter:blur(14px); border-top:1px solid var(--border); padding:8px 4px calc(8px + env(safe-area-inset-bottom)); display:flex; justify-content:space-around;}
+.navbtn{background:none; border:none; color:var(--text-dim); display:flex; flex-direction:column; align-items:center; gap:3px; font-size:10.5px; font-weight:700; padding:4px 6px; border-radius:10px; flex:1; max-width:90px; position:relative;}
+.navbtn.active{color:var(--accent);}
+.navbtn svg{width:21px; height:21px;}
+.navbtn .badge{position:absolute; top:0; right:12px; background:var(--urgent); color:#fff; font-size:9px; font-weight:800; min-width:15px; height:15px; border-radius:8px; display:flex; align-items:center; justify-content:center; padding:0 3px;}
+
+/* ---------- FAB ---------- */
+.fab{position:fixed; right:20px; bottom:calc(82px + env(safe-area-inset-bottom)); z-index:25; width:54px; height:54px; border-radius:50%; border:none; background:var(--accent); color:#fff; font-size:26px; line-height:1; box-shadow:0 8px 22px rgba(139,108,249,.4); display:flex; align-items:center; justify-content:center;}
+.fab:active{transform:scale(.94);}
+
+/* ---------- chips ---------- */
+.chiprow{display:flex; gap:8px; overflow-x:auto; padding-bottom:2px; margin-bottom:2px; scrollbar-width:none;}
+.chiprow::-webkit-scrollbar{display:none;}
+.chip{flex-shrink:0; padding:7px 14px; border-radius:20px; border:1.5px solid var(--border); background:var(--surface); color:var(--text-muted); font-size:13px; font-weight:600;}
+.chip.active{border-color:var(--chip-color, var(--accent)); background:var(--chip-color-soft, var(--accent-soft)); color:var(--text);}
+
+/* ---------- subtabs ---------- */
+.subtabs{display:flex; gap:6px; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:4px; margin-bottom:16px; overflow-x:auto; scrollbar-width:none;}
+.subtabs::-webkit-scrollbar{display:none;}
+.subtab{flex-shrink:0; border:none; background:none; color:var(--text-dim); font-weight:700; font-size:12.5px; padding:9px 12px; border-radius:9px; white-space:nowrap;}
+.subtab.active{background:var(--accent); color:#fff;}
+
+/* ---------- week/subject rows ---------- */
+.subject-row{display:flex; align-items:center; gap:10px; padding:11px 12px; background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--c-uni); border-radius:var(--radius-sm); margin-bottom:8px;}
+.subject-row.ads{border-left-color:var(--c-ads);}
+.subject-row .info{flex:1;}
+.subject-row .name{font-weight:600; font-size:14px;}
+.subject-row .time{font-size:12px; color:var(--text-dim); margin-top:2px;}
+.period-pill{display:inline-flex; align-items:center; gap:6px; background:var(--accent-soft); color:var(--accent); font-weight:700; font-size:13px; padding:6px 12px; border-radius:20px; margin-bottom:14px;}
+.subject-group{margin-bottom:14px;}
+.subject-group-head{font-weight:700; font-size:13.5px; margin:4px 0 6px; padding-left:2px; color:var(--text);}
+
+/* ---------- curso ---------- */
+.module-row{display:flex; align-items:center; gap:11px; padding:12px; background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--c-ads); border-radius:var(--radius-sm); margin-bottom:8px;}
+.module-check{width:24px; height:24px; border-radius:7px; border:1.5px solid var(--border); background:transparent; flex-shrink:0;}
+.module-check.done{background:var(--c-ads); border-color:var(--c-ads); position:relative;}
+.module-check.done::after{content:'✓'; color:#fff; font-size:14px; font-weight:900; position:absolute; inset:0; display:flex; align-items:center; justify-content:center;}
+.module-row .mname{font-size:14px; font-weight:600; flex:1;}
+.module-row.done .mname{color:var(--text-dim); text-decoration:line-through;}
+
+/* ---------- nexxa events ---------- */
+.nexxa-card{padding:13px; background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--c-nexxa); border-radius:var(--radius); margin-bottom:9px;}
+.nexxa-card .head{display:flex; justify-content:space-between; align-items:flex-start;}
+.nexxa-card .name{font-weight:700; font-size:14.5px;}
+.nexxa-card .meta{font-size:12px; color:var(--text-dim); margin-top:3px; line-height:1.5;}
+.status-pill{font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:20px; text-transform:uppercase; letter-spacing:.03em; flex-shrink:0;}
+.status-pill.cotizado{background:var(--surface-3); color:var(--text-muted);}
+.status-pill.confirmado{background:rgba(139,108,249,.16); color:var(--c-nexxa);}
+.status-pill.realizado{background:var(--done-soft); color:var(--done);}
+.mini-tag{display:inline-block; font-size:11px; background:var(--surface-3); color:var(--text-muted); padding:2px 8px; border-radius:8px; margin-top:6px; margin-right:5px;}
+
+/* ---------- trabajo ---------- */
+.client-card{padding:14px; background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--c-work); border-radius:var(--radius); margin-bottom:10px;}
+.client-card .head{display:flex; justify-content:space-between; align-items:flex-start;}
+.client-card .name{font-weight:700; font-size:15px;}
+.client-card .rate{font-size:12px; color:var(--text-dim); margin-top:2px;}
+.client-card .stats{display:flex; gap:16px; margin-top:10px; flex-wrap:wrap;}
+.client-card .stat b{display:block; font-size:16px; font-family:'Space Grotesk',sans-serif;}
+.client-card .stat span{font-size:11px; color:var(--text-dim);}
+.small-btn{background:var(--surface-3); border:1px solid var(--border); color:var(--text); font-size:12.5px; font-weight:600; padding:7px 12px; border-radius:9px;}
+
+/* ---------- finanzas ---------- */
+.progress-track{height:7px; border-radius:6px; background:var(--surface-3); overflow:hidden; margin-top:9px;}
+.progress-fill{height:100%; background:var(--c-fin); border-radius:6px;}
+.money{font-family:'Space Grotesk',sans-serif; font-weight:700;}
+.summary-row{display:flex; gap:10px; margin-bottom:16px;}
+.summary-box{flex:1; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:13px;}
+.summary-box .lbl{font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; font-weight:700;}
+.summary-box .val{font-size:18px; margin-top:4px;}
+.installment-card{border-left:4px solid var(--c-fin) !important;}
+
+/* ---------- personal ---------- */
+.item.personal-row{border-left-color:var(--c-personal);}
+
+/* ---------- reminders ---------- */
+.reminder-row{display:flex; align-items:center; gap:10px; padding:10px 12px; background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--urgent); border-radius:var(--radius-sm); margin-bottom:7px;}
+.reminder-row.done{opacity:.55;}
+.reminder-row .txt{flex:1; font-size:13.5px; font-weight:500;}
+.reminder-row.done .txt{text-decoration:line-through; color:var(--text-dim);}
+.addbar{display:flex; gap:8px; margin-bottom:14px;}
+.addbar input{flex:1; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:11px 12px; font-size:14px; font-family:inherit; color:var(--text);}
+.addbar button{background:var(--accent); color:#fff; border:none; border-radius:10px; padding:0 16px; font-weight:700; font-size:13px;}
+
+/* ---------- calendar month ---------- */
+.cal-nav{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;}
+.cal-nav button{background:var(--surface); border:1px solid var(--border); color:var(--text); width:36px; height:36px; border-radius:10px; font-size:16px;}
+.cal-nav h2{margin:0; font-size:18px; text-transform:capitalize;}
+.cal-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:5px;}
+.cal-dow{text-align:center; font-size:10.5px; color:var(--text-dim); font-weight:700; padding-bottom:4px;}
+.cal-cell{aspect-ratio:1; border-radius:11px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:13px; color:var(--text-muted); position:relative; border:1px solid transparent; background:var(--surface);}
+.cal-cell.blank{visibility:hidden;}
+.cal-cell.today{border-color:var(--accent); color:var(--text); font-weight:700;}
+.cal-cell.selected{background:var(--surface-3); color:var(--text);}
+.cal-cell .dots{display:flex; gap:2px; margin-top:3px; height:5px;}
+.cal-cell .dots span{width:4.5px; height:4.5px; border-radius:50%;}
+.cal-cell.ciclo-range{background:rgba(214,70,126,.10);}
+.cal-cell.ciclo-log{background:rgba(214,70,126,.28); color:#3A0F26; font-weight:700;}
+.cal-daylist{margin-top:18px;}
+
+/* ---------- Yo tab ---------- */
+.cycle-hero{background:linear-gradient(135deg, rgba(214,70,126,.14), rgba(139,108,249,.07)); border:1px solid var(--border); border-radius:var(--radius); padding:18px; margin-bottom:16px;}
+.cycle-hero .big{font-size:26px; font-weight:700; font-family:'Space Grotesk',sans-serif; color:var(--c-ciclo);}
+.cycle-hero .sub{font-size:13px; color:var(--text-muted); margin-top:4px;}
+.ring-row{display:flex; gap:10px; margin-top:14px;}
+.ring-box{flex:1; text-align:center; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:10px 4px;}
+.ring-box b{display:block; font-size:16px; font-family:'Space Grotesk',sans-serif;}
+.ring-box span{font-size:10.5px; color:var(--text-dim);}
+.bar-chart{display:flex; align-items:flex-end; gap:8px; height:110px; margin-top:6px;}
+.bar-col{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%;}
+.bar-col .bar{width:100%; border-radius:6px 6px 3px 3px; min-height:3px;}
+.bar-col .lbl{font-size:10px; color:var(--text-dim); margin-top:6px;}
+.insight{display:flex; gap:10px; align-items:flex-start; padding:12px; background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--accent); border-radius:var(--radius-sm); margin-bottom:8px;}
+.insight .ico{font-size:16px;}
+.insight .txt{font-size:13px; color:var(--text-muted); line-height:1.4;}
+.insight .txt b{color:var(--text);}
+
+/* ---------- modal ---------- */
+.overlay{position:fixed; inset:0; background:rgba(20,17,26,.55); backdrop-filter:blur(3px); z-index:50; display:none; align-items:flex-end;}
+.overlay.active{display:flex;}
+.sheet{background:var(--surface); width:100%; max-width:560px; margin:0 auto; border-radius:22px 22px 0 0; padding:10px 20px calc(24px + env(safe-area-inset-bottom)); max-height:88vh; overflow-y:auto; animation:slideup .28s cubic-bezier(.2,.9,.3,1); border-top:3px solid var(--accent);}
+@keyframes slideup{from{transform:translateY(30px); opacity:0;} to{transform:translateY(0); opacity:1;}}
+.sheet-handle{width:36px; height:4px; background:var(--border); border-radius:3px; margin:6px auto 14px;}
+.sheet h3{margin:0 0 16px; font-size:18px;}
+.field{margin-bottom:14px;}
+.field label{display:block; font-size:12px; font-weight:700; color:var(--text-dim); margin-bottom:6px; text-transform:uppercase; letter-spacing:.03em;}
+.field input[type=text], .field input[type=number], .field input[type=date], .field input[type=time], .field select, .field textarea{width:100%; background:var(--surface-2); border:1px solid var(--border); color:var(--text); border-radius:10px; padding:11px 12px; font-size:14.5px; font-family:inherit;}
+.field textarea{resize:vertical; min-height:60px;}
+.field-row{display:flex; gap:10px;}
+.field-row .field{flex:1;}
+.field-check{display:flex; align-items:center; gap:9px; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:11px 12px; margin-bottom:14px;}
+.field-check input{width:18px; height:18px;}
+.field-check label{margin:0; font-size:13.5px; font-weight:600; color:var(--text); text-transform:none;}
+.sheet-actions{display:flex; gap:10px; margin-top:6px;}
+.btn{flex:1; border:none; padding:13px; border-radius:12px; font-weight:700; font-size:14.5px;}
+.btn-primary{background:var(--accent); color:#fff;}
+.btn-ghost{background:var(--surface-2); color:var(--text-muted);}
+.btn-danger{background:var(--urgent-soft); color:var(--urgent);}
+.close-x{position:absolute; top:16px; right:16px; background:var(--surface-2); border:none; color:var(--text-muted); width:30px; height:30px; border-radius:50%; font-size:15px;}
+.helptext{font-size:11.5px; color:var(--text-dim); margin:-8px 0 14px; line-height:1.4;}
+
+::selection{background:var(--accent-soft);}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="topbar">
+    <div class="greet" id="greetLabel">Hoy</div>
+    <h1 id="dateLabel">—</h1>
+    <svg class="linework" viewBox="0 0 400 14" preserveAspectRatio="none"><path d="M0 7 Q 20 1, 40 7 T 80 7 T 120 7 T 160 7 T 200 7 T 240 7 T 280 7 T 320 7 T 360 7 T 400 7" stroke="#8B6CF9" stroke-width="1.2" fill="none" opacity="0.6"/></svg>
+  </div>
+
+  <!-- ===== HOY ===== -->
+  <div class="view active" id="view-hoy">
+    <div id="hoyUrgent"></div>
+    <div id="hoyClasses"></div>
+    <div class="section-title">Bloques de hoy</div>
+    <div id="hoyList"></div>
+    <div class="section-title">Próximos 14 días</div>
+    <div id="hoyUpcoming"></div>
+  </div>
+
+  <!-- ===== MES ===== -->
+  <div class="view" id="view-mes">
+    <div class="cal-nav">
+      <button id="calPrev">‹</button>
+      <h2 id="calTitle">—</h2>
+      <button id="calNext">›</button>
+    </div>
+    <div class="cal-grid" id="calGrid"></div>
+    <div class="cal-daylist" id="calDayList"></div>
+  </div>
+
+  <!-- ===== TAREAS (checklist unificado) ===== -->
+  <div class="view" id="view-tareas">
+    <div class="section-title">Agregar rápido</div>
+    <div class="addbar">
+      <input type="text" id="reminderInput" placeholder="¿Qué es pendiente?">
+      <button id="addReminderBtn">Añadir</button>
+    </div>
+
+    <div class="section-title" style="margin-top:24px;">
+      <span>Pendientes</span>
+      <button class="small-btn" id="markDoneBtn" style="background:var(--done-soft); color:var(--done); border-color:transparent;">✓ Ya lo hice</button>
+    </div>
+    <div id="checklistBody"></div>
+  </div>
+
+  <!-- ===== GESTIÓN ===== -->
+  <div class="view" id="view-gestion">
+    <div class="subtabs">
+      <button class="subtab active" data-sub="materias">🎓 Universidad</button>
+      <button class="subtab" data-sub="curso">📈 Curso</button>
+      <button class="subtab" data-sub="nexxa">🎈 Nexxa</button>
+      <button class="subtab" data-sub="trabajo">💼 Trabajo</button>
+      <button class="subtab" data-sub="finanzas">💰 Finanzas</button>
+      <button class="subtab" data-sub="personal">🩺 Personal</button>
+      <button class="subtab" data-sub="rutinas">🔁 Rutinas</button>
+    </div>
+    <div id="sub-materias"></div>
+    <div id="sub-curso" style="display:none"></div>
+    <div id="sub-nexxa" style="display:none"></div>
+    <div id="sub-trabajo" style="display:none"></div>
+    <div id="sub-finanzas" style="display:none"></div>
+    <div id="sub-personal" style="display:none"></div>
+    <div id="sub-rutinas" style="display:none"></div>
+  </div>
+
+  <!-- ===== YO ===== -->
+  <div class="view" id="view-yo">
+    <div class="section-title">Ciclo</div>
+    <div id="cycleBox"></div>
+    <div class="section-title">Tu tiempo esta semana</div>
+    <div class="card" id="timeSummary"></div>
+    <div class="section-title">Patrones</div>
+    <div id="insights"></div>
+  </div>
+
+  <button class="fab" id="fabAdd">+</button>
+
+  <div class="bottomnav">
+    <button class="navbtn active" data-view="hoy">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>Hoy
+    </button>
+    <button class="navbtn" data-view="mes">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4M8 15h.01M12 15h.01M16 15h.01"/></svg>Mes
+    </button>
+    <button class="navbtn" data-view="tareas">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Tareas
+      <span class="badge" id="tareasBadge" style="display:none;">0</span>
+    </button>
+    <button class="navbtn" data-view="gestion">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5a2 2 0 0 1 2-2h8l6 6v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M14 3v6h6"/></svg>Gestión
+    </button>
+    <button class="navbtn" data-view="yo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-4.6-9.5-9A5.5 5.5 0 0 1 12 6a5.5 5.5 0 0 1 9.5 6c-2.5 4.4-9.5 9-9.5 9Z"/></svg>Yo
+    </button>
+  </div>
+</div>
+
+<div class="overlay" id="overlay"><div class="sheet" id="sheet"></div></div>
+
+<script>
+/* ============================================================
+   STORAGE
+   Guarda en el almacenamiento del navegador (localStorage).
+============================================================ */
+const STORAGE_KEY = 'centro-control-sharon';
+let DATA = {
+  events: [],
+  subjects: [],
+  period: '',
+  academicTasks: [],
+  courseSchedule: [],
+  courseTasks: [],
+  courseModules: [],
+  courseNotes: '',
+  nexxaEvents: [],
+  workClients: [],
+  workSessions: [],
+  installments: [],
+  personalItems: [],
+  reminders: [],
+  routines: [], // {id,cat,title,days:[0..6],start,end,notes}
+  cycle: { starts: [], avgLen: 28, periodLen: 5 }
+};
+let saveTimer=null;
+async function loadData(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){ DATA = Object.assign(DATA, JSON.parse(raw)); }
+  }catch(e){ console.warn('No se pudieron leer los datos guardados', e); }
+}
+function saveData(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>{
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(DATA)); }
+    catch(e){ console.warn('No se pudieron guardar los datos', e); }
+  }, 250);
+}
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+
+/* ============================================================
+   DATE HELPERS
+============================================================ */
+const DOW = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+const DOW_SHORT = ['DOM','LUN','MAR','MIÉ','JUE','VIE','SÁB'];
+const MONTHS = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+function fmtDate(d){ const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}`; }
+function parseDate(s){ const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
+function todayStr(){ return fmtDate(new Date()); }
+function addDays(d,n){ const nd=new Date(d); nd.setDate(nd.getDate()+n); return nd; }
+function daysBetween(a,b){ return Math.round((parseDate(b)-parseDate(a))/86400000); }
+function niceDate(s){ const d=parseDate(s); return `${DOW[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`; }
+function niceDateShort(s){ if(!s) return ''; const d=parseDate(s); return `${d.getDate()} ${MONTHS[d.getMonth()].slice(0,3)}`; }
+function money(n){ return '$' + Math.round(Number(n||0)).toLocaleString('es-CO'); }
+function horasFromRange(start,end){
+  if(!start||!end) return 0;
+  const [h1,m1]=start.split(':').map(Number), [h2,m2]=end.split(':').map(Number);
+  let mins = (h2*60+m2)-(h1*60+m1);
+  if(mins<=0) mins += 24*60; // cruza medianoche
+  return Math.round((mins/60)*100)/100;
+}
+function weekdayItems(dayIdx){
+  const items=[];
+  DATA.subjects.filter(s=>s.day===dayIdx).forEach(s=>items.push({name:s.name, start:s.start, end:s.end, color:'var(--c-uni)', tag:'clase'}));
+  DATA.courseSchedule.filter(s=>s.day===dayIdx).forEach(s=>items.push({name:s.name, start:s.start, end:s.end, color:'var(--c-ads)', tag:'curso'}));
+  DATA.routines.filter(r=>r.days.includes(dayIdx)).forEach(r=>items.push({name:r.title, start:r.start, end:r.end, color:CATS[r.cat].color, tag:CATS[r.cat].label.toLowerCase()}));
+  return items;
+}
+
+/* ============================================================
+   CATEGORY META
+============================================================ */
+const CATS = {
+  universidad:{label:'Universidad', color:'var(--c-uni)', emoji:'🎓'},
+  nexxa:{label:'Nexxa', color:'var(--c-nexxa)', emoji:'🎈'},
+  ads:{label:'Curso Ads', color:'var(--c-ads)', emoji:'📈'},
+  trabajo:{label:'Trabajo', color:'var(--c-work)', emoji:'💼'},
+  finanzas:{label:'Finanzas', color:'var(--c-fin)', emoji:'💰'},
+  personal:{label:'Personal', color:'var(--c-personal)', emoji:'🩺'},
+};
+
+/* ============================================================
+   LINKED EVENTS (sync entre secciones y calendario)
+============================================================ */
+function addLinkedEvent(cat,title,date,start,end,linkedType,linkedId,extra){
+  if(!date) return null;
+  const ev = Object.assign({ id:uid(), cat, title, date, start:start||'', end:end||'', status:'pendiente', estMin:null, actualMin:null, notes:'', linkedType, linkedId }, extra||{});
+  DATA.events.push(ev);
+  return ev;
+}
+function findLinkedEvent(type,id){ return DATA.events.find(e=>e.linkedType===type && e.linkedId===id); }
+function removeLinkedEvent(type,id){ DATA.events = DATA.events.filter(e=>!(e.linkedType===type && e.linkedId===id)); }
+function setLinkedEventStatus(type,id,status){ const ev=findLinkedEvent(type,id); if(ev) ev.status=status; }
+function syncSourceFromEvent(e){
+  if(!e.linkedType) return;
+  if(e.linkedType==='academicTask'){ const t=DATA.academicTasks.find(x=>x.id===e.linkedId); if(t) t.done = e.status==='hecho'; }
+  if(e.linkedType==='courseTask'){ const t=DATA.courseTasks.find(x=>x.id===e.linkedId); if(t) t.done = e.status==='hecho'; }
+  if(e.linkedType==='personalItem'){ const p=DATA.personalItems.find(x=>x.id===e.linkedId); if(p) p.status = e.status==='hecho' ? 'hecho' : 'pendiente'; }
+  if(e.linkedType==='nexxaEvent'){ const n=DATA.nexxaEvents.find(x=>x.id===e.linkedId); if(n) n.status = e.status==='hecho' ? 'realizado' : e.status==='progreso' ? 'confirmado' : 'cotizado'; }
+}
+
+/* ============================================================
+   NAVIGATION
+============================================================ */
+const views = ['hoy','mes','tareas','gestion','yo'];
+function showView(v){
+  views.forEach(x=>{ document.getElementById('view-'+x).classList.toggle('active', x===v); });
+  document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
+  document.getElementById('fabAdd').style.display = (v==='gestion') ? 'none' : 'flex';
+  renderAll();
+}
+document.querySelectorAll('.navbtn').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view)));
+
+document.querySelectorAll('.subtab').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('.subtab').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    b.scrollIntoView({behavior:'smooth', inline:'center', block:'nearest'});
+    ['materias','curso','nexxa','trabajo','finanzas','personal','rutinas'].forEach(s=>{
+      document.getElementById('sub-'+s).style.display = (s===b.dataset.sub)?'block':'none';
+    });
+    renderGestion();
+  });
+});
+
+/* ============================================================
+   HEADER
+============================================================ */
+function renderHeader(){
+  const now = new Date();
+  document.getElementById('greetLabel').textContent = DOW[now.getDay()].toUpperCase() + ' · ' + now.getDate() + ' ' + MONTHS[now.getMonth()].toUpperCase();
+  const h = now.getHours();
+  document.getElementById('dateLabel').textContent = h<12 ? 'Buenos días, Sharon' : h<19 ? 'Buenas tardes, Sharon' : 'Buenas noches, Sharon';
+  const pendingCount = DATA.events.filter(e=>e.status!=='hecho' && e.date<=todayStr()).length;
+  const badge = document.getElementById('tareasBadge');
+  if(pendingCount>0){ badge.style.display='flex'; badge.textContent = pendingCount>99?'99+':pendingCount; } else { badge.style.display='none'; }
+}
+
+/* ============================================================
+   ITEM RENDER (genérico, usado en Hoy / Mes / Tareas)
+============================================================ */
+function itemHTML(e){
+  const cat = CATS[e.cat];
+  const isUrgent = e.status!=='hecho' && daysBetween(todayStr(), e.date)>=0 && daysBetween(todayStr(), e.date)<=2;
+  let metaParts = [];
+  if(e.start) metaParts.push(e.start + (e.end? '–'+e.end : ''));
+  if(e.date !== todayStr()) metaParts.push(niceDateShort(e.date));
+  if(e.cat==='finanzas' && e.amount) metaParts.push((e.type==='ingreso'||e.type==='prestamo_recibido' ?'+':'-') + money(e.amount));
+  if(e.persona) metaParts.push('con ' + e.persona);
+  return `<div class="item ${e.status==='hecho'?'done':''}" data-id="${e.id}" style="border-left-color:${cat.color}">
+    <button class="status-btn ${e.status==='progreso'?'progreso':e.status==='hecho'?'hecho':''}" data-action="cyclestatus" data-id="${e.id}"></button>
+    <div class="body">
+      <div class="row1">
+        <div class="title">${e.title}</div>
+        <span class="tag" style="background:color-mix(in srgb, ${cat.color} 20%, transparent); color:${cat.color};">${cat.emoji}</span>
+      </div>
+      <div class="meta">${metaParts.map(m=>`<span>${m}</span>`).join('')} ${isUrgent?'<span style="color:var(--urgent); font-weight:700;">· pronto</span>':''}</div>
+    </div>
+  </div>`;
+}
+function bindItemClicks(){
+  document.querySelectorAll('[data-action="cyclestatus"]').forEach(b=>{
+    b.onclick = (ev)=>{
+      ev.stopPropagation();
+      const e = DATA.events.find(x=>x.id===b.dataset.id);
+      if(!e) return;
+      if(e.status==='pendiente'||!e.status) e.status='progreso';
+      else if(e.status==='progreso'){
+        const actual = prompt('¿Cuántos minutos reales te tomó? (opcional, Cancelar para omitir)');
+        if(actual && !isNaN(actual)) e.actualMin = Number(actual);
+        e.status='hecho';
+      } else { e.status='pendiente'; }
+      syncSourceFromEvent(e);
+      saveData(); renderAll();
+    };
+  });
+  document.querySelectorAll('.item[data-id]').forEach(it=>{
+    it.addEventListener('click', (ev)=>{
+      if(ev.target.closest('[data-action="cyclestatus"]')) return;
+      const e = DATA.events.find(x=>x.id===it.dataset.id);
+      if(!e) return;
+      if(e.linkedType){
+        const map={academicTask:'Gestión → Universidad', courseTask:'Gestión → Curso', nexxaEvent:'Gestión → Nexxa', personalItem:'Gestión → Personal'};
+        alert('Esto se edita desde: ' + (map[e.linkedType]||'su sección'));
+        return;
+      }
+      openEventModal(e);
+    });
+  });
+}
+
+/* ============================================================
+   RENDER: HOY
+============================================================ */
+function renderHoy(){
+  const t = todayStr();
+  const now = new Date();
+  const classesToday = weekdayItems(now.getDay());
+  const clsBox = document.getElementById('hoyClasses');
+  if(classesToday.length){
+    clsBox.innerHTML = `<div class="section-title">Tu rutina de hoy</div>` + classesToday.map(c=>`
+      <div class="item" style="border-left-color:${c.color}; cursor:default;">
+        <div class="body"><div class="row1"><div class="title">${c.name}</div><span class="tag" style="background:color-mix(in srgb, ${c.color} 20%, transparent); color:${c.color};">${c.tag}</span></div>
+        <div class="meta"><span>${c.start||''}${c.end?'–'+c.end:''}</span></div></div>
+      </div>`).join('');
+  } else { clsBox.innerHTML=''; }
+
+  const todays = DATA.events.filter(e=>e.date===t).sort((a,b)=>(a.start||'99').localeCompare(b.start||'99'));
+  const urgentBox = document.getElementById('hoyUrgent');
+  const overdue = DATA.events.filter(e=>e.status!=='hecho' && e.date < t);
+  if(overdue.length){
+    urgentBox.innerHTML = `<div class="card" style="border-left-color:var(--urgent); background:var(--urgent-soft);">
+      <div style="font-weight:700; font-size:13px; color:var(--urgent); margin-bottom:6px;">⚠ ${overdue.length} pendiente${overdue.length>1?'s':''} atrasado${overdue.length>1?'s':''}</div>
+      ${overdue.slice(0,3).map(e=>`<div style="font-size:13px; color:var(--text-muted); margin-top:2px;">${CATS[e.cat].emoji} ${e.title} — ${niceDateShort(e.date)}</div>`).join('')}
+    </div>`;
+  } else { urgentBox.innerHTML=''; }
+
+  const list = document.getElementById('hoyList');
+  list.innerHTML = todays.length ? todays.map(itemHTML).join('') : `<div class="empty-card">Nada agendado para hoy. Toca + para agregar algo.</div>`;
+
+  const upcoming = DATA.events.filter(e=>e.status!=='hecho' && e.date>t && daysBetween(t,e.date)<=14).sort((a,b)=>a.date.localeCompare(b.date));
+  const up = document.getElementById('hoyUpcoming');
+  up.innerHTML = upcoming.length ? upcoming.map(itemHTML).join('') : `<div class="empty-card">Sin nada próximo en 2 semanas.</div>`;
+
+  bindItemClicks();
+}
+
+/* ============================================================
+   RENDER: MES
+============================================================ */
+let calDate = new Date();
+let calSelected = null;
+function renderCalendar(){
+  document.getElementById('calTitle').textContent = MONTHS[calDate.getMonth()] + ' ' + calDate.getFullYear();
+  const first = new Date(calDate.getFullYear(), calDate.getMonth(), 1);
+  const lastDay = new Date(calDate.getFullYear(), calDate.getMonth()+1, 0).getDate();
+  const startBlank = first.getDay();
+  let cells = DOW_SHORT.map(d=>`<div class="cal-dow">${d}</div>`).join('');
+  for(let i=0;i<startBlank;i++) cells += `<div class="cal-cell blank"></div>`;
+  const t = todayStr();
+  const cyclePreds = predictCycle();
+  for(let day=1; day<=lastDay; day++){
+    const d = new Date(calDate.getFullYear(), calDate.getMonth(), day);
+    const ds = fmtDate(d);
+    const dayEvents = DATA.events.filter(e=>e.date===ds);
+    const wdItems = weekdayItems(d.getDay());
+    let dotColors = [...new Set(dayEvents.map(e=>CATS[e.cat].color))];
+    wdItems.forEach(it=>{ if(!dotColors.includes(it.color)) dotColors.push(it.color); });
+    dotColors = dotColors.slice(0,3);
+    const isCycleLog = DATA.cycle.starts.some(s=>{ const diff = daysBetween(s, ds); return diff>=0 && diff < DATA.cycle.periodLen; });
+    const isPredicted = cyclePreds.some(p=> ds>=p.start && ds<=p.end);
+    let cls = 'cal-cell';
+    if(ds===t) cls+=' today';
+    if(ds===calSelected) cls+=' selected';
+    if(isCycleLog) cls+=' ciclo-log'; else if(isPredicted) cls+=' ciclo-range';
+    cells += `<div class="${cls}" data-date="${ds}"><span>${day}</span><div class="dots">${dotColors.map(c=>`<span style="background:${c}"></span>`).join('')}</div></div>`;
+  }
+  document.getElementById('calGrid').innerHTML = cells;
+  document.querySelectorAll('.cal-cell:not(.blank)').forEach(c=>{ c.onclick = ()=>{ calSelected = c.dataset.date; renderCalendar(); renderCalDayList(); }; });
+  if(!calSelected) calSelected = t;
+  renderCalDayList();
+}
+function renderCalDayList(){
+  const box = document.getElementById('calDayList');
+  if(!calSelected){ box.innerHTML=''; return; }
+  const ds = calSelected;
+  const dayEvents = DATA.events.filter(e=>e.date===ds).sort((a,b)=>(a.start||'99').localeCompare(b.start||'99'));
+  const d = parseDate(ds);
+  const wdItems = weekdayItems(d.getDay());
+  box.innerHTML = `<div class="section-title">${niceDate(ds)}</div>` +
+    (wdItems.map(it=>`<div class="item" style="border-left-color:${it.color}; cursor:default;"><div class="body"><div class="title">${it.name}</div><div class="meta"><span>${it.start||''}${it.end?'–'+it.end:''} · ${it.tag}</span></div></div></div>`).join('')) +
+    (dayEvents.length ? dayEvents.map(itemHTML).join('') : (wdItems.length?'':'<div class="empty-card">Sin nada este día.</div>'));
+  bindItemClicks();
+}
+document.getElementById('calPrev').onclick = ()=>{ calDate.setMonth(calDate.getMonth()-1); renderCalendar(); };
+document.getElementById('calNext').onclick = ()=>{ calDate.setMonth(calDate.getMonth()+1); renderCalendar(); };
+
+/* ============================================================
+   CYCLE
+============================================================ */
+function computeAvgCycle(){
+  const starts = [...DATA.cycle.starts].sort();
+  if(starts.length<2) return DATA.cycle.avgLen || 28;
+  let diffs=[]; for(let i=1;i<starts.length;i++) diffs.push(daysBetween(starts[i-1], starts[i]));
+  diffs = diffs.slice(-6);
+  return Math.round(diffs.reduce((a,b)=>a+b,0)/diffs.length);
+}
+function predictCycle(){
+  const starts = [...DATA.cycle.starts].sort();
+  if(!starts.length) return [];
+  const avg = computeAvgCycle(); const plen = DATA.cycle.periodLen || 5;
+  let cursor = parseDate(starts[starts.length-1]); let preds=[];
+  for(let i=0;i<4;i++){ cursor = addDays(cursor, avg); preds.push({start:fmtDate(cursor), end:fmtDate(addDays(cursor, plen-1))}); }
+  return preds;
+}
+
+/* ============================================================
+   RENDER: TAREAS (checklist unificado + recordatorios)
+============================================================ */
+function renderTareasView(){
+  const pending = DATA.events.filter(e=>e.status!=='hecho').sort((a,b)=>a.date.localeCompare(b.date));
+  const body = document.getElementById('checklistBody');
+  if(!pending.length){ body.innerHTML = '<div class="empty-card">Nada pendiente. Vas al día 🎉</div>'; bindItemClicks(); return; }
+  const groups = {};
+  pending.forEach(e=>{ (groups[e.cat] = groups[e.cat]||[]).push(e); });
+  let html = '';
+  Object.entries(groups).forEach(([cat,list])=>{
+    html += `<div class="subject-group-head" style="color:${CATS[cat].color}">${CATS[cat].emoji} ${CATS[cat].label} <span style="color:var(--text-dim); font-weight:500;">· ${list.length}</span></div>`;
+    html += list.map(itemHTML).join('');
+  });
+  body.innerHTML = html;
+  bindItemClicks();
+}
+document.getElementById('addReminderBtn').onclick = ()=>{
+  const inp = document.getElementById('reminderInput');
+  const val = inp.value.trim();
+  if(!val) return;
+  DATA.events.push({ id:uid(), cat:'personal', title:val, date:todayStr(), start:'', end:'', status:'pendiente', estMin:null, actualMin:null, notes:'' });
+  inp.value=''; saveData(); renderAll();
+};
+document.getElementById('reminderInput').addEventListener('keydown', (e)=>{ if(e.key==='Enter') document.getElementById('addReminderBtn').click(); });
+document.getElementById('markDoneBtn').onclick = ()=>openDoneModal();
+
+/* ============================================================
+   RENDER: GESTIÓN
+============================================================ */
+function renderGestion(){ renderMaterias(); renderCurso(); renderNexxaGestion(); renderTrabajo(); renderFinanzas(); renderPersonalGestion(); renderRutinas(); }
+
+/* ---- Rutinas (patrones semanales) ---- */
+function renderRutinas(){
+  const box = document.getElementById('sub-rutinas');
+  const rs = [...DATA.routines].sort((a,b)=>Math.min(...a.days)-Math.min(...b.days));
+  box.innerHTML = `<div class="helptext" style="margin-top:0;">Para cosas que se repiten cada semana: hobbies, gym, tiempo de pantalla, rutinas de cuidado, etc. Se reflejan automáticamente en Hoy y en el calendario.</div>
+    ${rs.length ? rs.map(r=>`
+      <div class="subject-row" data-id="${r.id}" style="border-left-color:${CATS[r.cat].color}">
+        <div class="info"><div class="name">${CATS[r.cat].emoji} ${r.title}</div><div class="time">${r.days.map(d=>DOW_SHORT[d]).join(' · ')} ${r.start?'· '+r.start+(r.end?'–'+r.end:''):''}</div></div>
+        <button class="small-btn" data-action="delRoutine" data-id="${r.id}">Eliminar</button>
+      </div>`).join('') : '<div class="empty-card">Aún no tienes rutinas o patrones semanales.</div>'}
+    <button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addRoutineBtn">+ Agregar rutina semanal</button>`;
+  document.getElementById('addRoutineBtn').onclick = ()=>openRoutineModal();
+  box.querySelectorAll('[data-action="delRoutine"]').forEach(b=>{ b.onclick=()=>{ DATA.routines = DATA.routines.filter(x=>x.id!==b.dataset.id); saveData(); renderRutinas(); }; });
+}
+function openRoutineModal(){
+  openSheet(`<h3>Rutina semanal</h3>
+    <div class="field"><label>Categoría</label><div class="chiprow" id="catChipsR">
+      ${Object.entries(CATS).map(([k,v],i)=>`<div class="chip ${k==='personal'?'active':''}" data-cat="${k}" style="--chip-color:${v.color}; --chip-color-soft:${v.color}22;">${v.emoji} ${v.label}</div>`).join('')}
+    </div></div>
+    <div class="field"><label>¿Qué es?</label><input type="text" id="f_rtitle" placeholder="Ej: Tatuaje / dibujo, Gym, Tiempo de pantalla"></div>
+    <div class="field"><label>Días</label><div class="chiprow" id="dayChipsR">${DOW_SHORT.map((d,i)=>`<div class="chip" data-day="${i}">${d}</div>`).join('')}</div></div>
+    <div class="field-row"><div class="field"><label>Inicio (opcional)</label><input type="time" id="f_rstart"></div><div class="field"><label>Fin (opcional)</label><input type="time" id="f_rend"></div></div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="saveRoutine">Guardar</button></div>`);
+  let rcat='personal'; let rdays=[];
+  document.querySelectorAll('#catChipsR .chip').forEach(c=>{ c.onclick=()=>{ document.querySelectorAll('#catChipsR .chip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); rcat=c.dataset.cat; }; });
+  document.querySelectorAll('#dayChipsR .chip').forEach(c=>{ c.onclick=()=>{ c.classList.toggle('active'); const d=Number(c.dataset.day); if(rdays.includes(d)) rdays=rdays.filter(x=>x!==d); else rdays.push(d); }; });
+  document.getElementById('saveRoutine').onclick = ()=>{
+    const title = document.getElementById('f_rtitle').value.trim();
+    if(!title){ alert('Escribe qué es'); return; }
+    if(!rdays.length){ alert('Selecciona al menos un día'); return; }
+    DATA.routines.push({ id:uid(), cat:rcat, title, days:[...rdays], start:document.getElementById('f_rstart').value, end:document.getElementById('f_rend').value });
+    saveData(); closeSheet(); renderRutinas(); renderAll();
+  };
+}
+
+/* ---- Universidad ---- */
+function renderMaterias(){
+  const box = document.getElementById('sub-materias');
+  const subs = [...DATA.subjects].sort((a,b)=> a.day-b.day || (a.start||'').localeCompare(b.start||''));
+  let html = `<div class="period-pill" id="periodPill">📚 ${DATA.period || 'Sin período configurado'} <span style="font-size:11px;">✎</span></div>
+    <div class="section-title">Horario</div>`;
+  if(subs.length){
+    subs.forEach(s=>{
+      const tasks = DATA.academicTasks.filter(t=>t.subject===s.name).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+      html += `<div class="subject-group">
+        <div class="subject-row" data-id="${s.id}">
+          <div class="info"><div class="name">${s.name}</div><div class="time">${DOW[s.day]} · ${s.start||'--'}${s.end?'–'+s.end:''}</div></div>
+          <button class="small-btn" data-action="delSubject" data-id="${s.id}">Eliminar</button>
+        </div>
+        ${tasks.map(t=>`
+          <div class="module-row ${t.done?'done':''}" data-id="${t.id}" style="margin-left:14px;">
+            <button class="module-check ${t.done?'done':''}" data-action="toggleTask" data-id="${t.id}"></button>
+            <div style="flex:1; min-width:0;"><div class="mname">${t.name}</div><div class="meta" style="margin-top:2px;">${t.type}${t.date?' · '+niceDateShort(t.date):''}</div></div>
+            <button class="small-btn" data-action="delTask" data-id="${t.id}">✕</button>
+          </div>`).join('')}
+      </div>`;
+    });
+  } else {
+    html += '<div class="empty-card">Aún no agregas materias de este período.</div>';
+  }
+  html += `<button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addSubjectBtn">+ Agregar materia</button>`;
+
+  const generalTasks = DATA.academicTasks.filter(t=>!t.subject).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  html += `<div class="section-title" style="margin-top:24px;">Tareas generales</div>`;
+  html += generalTasks.length ? generalTasks.map(t=>`
+    <div class="module-row ${t.done?'done':''}" data-id="${t.id}">
+      <button class="module-check ${t.done?'done':''}" data-action="toggleTask" data-id="${t.id}"></button>
+      <div style="flex:1; min-width:0;"><div class="mname">${t.name}</div><div class="meta" style="margin-top:2px;">${t.type}${t.date?' · '+niceDateShort(t.date):''}</div></div>
+      <button class="small-btn" data-action="delTask" data-id="${t.id}">✕</button>
+    </div>`).join('') : '<div class="empty-card">Sin tareas generales.</div>';
+  html += `<button class="btn btn-primary" style="width:100%; margin-top:10px;" id="addTaskBtn">+ Agregar tarea/proyecto/entregable</button>`;
+
+  box.innerHTML = html;
+  document.getElementById('periodPill').onclick = openPeriodModal;
+  document.getElementById('addSubjectBtn').onclick = openSubjectModal;
+  document.getElementById('addTaskBtn').onclick = openTaskModal;
+  box.querySelectorAll('[data-action="delSubject"]').forEach(b=>{ b.onclick=(ev)=>{ ev.stopPropagation(); DATA.subjects = DATA.subjects.filter(s=>s.id!==b.dataset.id); saveData(); renderMaterias(); }; });
+  box.querySelectorAll('[data-action="toggleTask"]').forEach(b=>{
+    b.onclick=()=>{ const t=DATA.academicTasks.find(x=>x.id===b.dataset.id); t.done=!t.done; setLinkedEventStatus('academicTask', t.id, t.done?'hecho':'pendiente'); saveData(); renderMaterias(); };
+  });
+  box.querySelectorAll('[data-action="delTask"]').forEach(b=>{
+    b.onclick=()=>{ DATA.academicTasks = DATA.academicTasks.filter(x=>x.id!==b.dataset.id); removeLinkedEvent('academicTask', b.dataset.id); saveData(); renderMaterias(); };
+  });
+}
+function openTaskModal(){
+  openSheet(`<h3>Agregar tarea / proyecto / entregable</h3>
+    <div class="field"><label>Nombre</label><input type="text" id="f_taname" placeholder="Ej: Ensayo mercantilismo"></div>
+    <div class="field-row">
+      <div class="field"><label>Tipo</label><select id="f_tatype"><option>Tarea</option><option>Proyecto</option><option>Entregable</option><option>Quiz</option><option>Parcial</option><option>Exposición</option></select></div>
+      <div class="field"><label>Fecha límite</label><input type="date" id="f_tadate"></div>
+    </div>
+    <div class="field"><label>Materia (opcional)</label><select id="f_tasubject"><option value="">General</option>${DATA.subjects.map(s=>`<option value="${s.name}">${s.name}</option>`).join('')}</select></div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="saveTask">Guardar</button></div>`);
+  document.getElementById('saveTask').onclick = ()=>{
+    const name = document.getElementById('f_taname').value.trim();
+    if(!name){ alert('Ponle un nombre'); return; }
+    const date = document.getElementById('f_tadate').value;
+    const obj = { id:uid(), name, type:document.getElementById('f_tatype').value, subject:document.getElementById('f_tasubject').value, date, done:false };
+    DATA.academicTasks.push(obj);
+    addLinkedEvent('universidad', name + ' (' + obj.type + ')', date, '', '', 'academicTask', obj.id);
+    saveData(); closeSheet(); renderMaterias();
+  };
+}
+
+/* ---- Curso ---- */
+function renderCurso(){
+  const box = document.getElementById('sub-curso');
+  const sched = [...DATA.courseSchedule].sort((a,b)=>a.day-b.day || (a.start||'').localeCompare(b.start||''));
+  const ctasks = [...DATA.courseTasks].sort((a,b)=>(a.dueDate||'').localeCompare(b.dueDate||''));
+  const mods = DATA.courseModules;
+  const doneCount = mods.filter(m=>m.done).length;
+  const pct = mods.length ? Math.round((doneCount/mods.length)*100) : 0;
+  box.innerHTML = `
+    <div class="section-title">Horario del curso</div>
+    ${sched.length ? sched.map(s=>`
+      <div class="subject-row ads" data-id="${s.id}">
+        <div class="info"><div class="name">${s.name}</div><div class="time">${DOW[s.day]} · ${s.start||'--'}${s.end?'–'+s.end:''}</div></div>
+        <button class="small-btn" data-action="delSched" data-id="${s.id}">Eliminar</button>
+      </div>`).join('') : '<div class="empty-card">Aún no agregas tus clases/horarios del curso.</div>'}
+    <button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addSchedBtn">+ Agregar horario de clase</button>
+
+    <div class="section-title" style="margin-top:24px;">Tareas que dejó la clase</div>
+    ${ctasks.length ? ctasks.map(t=>`
+      <div class="module-row ${t.done?'done':''}" data-id="${t.id}">
+        <button class="module-check ${t.done?'done':''}" data-action="toggleCTask" data-id="${t.id}"></button>
+        <div style="flex:1; min-width:0;"><div class="mname">${t.name}</div><div class="meta" style="margin-top:2px;">${t.assignedDate?'Asignada '+niceDateShort(t.assignedDate)+' · ':''}Entrega ${niceDateShort(t.dueDate)}</div></div>
+        <button class="small-btn" data-action="delCTask" data-id="${t.id}">✕</button>
+      </div>`).join('') : '<div class="empty-card">Sin tareas asignadas por ahora.</div>'}
+    <button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addCTaskBtn">+ Agregar tarea de clase</button>
+
+    <div class="section-title" style="margin-top:24px;">Módulos del curso</div>
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:baseline;">
+        <div style="font-weight:700; font-size:14.5px;">Progreso</div>
+        <div style="font-size:12px; color:var(--text-dim);">${doneCount}/${mods.length} módulos</div>
+      </div>
+      <div class="progress-track"><div class="progress-fill" style="width:${pct}%; background:var(--c-ads);"></div></div>
+    </div>
+    ${mods.length ? mods.map(m=>`
+      <div class="module-row ${m.done?'done':''}" data-id="${m.id}">
+        <button class="module-check ${m.done?'done':''}" data-action="toggleModule" data-id="${m.id}"></button>
+        <div class="mname">${m.name}</div>
+        <button class="small-btn" data-action="delModule" data-id="${m.id}">✕</button>
+      </div>`).join('') : ''}
+    <button class="btn btn-primary" style="width:100%; margin:6px 0 18px;" id="addModuleBtn">+ Agregar módulo/lección</button>
+
+    <div class="section-title">Notas del curso</div>
+    <div class="field"><textarea id="f_courseNotes" placeholder="Ideas, tareas de Leslie, cosas por aplicar...">${DATA.courseNotes||''}</textarea></div>
+    <button class="btn btn-ghost" style="width:100%;" id="saveNotesBtn">Guardar notas</button>
+  `;
+  document.getElementById('addSchedBtn').onclick = openCourseSchedModal;
+  document.getElementById('addCTaskBtn').onclick = openCourseTaskModal;
+  document.getElementById('addModuleBtn').onclick = openModuleModal;
+  document.getElementById('saveNotesBtn').onclick = ()=>{ DATA.courseNotes = document.getElementById('f_courseNotes').value; saveData(); };
+  box.querySelectorAll('[data-action="delSched"]').forEach(b=>{ b.onclick=()=>{ DATA.courseSchedule = DATA.courseSchedule.filter(x=>x.id!==b.dataset.id); saveData(); renderCurso(); }; });
+  box.querySelectorAll('[data-action="toggleCTask"]').forEach(b=>{
+    b.onclick=()=>{ const t=DATA.courseTasks.find(x=>x.id===b.dataset.id); t.done=!t.done; setLinkedEventStatus('courseTask', t.id, t.done?'hecho':'pendiente'); saveData(); renderCurso(); };
+  });
+  box.querySelectorAll('[data-action="delCTask"]').forEach(b=>{ b.onclick=()=>{ DATA.courseTasks = DATA.courseTasks.filter(x=>x.id!==b.dataset.id); removeLinkedEvent('courseTask', b.dataset.id); saveData(); renderCurso(); }; });
+  box.querySelectorAll('[data-action="toggleModule"]').forEach(b=>{ b.onclick=()=>{ const m=DATA.courseModules.find(x=>x.id===b.dataset.id); m.done=!m.done; saveData(); renderCurso(); }; });
+  box.querySelectorAll('[data-action="delModule"]').forEach(b=>{ b.onclick=()=>{ DATA.courseModules = DATA.courseModules.filter(x=>x.id!==b.dataset.id); saveData(); renderCurso(); }; });
+}
+function openCourseSchedModal(){
+  openSheet(`<h3>Horario de clase del curso</h3>
+    <div class="field"><label>Nombre</label><input type="text" id="f_csname" placeholder="Ej: Clase en vivo con Leslie"></div>
+    <div class="field"><label>Día</label><select id="f_csday">${DOW.map((d,i)=>`<option value="${i}">${d}</option>`).join('')}</select></div>
+    <div class="field-row"><div class="field"><label>Hora inicio</label><input type="time" id="f_csstart"></div><div class="field"><label>Hora fin</label><input type="time" id="f_csend"></div></div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="saveCSched">Guardar</button></div>`);
+  document.getElementById('saveCSched').onclick = ()=>{
+    const name = document.getElementById('f_csname').value.trim();
+    if(!name){ alert('Ponle un nombre'); return; }
+    DATA.courseSchedule.push({ id:uid(), name, day:Number(document.getElementById('f_csday').value), start:document.getElementById('f_csstart').value, end:document.getElementById('f_csend').value });
+    saveData(); closeSheet(); renderCurso();
+  };
+}
+function openCourseTaskModal(){
+  openSheet(`<h3>Tarea que dejó la clase</h3>
+    <div class="field"><label>¿Qué dejó?</label><input type="text" id="f_ctname" placeholder="Ej: Crear 3 copies de anuncio"></div>
+    <div class="field-row">
+      <div class="field"><label>Fecha de la clase</label><input type="date" id="f_ctassigned" value="${todayStr()}"></div>
+      <div class="field"><label>Fecha de entrega</label><input type="date" id="f_ctdue"></div>
+    </div>
+    <div class="helptext">La fecha de entrega aparece automáticamente en tu calendario y en Hoy.</div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="saveCTask">Guardar</button></div>`);
+  document.getElementById('saveCTask').onclick = ()=>{
+    const name = document.getElementById('f_ctname').value.trim();
+    const due = document.getElementById('f_ctdue').value;
+    if(!name || !due){ alert('Completa el nombre y la fecha de entrega'); return; }
+    const obj = { id:uid(), name, assignedDate:document.getElementById('f_ctassigned').value, dueDate:due, done:false };
+    DATA.courseTasks.push(obj);
+    addLinkedEvent('ads', name, due, '', '', 'courseTask', obj.id);
+    saveData(); closeSheet(); renderCurso();
+  };
+}
+function openModuleModal(){
+  openSheet(`<h3>Agregar módulo</h3><div class="field"><label>Nombre</label><input type="text" id="f_mname" placeholder="Ej: Módulo 3 - Segmentación"></div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="saveModule">Guardar</button></div>`);
+  document.getElementById('saveModule').onclick = ()=>{
+    const name = document.getElementById('f_mname').value.trim();
+    if(!name){ alert('Ponle un nombre'); return; }
+    DATA.courseModules.push({ id:uid(), name, done:false }); saveData(); closeSheet(); renderCurso();
+  };
+}
+
+/* ---- Nexxa ---- */
+function renderNexxaGestion(){
+  const box = document.getElementById('sub-nexxa');
+  const evs = [...DATA.nexxaEvents].sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  box.innerHTML = `
+    ${evs.length ? evs.map(ev=>`
+      <div class="nexxa-card" data-id="${ev.id}">
+        <div class="head">
+          <div><div class="name">${ev.client}</div><div class="meta">${ev.type||'Evento'} · ${ev.date?niceDateShort(ev.date):'Sin fecha'}${ev.start?' · '+ev.start+(ev.end?'–'+ev.end:''):''}${ev.value?' · '+money(ev.value):''}</div></div>
+          <span class="status-pill ${ev.status}">${ev.status}</span>
+        </div>
+        ${ev.quienVa ? `<span class="mini-tag">👥 ${ev.quienVa}</span>` : ''}
+        ${ev.material ? `<span class="mini-tag" style="background:var(--urgent-soft); color:var(--urgent);">🛒 Comprar: ${ev.materialDesc||'material'}</span>` : ''}
+        <div style="display:flex; gap:8px; margin-top:10px;">
+          <button class="small-btn" data-action="cycleNexxaStatus" data-id="${ev.id}">Cambiar estado</button>
+          <button class="small-btn" data-action="delNexxa" data-id="${ev.id}" style="color:var(--urgent);">Eliminar</button>
+        </div>
+      </div>`).join('') : '<div class="empty-card">Aún no registras eventos de Nexxa.</div>'}
+    <button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addNexxaBtn">+ Agregar evento</button>
+  `;
+  document.getElementById('addNexxaBtn').onclick = openNexxaModal;
+  box.querySelectorAll('[data-action="cycleNexxaStatus"]').forEach(b=>{
+    b.onclick = ()=>{
+      const ev = DATA.nexxaEvents.find(x=>x.id===b.dataset.id);
+      const order = ['cotizado','confirmado','realizado'];
+      ev.status = order[(order.indexOf(ev.status)+1)%order.length];
+      setLinkedEventStatus('nexxaEvent', ev.id, ev.status==='realizado'?'hecho':ev.status==='confirmado'?'progreso':'pendiente');
+      saveData(); renderNexxaGestion();
+    };
+  });
+  box.querySelectorAll('[data-action="delNexxa"]').forEach(b=>{
+    b.onclick = ()=>{ DATA.nexxaEvents = DATA.nexxaEvents.filter(x=>x.id!==b.dataset.id); removeLinkedEvent('nexxaEvent', b.dataset.id); saveData(); renderNexxaGestion(); };
+  });
+}
+function openNexxaModal(){
+  openSheet(`<h3>Agregar evento Nexxa</h3>
+    <div class="field"><label>Cliente</label><input type="text" id="f_nclient" placeholder="Nombre del cliente"></div>
+    <div class="field-row">
+      <div class="field"><label>Tipo de evento</label><input type="text" id="f_ntype" placeholder="Ej: Cumpleaños, boda..."></div>
+      <div class="field"><label>Fecha</label><input type="date" id="f_ndate"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Hora inicio</label><input type="time" id="f_nstart"></div>
+      <div class="field"><label>Hora fin</label><input type="time" id="f_nend"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Estado</label><select id="f_nstatus"><option value="cotizado">Cotizado</option><option value="confirmado">Confirmado</option><option value="realizado">Realizado</option></select></div>
+      <div class="field"><label>Valor</label><input type="number" id="f_nvalue" placeholder="$"></div>
+    </div>
+    <div class="field"><label>¿Quién va?</label><input type="text" id="f_nquien" placeholder="Ej: Sharon + 1 ayudante"></div>
+    <div class="field-check"><input type="checkbox" id="f_nmaterial"><label for="f_nmaterial">Toca comprar material</label></div>
+    <div class="field" id="materialDescField" style="display:none"><label>¿Qué material?</label><input type="text" id="f_nmatdesc" placeholder="Ej: Globos plateados, telón..."></div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="saveNexxa">Guardar</button></div>`);
+  document.getElementById('f_nmaterial').onchange = (e)=>{ document.getElementById('materialDescField').style.display = e.target.checked ? 'block' : 'none'; };
+  document.getElementById('saveNexxa').onclick = ()=>{
+    const client = document.getElementById('f_nclient').value.trim();
+    if(!client){ alert('Ponle el nombre del cliente'); return; }
+    const date = document.getElementById('f_ndate').value;
+    const start = document.getElementById('f_nstart').value;
+    const end = document.getElementById('f_nend').value;
+    const type = document.getElementById('f_ntype').value;
+    const obj = { id:uid(), client, type, date, start, end, status:document.getElementById('f_nstatus').value, value:document.getElementById('f_nvalue').value||0, quienVa:document.getElementById('f_nquien').value, material:document.getElementById('f_nmaterial').checked, materialDesc:document.getElementById('f_nmatdesc').value };
+    DATA.nexxaEvents.push(obj);
+    const ev = addLinkedEvent('nexxa', client + (type?' - '+type:''), date, start, end, 'nexxaEvent', obj.id);
+    if(ev) ev.status = obj.status==='realizado'?'hecho':obj.status==='confirmado'?'progreso':'pendiente';
+    saveData(); closeSheet(); renderNexxaGestion();
+  };
+}
+
+/* ---- Trabajo ---- */
+function clientOwed(c){
+  const sessions = DATA.workSessions.filter(s=>s.clientId===c.id);
+  if(c.payType==='hora'){ const h = sessions.reduce((a,s)=>a+Number(s.horas||0),0); return {qty:h, unit:'h', amount:h*Number(c.rate||0)}; }
+  if(c.payType==='salario_min'){
+    const hourly = Number(c.baseSalario||1750000)/240;
+    let total=0, h=0;
+    sessions.forEach(s=>{
+      const horas=Number(s.horas||0); h+=horas;
+      let mult=1;
+      if(s.domingo) mult += Number(c.recargoDominical||75)/100;
+      if(s.noche) mult += Number(c.recargoNocturno||35)/100;
+      total += horas*hourly*mult;
+    });
+    return {qty:h, unit:'h', amount:total};
+  }
+  if(c.payType==='dia'){ const d = sessions.reduce((a,s)=>a+Number(s.dias||0),0); return {qty:d, unit:'días', amount:d*Number(c.rate||0)}; }
+  const h = sessions.reduce((a,s)=>a+Number(s.horas||0),0);
+  return {qty:h, unit:'h', amount:Number(c.rate||0)};
+}
+const PAYTYPE_LABEL = {hora:'Por hora', salario_min:'Salario mínimo por horas', dia:'Por día', proyecto:'Por proyecto', fijo:'Fijo'};
+function renderTrabajo(){
+  const box = document.getElementById('sub-trabajo');
+  const clients = DATA.workClients;
+  box.innerHTML = (clients.length ? clients.map(c=>{
+    const o = clientOwed(c);
+    const sessions = DATA.workSessions.filter(s=>s.clientId===c.id);
+    let rateInfo = c.payType==='salario_min' ? `Base ${money(c.baseSalario||1750000)} + aux ${money(c.auxTransporte||250000)} · dom/fest +${c.recargoDominical||75}% · nocturno +${c.recargoNocturno||35}%` : c.payType==='hora' ? money(c.rate)+' /hora' : c.payType==='dia' ? money(c.rate)+' /día' : PAYTYPE_LABEL[c.payType]+' — '+money(c.rate);
+    return `<div class="client-card" data-id="${c.id}">
+      <div class="head"><div><div class="name">${c.name}</div><div class="rate">${rateInfo}</div></div><button class="small-btn" data-action="logSession" data-id="${c.id}">+ Registrar</button></div>
+      <div class="stats">
+        <div class="stat"><b>${o.qty}${o.unit}</b><span>${o.unit==='h'?'trabajadas':'trabajados'}</span></div>
+        <div class="stat"><b>${money(o.amount)}</b><span>generado</span></div>
+        <div class="stat"><b>${sessions.length}</b><span>registros</span></div>
+      </div>
+      <button class="small-btn" data-action="delClient" data-id="${c.id}" style="margin-top:10px; color:var(--urgent);">Eliminar cliente</button>
+    </div>`;
+  }).join('') : '<div class="empty-card">Aún no registras clientes o empresas.</div>') +
+  `<button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addClientBtn">+ Agregar cliente/empresa</button>`;
+  document.getElementById('addClientBtn').onclick = openClientModal;
+  box.querySelectorAll('[data-action="logSession"]').forEach(b=>{ b.onclick=()=>openSessionModal(b.dataset.id); });
+  box.querySelectorAll('[data-action="delClient"]').forEach(b=>{ b.onclick=()=>{ DATA.workClients = DATA.workClients.filter(x=>x.id!==b.dataset.id); DATA.workSessions = DATA.workSessions.filter(x=>x.clientId!==b.dataset.id); saveData(); renderTrabajo(); }; });
+}
+function openClientModal(){
+  openSheet(`<h3>Agregar cliente/empresa</h3>
+    <div class="field"><label>Nombre</label><input type="text" id="f_cname" placeholder="Ej: Nexxa, Empresa X..."></div>
+    <div class="field"><label>Forma de pago</label>
+      <select id="f_ptype">
+        <option value="hora">Por hora (valor fijo)</option>
+        <option value="salario_min">Salario mínimo — se calcula por horas</option>
+        <option value="dia">Por día</option>
+        <option value="proyecto">Por proyecto</option>
+        <option value="fijo">Fijo</option>
+      </select>
+    </div>
+    <div id="simpleRateField"><div class="field"><label>Valor</label><input type="number" id="f_rate" placeholder="$"></div></div>
+    <div id="salarioMinFields" style="display:none">
+      <div class="field-row">
+        <div class="field"><label>Salario base mensual</label><input type="number" id="f_basesal" value="1750000"></div>
+        <div class="field"><label>Auxilio transporte mensual</label><input type="number" id="f_auxtrans" value="250000"></div>
+      </div>
+      <div class="field"><label>Recargo domingo/festivo (%)</label><input type="number" id="f_recargo" value="75"></div>
+      <div class="field"><label>Recargo nocturno, después de 9pm (%)</label><input type="number" id="f_recargonoche" value="35"></div>
+      <div class="helptext">Se calcula la hora como salario base ÷ 240. Al registrar horas marcas si fue domingo/festivo y/o turno nocturno, y se suman los recargos (aproximado, no es asesoría laboral).</div>
+    </div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="saveClient">Guardar</button></div>`);
+  const typeSel = document.getElementById('f_ptype');
+  typeSel.onchange = ()=>{
+    const isSal = typeSel.value==='salario_min';
+    document.getElementById('salarioMinFields').style.display = isSal ? 'block' : 'none';
+    document.getElementById('simpleRateField').style.display = isSal ? 'none' : 'block';
+  };
+  document.getElementById('saveClient').onclick = ()=>{
+    const name = document.getElementById('f_cname').value.trim();
+    if(!name){ alert('Ponle un nombre'); return; }
+    const payType = typeSel.value;
+    const obj = { id:uid(), name, payType };
+    if(payType==='salario_min'){ obj.baseSalario = document.getElementById('f_basesal').value||1750000; obj.auxTransporte = document.getElementById('f_auxtrans').value||250000; obj.recargoDominical = document.getElementById('f_recargo').value||75; }
+    else { obj.rate = document.getElementById('f_rate').value||0; }
+    DATA.workClients.push(obj); saveData(); closeSheet(); renderTrabajo();
+  };
+}
+function openSessionModal(clientId){
+  const c = DATA.workClients.find(x=>x.id===clientId);
+  const isDia = c.payType==='dia';
+  const isSal = c.payType==='salario_min';
+  openSheet(`<h3>Registrar — ${c.name}</h3>
+    <div class="field"><label>Fecha</label><input type="date" id="f_sdate" value="${todayStr()}"></div>
+    ${isDia ? `<div class="field"><label>Días trabajados</label><input type="number" id="f_sdias" step="0.5" placeholder="Ej: 1"></div>`
+      : `<div class="field"><label>Horas trabajadas</label><input type="number" id="f_shours" step="0.25" placeholder="Ej: 2.5"></div>`}
+    ${isSal ? `<div class="field-check"><input type="checkbox" id="f_sdomingo"><label for="f_sdomingo">Fue domingo o festivo</label></div>` : ''}
+    <div class="sheet-actions"><button class="btn btn-primary" id="saveSession">Guardar</button></div>`);
+  document.getElementById('saveSession').onclick = ()=>{
+    const obj = { id:uid(), clientId, date:document.getElementById('f_sdate').value };
+    if(isDia) obj.dias = document.getElementById('f_sdias').value || 0;
+    else obj.horas = document.getElementById('f_shours').value || 0;
+    if(isSal) obj.domingo = document.getElementById('f_sdomingo').checked;
+    if(!isDia && !obj.horas){ alert('Registra las horas'); return; }
+    if(isDia && !obj.dias){ alert('Registra los días'); return; }
+    DATA.workSessions.push(obj); saveData(); closeSheet(); renderTrabajo();
+  };
+}
+
+/* ---- Finanzas ---- */
+function renderFinanzas(){
+  const box = document.getElementById('sub-finanzas');
+  const t = todayStr(); const monthStr = t.slice(0,7);
+  const monthEvents = DATA.events.filter(e=>e.cat==='finanzas' && e.date.startsWith(monthStr));
+  const ingresos = monthEvents.filter(e=>e.type==='ingreso').reduce((a,e)=>a+Number(e.amount||0),0);
+  const gastos = monthEvents.filter(e=>e.type==='gasto').reduce((a,e)=>a+Number(e.amount||0),0);
+  const pendientes = DATA.events.filter(e=>e.cat==='finanzas' && e.type==='pago' && e.status!=='hecho');
+  const prestamos = DATA.events.filter(e=>e.cat==='finanzas' && (e.type==='prestamo_dado' || e.type==='prestamo_recibido'));
+
+  let html = `<div class="summary-row">
+      <div class="summary-box"><div class="lbl">Ingresos registrados (mes)</div><div class="val money" style="color:var(--done)">+${money(ingresos)}</div></div>
+      <div class="summary-box"><div class="lbl">Gastos registrados (mes)</div><div class="val money" style="color:var(--urgent)">-${money(gastos)}</div></div>
+    </div>`;
+
+  html += `<div class="section-title">Pagos pendientes</div>`;
+  html += pendientes.length ? pendientes.map(itemHTML).join('') : '<div class="empty-card" style="margin-bottom:16px;">Sin pagos pendientes registrados.</div>';
+
+  html += `<div class="section-title">Préstamos</div>`;
+  html += prestamos.length ? prestamos.map(itemHTML).join('') : '<div class="empty-card" style="margin-bottom:16px;">Sin préstamos registrados.</div>';
+
+  html += `<div class="section-title">Compras a cuotas</div>`;
+  if(DATA.installments.length){
+    html += DATA.installments.map(inst=>{
+      const paid = inst.payments.reduce((a,p)=>a+Number(p.amount),0);
+      const pct = Math.min(100, Math.round((paid/Number(inst.total))*100));
+      return `<div class="card installment-card" data-id="${inst.id}">
+        <div style="display:flex; justify-content:space-between; align-items:baseline;">
+          <div style="font-weight:700; font-size:14.5px;">${inst.name}</div>
+          <div style="font-size:12px; color:var(--text-dim);">${inst.payments.length}/${inst.cuotas} cuotas</div>
+        </div>
+        <div style="font-size:12.5px; color:var(--text-muted); margin-top:3px;">${money(paid)} pagado de ${money(inst.total)}</div>
+        <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+        <div style="display:flex; gap:8px; margin-top:10px;">
+          <button class="small-btn" data-action="payInstallment" data-id="${inst.id}">+ Registrar pago</button>
+          <button class="small-btn" data-action="delInstallment" data-id="${inst.id}" style="color:var(--urgent);">Eliminar</button>
+        </div>
+      </div>`;
+    }).join('');
+  } else { html += '<div class="empty-card" style="margin-bottom:10px;">Sin compras a cuotas registradas.</div>'; }
+  html += `<button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addInstallmentBtn">+ Agregar compra a cuotas</button>`;
+  box.innerHTML = html;
+  bindItemClicks();
+  document.getElementById('addInstallmentBtn').onclick = openInstallmentModal;
+  box.querySelectorAll('[data-action="payInstallment"]').forEach(b=>b.onclick=()=>openPayModal(b.dataset.id));
+  box.querySelectorAll('[data-action="delInstallment"]').forEach(b=>b.onclick=()=>{ DATA.installments = DATA.installments.filter(i=>i.id!==b.dataset.id); saveData(); renderFinanzas(); });
+}
+function openInstallmentModal(){
+  openSheet(`<h3>Compra a cuotas</h3>
+    <div class="field"><label>Nombre</label><input type="text" id="f_iname" placeholder="Ej: Celular, curso..."></div>
+    <div class="field-row"><div class="field"><label>Valor total</label><input type="number" id="f_itotal" placeholder="$"></div><div class="field"><label>Número de cuotas</label><input type="number" id="f_icuotas" placeholder="Ej: 2"></div></div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="saveInstallment">Guardar</button></div>`);
+  document.getElementById('saveInstallment').onclick = ()=>{
+    const name = document.getElementById('f_iname').value.trim(); const total = document.getElementById('f_itotal').value;
+    if(!name || !total){ alert('Completa nombre y valor total'); return; }
+    DATA.installments.push({ id:uid(), name, total, cuotas:document.getElementById('f_icuotas').value||1, payments:[] });
+    saveData(); closeSheet(); renderFinanzas();
+  };
+}
+function openPayModal(instId){
+  openSheet(`<h3>Registrar pago</h3>
+    <div class="field"><label>Fecha</label><input type="date" id="f_pdate" value="${todayStr()}"></div>
+    <div class="field"><label>Monto pagado</label><input type="number" id="f_pamount" placeholder="$"></div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="savePay">Guardar</button></div>`);
+  document.getElementById('savePay').onclick = ()=>{
+    const amount = document.getElementById('f_pamount').value;
+    if(!amount){ alert('Pon el monto'); return; }
+    const inst = DATA.installments.find(i=>i.id===instId);
+    inst.payments.push({ date:document.getElementById('f_pdate').value, amount });
+    saveData(); closeSheet(); renderFinanzas();
+  };
+}
+
+/* ---- Personal ---- */
+function renderPersonalGestion(){
+  const box = document.getElementById('sub-personal');
+  const items = [...DATA.personalItems].sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  box.innerHTML = `
+    ${items.length ? items.map(it=>`
+      <div class="item personal-row" data-id2="${it.id}">
+        <button class="status-btn ${it.status==='hecho'?'hecho':''}" data-action="togglePersonal" data-id="${it.id}"></button>
+        <div class="body">
+          <div class="row1"><div class="title">${it.title}</div><span class="tag" style="background:${CATS.personal.color}22; color:${CATS.personal.color};">${it.type||'Personal'}</span></div>
+          <div class="meta"><span>${it.date?niceDateShort(it.date):'Sin fecha'}</span>${it.start?`<span>${it.start}${it.end?'–'+it.end:''}</span>`:''}${it.horas?`<span>${it.horas}h registradas</span>`:''}</div>
+        </div>
+        <button class="small-btn" data-action="delPersonal" data-id="${it.id}">✕</button>
+      </div>`).join('') : '<div class="empty-card">Aún no registras citas, trámites, salidas o cómo usas tu tiempo libre.</div>'}
+    <button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addPersonalBtn">+ Agregar</button>
+  `;
+  document.getElementById('addPersonalBtn').onclick = openPersonalModal;
+  box.querySelectorAll('[data-action="togglePersonal"]').forEach(b=>{
+    b.onclick = ()=>{ const it = DATA.personalItems.find(x=>x.id===b.dataset.id); it.status = it.status==='hecho'?'pendiente':'hecho'; setLinkedEventStatus('personalItem', it.id, it.status); saveData(); renderPersonalGestion(); };
+  });
+  box.querySelectorAll('[data-action="delPersonal"]').forEach(b=>{
+    b.onclick = ()=>{ DATA.personalItems = DATA.personalItems.filter(x=>x.id!==b.dataset.id); removeLinkedEvent('personalItem', b.dataset.id); saveData(); renderPersonalGestion(); };
+  });
+}
+function openPersonalModal(){
+  openSheet(`<h3>Agregar personal</h3>
+    <div class="field"><label>¿Qué es?</label><input type="text" id="f_ptitle" placeholder="Ej: Cita con dermatólogo / Vi tv"></div>
+    <div class="field-row">
+      <div class="field"><label>Tipo</label><select id="f_ptype2"><option value="Cita médica">Cita médica</option><option value="Trámite">Trámite</option><option value="Salida">Salida</option><option value="Hábito / tiempo libre">Hábito / tiempo libre</option><option value="Otro">Otro</option></select></div>
+      <div class="field"><label>Fecha</label><input type="date" id="f_pdate2" value="${todayStr()}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Franja: inicio</label><input type="time" id="f_pstart"></div>
+      <div class="field"><label>Franja: fin</label><input type="time" id="f_pend"></div>
+    </div>
+    <div class="field"><label>¿Ya pasó? Horas dedicadas (opcional)</label><input type="number" id="f_photas" step="0.25" placeholder="Ej: 5"></div>
+    <div class="helptext">Si pones horas, se registra como algo que ya hiciste y cuenta en tu resumen de tiempo (pestaña Yo).</div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="savePersonal">Guardar</button></div>`);
+  document.getElementById('savePersonal').onclick = ()=>{
+    const title = document.getElementById('f_ptitle').value.trim();
+    if(!title){ alert('Escribe qué es'); return; }
+    const horas = document.getElementById('f_photas').value;
+    const date = document.getElementById('f_pdate2').value;
+    const start = document.getElementById('f_pstart').value;
+    const end = document.getElementById('f_pend').value;
+    const isLog = !!horas;
+    const obj = { id:uid(), title, type:document.getElementById('f_ptype2').value, date, start, end, horas: horas||null, status: isLog?'hecho':'pendiente' };
+    DATA.personalItems.push(obj);
+    const ev = addLinkedEvent('personal', title, date, start, end, 'personalItem', obj.id);
+    if(ev && isLog){ ev.status='hecho'; ev.actualMin = Math.round(Number(horas)*60); }
+    saveData(); closeSheet(); renderPersonalGestion();
+  };
+}
+
+/* ============================================================
+   RENDER: YO
+============================================================ */
+function renderYo(){
+  const box = document.getElementById('cycleBox');
+  const starts = [...DATA.cycle.starts].sort();
+  if(!starts.length){
+    box.innerHTML = `<div class="empty-card">Aún no registras tu ciclo. <br><button class="btn btn-primary" style="margin-top:10px;" id="setupCycleBtn">Configurar ciclo</button></div>`;
+    document.getElementById('setupCycleBtn').onclick = openCycleSetup;
+  } else {
+    const last = starts[starts.length-1]; const avg = computeAvgCycle();
+    const nextStart = fmtDate(addDays(parseDate(last), avg));
+    const diff = daysBetween(todayStr(), nextStart);
+    const inPeriodNow = daysBetween(last, todayStr()) < (DATA.cycle.periodLen||5) && daysBetween(last, todayStr())>=0;
+    box.innerHTML = `<div class="cycle-hero">
+        <div class="big">${inPeriodNow ? 'En curso' : (diff>=0 ? 'En ' + diff + ' días' : 'Atrasado ' + Math.abs(diff) + ' días')}</div>
+        <div class="sub">${inPeriodNow ? 'Tu período está activo' : 'Próximo período estimado: ' + niceDate(nextStart)}</div>
+        <div class="ring-row">
+          <div class="ring-box"><b>${avg}</b><span>días de ciclo</span></div>
+          <div class="ring-box"><b>${DATA.cycle.periodLen}</b><span>días de duración</span></div>
+          <div class="ring-box"><b>${starts.length}</b><span>registrados</span></div>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px;"><button class="btn btn-primary" id="logPeriodBtn">Registrar inicio hoy</button><button class="btn btn-ghost" id="editCycleBtn">Ajustar</button></div>`;
+    document.getElementById('logPeriodBtn').onclick = ()=>{ if(!DATA.cycle.starts.includes(todayStr())){ DATA.cycle.starts.push(todayStr()); saveData(); renderAll(); } };
+    document.getElementById('editCycleBtn').onclick = openCycleSetup;
+  }
+  const now = new Date();
+  const weekStart = addDays(now, -now.getDay());
+  const weekDates = [...Array(7)].map((_,i)=>fmtDate(addDays(weekStart,i)));
+  const weekEvents = DATA.events.filter(e=>weekDates.includes(e.date) && e.status==='hecho' && e.actualMin);
+  const byCat = {}; weekEvents.forEach(e=>{ byCat[e.cat] = (byCat[e.cat]||0) + Number(e.actualMin); });
+  const catEntries = Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
+  const maxMin = Math.max(1, ...catEntries.map(c=>c[1]));
+  const tsBox = document.getElementById('timeSummary');
+  if(catEntries.length){
+    tsBox.innerHTML = `<div class="bar-chart">${catEntries.map(([cat,min])=>`<div class="bar-col"><div class="bar" style="height:${Math.max(6,(min/maxMin)*95)}px; background:${CATS[cat].color}"></div><div class="lbl">${CATS[cat].emoji}</div></div>`).join('')}</div>
+    <div style="margin-top:12px; font-size:13px; color:var(--text-muted);">Total registrado: <b style="color:var(--text)">${Math.round(weekEvents.reduce((a,e)=>a+Number(e.actualMin),0)/60*10)/10}h</b> esta semana</div>`;
+  } else {
+    tsBox.innerHTML = `<div style="font-size:13px; color:var(--text-dim); text-align:center; padding:10px 0;">Marca cosas como "hechas" y registra minutos (o usa "Registrar tiempo" en Personal) para ver aquí en qué se te va el tiempo.</div>`;
+  }
+  const insightsBox = document.getElementById('insights');
+  let insights = [];
+  if(catEntries.length){ const top = CATS[catEntries[0][0]]; insights.push(`<div class="insight"><div class="ico">${top.emoji}</div><div class="txt">Esta semana, la mayoría de tu tiempo se fue en <b>${top.label}</b>.</div></div>`); }
+  const overEst = DATA.events.filter(e=>e.status==='hecho' && e.estMin && e.actualMin && e.actualMin > e.estMin*1.3);
+  if(overEst.length){ insights.push(`<div class="insight"><div class="ico">⏱</div><div class="txt">Sueles subestimar tareas de <b>${CATS[overEst[overEst.length-1].cat].label}</b> — tomaron más tiempo del planeado.</div></div>`); }
+  const overdueCount = DATA.events.filter(e=>e.status!=='hecho' && e.date<todayStr()).length;
+  if(overdueCount>0){ insights.push(`<div class="insight"><div class="ico">📌</div><div class="txt">Tienes <b>${overdueCount}</b> pendiente${overdueCount>1?'s':''} atrasado${overdueCount>1?'s':''}. Revísalos en Tareas.</div></div>`); }
+  insightsBox.innerHTML = insights.length ? insights.join('') : '<div class="empty-card">Aún no hay suficientes datos para mostrar patrones.</div>';
+}
+function openCycleSetup(){
+  openSheet(`<h3>Configurar ciclo</h3>
+    <div class="field"><label>Fecha de inicio del último período</label><input type="date" id="f_lastperiod" value="${DATA.cycle.starts[DATA.cycle.starts.length-1]||todayStr()}"></div>
+    <div class="field-row"><div class="field"><label>Duración del ciclo (días)</label><input type="number" id="f_cyclen" value="${DATA.cycle.avgLen||28}"></div><div class="field"><label>Duración del período (días)</label><input type="number" id="f_perlen" value="${DATA.cycle.periodLen||5}"></div></div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="saveCycle">Guardar</button></div>`);
+  document.getElementById('saveCycle').onclick = ()=>{
+    const d = document.getElementById('f_lastperiod').value;
+    if(!DATA.cycle.starts.includes(d)) DATA.cycle.starts.push(d);
+    DATA.cycle.avgLen = Number(document.getElementById('f_cyclen').value)||28;
+    DATA.cycle.periodLen = Number(document.getElementById('f_perlen').value)||5;
+    saveData(); closeSheet(); renderYo();
+  };
+}
+
+/* ============================================================
+   MODALS: genérico
+============================================================ */
+const overlay = document.getElementById('overlay');
+const sheet = document.getElementById('sheet');
+function openSheet(html){ sheet.innerHTML = `<div class="sheet-handle"></div><button class="close-x" id="closeSheet">✕</button>` + html; overlay.classList.add('active'); }
+function closeSheet(){ overlay.classList.remove('active'); }
+overlay.addEventListener('click', (e)=>{ if(e.target===overlay) closeSheet(); });
+document.addEventListener('click', (e)=>{ if(e.target.id==='closeSheet') closeSheet(); });
+
+document.getElementById('fabAdd').onclick = ()=> openEventModal();
+
+function openEventModal(existing){
+  const isEdit = !!existing;
+  const e = existing || {cat:'personal', date: calSelected && document.getElementById('view-mes').classList.contains('active') ? calSelected : todayStr(), status:'pendiente'};
+  openSheet(`
+    <h3>${isEdit ? 'Editar' : 'Agregar'}</h3>
+    <div class="field"><label>Categoría</label><div class="chiprow" id="catChips">
+      ${Object.entries(CATS).map(([k,v])=>`<div class="chip ${e.cat===k?'active':''}" data-cat="${k}" style="--chip-color:${v.color}; --chip-color-soft:${v.color}22;">${v.emoji} ${v.label}</div>`).join('')}
+    </div></div>
+    <div class="field"><label>Título</label><input type="text" id="f_title" value="${e.title||''}" placeholder="¿Qué es?"></div>
+    ${!isEdit ? `<div class="field"><label>Repetición</label><div class="chiprow" id="repeatChips">
+      <div class="chip active" data-repeat="none">Una vez</div>
+      <div class="chip" data-repeat="weekly">Cada semana</div>
+    </div></div>` : ''}
+    <div id="onceDateField" class="field">
+      <label>Fecha</label><input type="date" id="f_date" value="${e.date}">
+    </div>
+    <div id="weeklyDaysField" style="display:none">
+      <div class="field"><label>Días de la semana</label><div class="chiprow" id="dayChips">${DOW_SHORT.map((d,i)=>`<div class="chip" data-day="${i}">${d}</div>`).join('')}</div></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Inicio bloque</label><input type="time" id="f_start" value="${e.start||''}"></div>
+      <div class="field"><label>Fin bloque</label><input type="time" id="f_end" value="${e.end||''}"></div>
+    </div>
+    <div id="finanzasExtra" style="display:${e.cat==='finanzas'?'block':'none'}">
+      <div class="field-row">
+        <div class="field"><label>Tipo</label><select id="f_type">
+          <option value="gasto" ${e.type==='gasto'?'selected':''}>Gasto</option>
+          <option value="ingreso" ${e.type==='ingreso'?'selected':''}>Ingreso</option>
+          <option value="pago" ${e.type==='pago'?'selected':''}>Pago pendiente</option>
+          <option value="prestamo_dado" ${e.type==='prestamo_dado'?'selected':''}>Le presté a alguien</option>
+          <option value="prestamo_recibido" ${e.type==='prestamo_recibido'?'selected':''}>Me prestaron</option>
+        </select></div>
+        <div class="field"><label>Monto</label><input type="number" id="f_amount" value="${e.amount||''}" placeholder="$"></div>
+      </div>
+      <div class="field" id="personaField" style="display:${(e.type==='prestamo_dado'||e.type==='prestamo_recibido')?'block':'none'}"><label>¿Con quién?</label><input type="text" id="f_persona" value="${e.persona||''}" placeholder="Nombre"></div>
+    </div>
+    <div class="field"><label>Notas</label><textarea id="f_notes" placeholder="Opcional">${e.notes||''}</textarea></div>
+    <div class="sheet-actions">
+      ${isEdit ? '<button class="btn btn-danger" id="delEvent">Eliminar</button>' : ''}
+      <button class="btn btn-primary" id="saveEvent">Guardar</button>
+    </div>
+  `);
+  let selectedCat = e.cat;
+  document.querySelectorAll('#catChips .chip').forEach(c=>{
+    c.onclick = ()=>{ document.querySelectorAll('#catChips .chip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); selectedCat = c.dataset.cat; document.getElementById('finanzasExtra').style.display = selectedCat==='finanzas' ? 'block' : 'none'; };
+  });
+  let repeatMode = 'none'; let repeatDays = [];
+  if(!isEdit){
+    document.querySelectorAll('#repeatChips .chip').forEach(c=>{
+      c.onclick = ()=>{
+        document.querySelectorAll('#repeatChips .chip').forEach(x=>x.classList.remove('active')); c.classList.add('active');
+        repeatMode = c.dataset.repeat;
+        document.getElementById('onceDateField').style.display = repeatMode==='weekly' ? 'none' : 'flex';
+        document.getElementById('weeklyDaysField').style.display = repeatMode==='weekly' ? 'block' : 'none';
+      };
+    });
+    document.querySelectorAll('#dayChips .chip').forEach(c=>{
+      c.onclick = ()=>{ c.classList.toggle('active'); const d=Number(c.dataset.day); if(repeatDays.includes(d)) repeatDays=repeatDays.filter(x=>x!==d); else repeatDays.push(d); };
+    });
+  }
+  document.getElementById('f_type').onchange = (ev)=>{ document.getElementById('personaField').style.display = (ev.target.value==='prestamo_dado'||ev.target.value==='prestamo_recibido') ? 'block' : 'none'; };
+  document.getElementById('saveEvent').onclick = ()=>{
+    const title = document.getElementById('f_title').value.trim();
+    if(!title){ alert('Ponle un título'); return; }
+    if(repeatMode==='weekly'){
+      if(!repeatDays.length){ alert('Selecciona al menos un día'); return; }
+      DATA.routines.push({ id:uid(), cat:selectedCat, title, days:[...repeatDays], start:document.getElementById('f_start').value, end:document.getElementById('f_end').value });
+      saveData(); closeSheet(); renderAll();
+      return;
+    }
+    const obj = { id: e.id || uid(), cat: selectedCat, title, date: document.getElementById('f_date').value || todayStr(), start: document.getElementById('f_start').value, end: document.getElementById('f_end').value, estMin: e.estMin || null, notes: document.getElementById('f_notes').value, status: e.status || 'pendiente', actualMin: e.actualMin || null };
+    if(selectedCat==='finanzas'){ obj.type = document.getElementById('f_type').value; obj.amount = document.getElementById('f_amount').value || 0; obj.persona = document.getElementById('f_persona') ? document.getElementById('f_persona').value : ''; }
+    if(isEdit){ const idx = DATA.events.findIndex(x=>x.id===e.id); DATA.events[idx] = obj; } else { DATA.events.push(obj); }
+    saveData(); closeSheet(); renderAll();
+  };
+  if(isEdit){ document.getElementById('delEvent').onclick = ()=>{ DATA.events = DATA.events.filter(x=>x.id!==e.id); saveData(); closeSheet(); renderAll(); }; }
+}
+
+function openDoneModal(){
+  openSheet(`<h3>Ya lo hice</h3>
+    <div class="field"><label>Categoría</label><div class="chiprow" id="catChipsDone">
+      ${Object.entries(CATS).map(([k,v],i)=>`<div class="chip ${i===0?'active':''}" data-cat="${k}" style="--chip-color:${v.color}; --chip-color-soft:${v.color}22;">${v.emoji} ${v.label}</div>`).join('')}
+    </div></div>
+    <div class="field"><label>¿Qué hiciste?</label><input type="text" id="f_dtitle" placeholder="Ej: Llamé al cliente, hice el pago..."></div>
+    <div class="field-row">
+      <div class="field"><label>Fecha</label><input type="date" id="f_ddate" value="${todayStr()}"></div>
+      <div class="field"><label>Minutos que te tomó</label><input type="number" id="f_dmin" placeholder="Opcional"></div>
+    </div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="saveDone">Guardar</button></div>`);
+  let cat='universidad';
+  document.querySelectorAll('#catChipsDone .chip').forEach(c=>{ c.onclick=()=>{ document.querySelectorAll('#catChipsDone .chip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); cat=c.dataset.cat; }; });
+  document.getElementById('saveDone').onclick = ()=>{
+    const title = document.getElementById('f_dtitle').value.trim();
+    if(!title){ alert('Escribe qué hiciste'); return; }
+    const min = document.getElementById('f_dmin').value;
+    DATA.events.push({ id:uid(), cat, title, date:document.getElementById('f_ddate').value||todayStr(), start:'', end:'', status:'hecho', estMin:null, actualMin: min?Number(min):null, notes:'' });
+    saveData(); closeSheet(); renderAll();
+  };
+}
+
+function openPeriodModal(){
+  openSheet(`<h3>Período académico</h3><div class="field"><label>Nombre del período</label><input type="text" id="f_period" value="${DATA.period||''}" placeholder="Ej: Trimestre 1 / Semestre A"></div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="savePeriod">Guardar</button></div>`);
+  document.getElementById('savePeriod').onclick = ()=>{ DATA.period = document.getElementById('f_period').value.trim(); saveData(); closeSheet(); renderMaterias(); };
+}
+function openSubjectModal(){
+  openSheet(`<h3>Agregar materia</h3><div class="field"><label>Nombre</label><input type="text" id="f_sname" placeholder="Ej: Marketing Digital"></div>
+    <div class="field"><label>Día</label><select id="f_sday">${DOW.map((d,i)=>`<option value="${i}">${d}</option>`).join('')}</select></div>
+    <div class="field-row"><div class="field"><label>Hora inicio</label><input type="time" id="f_sstart"></div><div class="field"><label>Hora fin</label><input type="time" id="f_send"></div></div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="saveSubject">Guardar</button></div>`);
+  document.getElementById('saveSubject').onclick = ()=>{
+    const name = document.getElementById('f_sname').value.trim();
+    if(!name){ alert('Ponle un nombre a la materia'); return; }
+    DATA.subjects.push({ id:uid(), name, day:Number(document.getElementById('f_sday').value), start:document.getElementById('f_sstart').value, end:document.getElementById('f_send').value });
+    saveData(); closeSheet(); renderMaterias();
+  };
+}
+
+/* ============================================================
+   RENDER ALL
+============================================================ */
+function renderAll(){
+  renderHeader();
+  const active = views.find(v=>document.getElementById('view-'+v).classList.contains('active'));
+  if(active==='hoy') renderHoy();
+  if(active==='mes') renderCalendar();
+  if(active==='tareas') renderTareasView();
+  if(active==='gestion') renderGestion();
+  if(active==='yo') renderYo();
+}
+
+(async function init(){ await loadData(); renderAll(); })();
+</script>
+</body>
+</html>
