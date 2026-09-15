@@ -144,6 +144,10 @@ button{font-family:inherit;}
 
 .item{display:flex; align-items:flex-start; gap:11px; background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--accent); border-radius:var(--radius-sm); padding:12px; margin-bottom:8px; cursor:pointer;}
 .item:active{background:var(--surface-2);}
+.item .hora{flex:none; width:44px; font-size:12.5px; font-weight:600; color:var(--text-muted); padding-top:1px;}
+.hueco{margin:0 0 8px 0; padding:7px 12px 7px 15px; border-left:2px dashed var(--border-2); font-size:12.5px; color:var(--text-dim); display:flex; align-items:center; gap:9px; flex-wrap:wrap;}
+.cabe{background:var(--accent-soft); color:var(--accent); font-weight:600; padding:2px 8px; border-radius:20px; font-size:11.5px;}
+.cuenta{font-size:11.5px; color:var(--text-dim); font-weight:600; text-transform:none; letter-spacing:0;}
 .item .body{flex:1; min-width:0;}
 .item .row1{display:flex; align-items:center; justify-content:space-between; gap:8px;}
 .item .title{font-size:14.5px; font-weight:600; line-height:1.3;}
@@ -355,9 +359,7 @@ button{font-family:inherit;}
   <div class="view active" id="view-hoy">
     <div id="hoyUrgent"></div>
     <div id="hoyClasses"></div>
-    <div class="section-title">Bloques de hoy</div>
     <div id="hoyList"></div>
-    <div class="section-title">Próximos 14 días</div>
     <div id="hoyUpcoming"></div>
     <div id="hoyUrgentListas"></div>
   </div>
@@ -652,11 +654,18 @@ function horasFromRange(start,end){
 }
 function weekdayItems(dayIdx){
   const items=[];
+  const hayClases = DATA.subjects.some(s=>s.day===dayIdx);
   DATA.subjects.filter(s=>s.day===dayIdx).forEach(s=>items.push({name:s.name, start:s.start, end:s.end, color:'var(--c-uni)', tag:'clase'}));
-  DATA.courseSchedule.filter(s=>s.day===dayIdx).forEach(s=>items.push({name:s.name, start:s.start, end:s.end, color:'var(--c-ads)', tag:'curso'}));
-  DATA.routines.filter(r=>r.days.includes(dayIdx)).forEach(r=>items.push({name:r.title, start:r.start, end:r.end, color:CATS[r.cat].color, tag:CATS[r.cat].label.toLowerCase()}));
-  return items;
+  DATA.routines.filter(r=>r.days.includes(dayIdx)).forEach(r=>{
+    /* si ya cargo las materias de ese dia, el bloque generico de Universidad
+       sobra: seria la misma cosa dos veces */
+    if(r.auto==='universidad' && hayClases) return;
+    items.push({name:r.title, start:r.start, end:r.end, color:CATS[r.cat].color, tag:CATS[r.cat].label.toLowerCase(), ref:r});
+  });
+  return items.sort(porHora);
 }
+/* Lo que tiene hora va primero y en orden; lo que no, al final. */
+function porHora(a,b){ return (a.start||'99:99').localeCompare(b.start||'99:99'); }
 
 /* ============================================================
    CATEGORY META
@@ -806,47 +815,101 @@ function openLinkedSource(type, id){
 ============================================================ */
 function renderHoy(){
   const t = todayStr();
-  const now = new Date();
-  const classesToday = weekdayItems(now.getDay());
-  const clsBox = document.getElementById('hoyClasses');
-  if(classesToday.length){
-    clsBox.innerHTML = `<div class="section-title">Tu rutina de hoy</div>` + classesToday.map(c=>`
-      <div class="item" style="border-left-color:${c.color}; cursor:default;">
-        <div class="body"><div class="row1"><div class="title">${esc(c.name)}</div><span class="tag" style="background:color-mix(in srgb, ${c.color} 20%, transparent); color:${c.color};">${esc(c.tag)}</span></div>
-        <div class="meta"><span>${esc(c.start||'')}${c.end?'–'+esc(c.end):''}</span></div></div>
-      </div>`).join('');
-  } else { clsBox.innerHTML=''; }
+  const manana = fmtDate(addDays(new Date(),1));
+  const dow = new Date().getDay();
 
-  const todays = DATA.events.filter(e=>e.date===t).sort((a,b)=>(a.start||'99').localeCompare(b.start||'99'));
-  const urgentBox = document.getElementById('hoyUrgent');
-  const overdue = DATA.events.filter(e=>e.status!=='hecho' && e.date < t);
-  if(overdue.length){
-    urgentBox.innerHTML = `<div class="card" style="border-left-color:var(--urgent); background:var(--urgent-soft);">
-      <div style="font-weight:700; font-size:13px; color:var(--urgent); margin-bottom:6px;">⚠ ${overdue.length} pendiente${overdue.length>1?'s':''} atrasado${overdue.length>1?'s':''}</div>
-      ${overdue.slice(0,3).map(e=>`<div style="font-size:13px; color:var(--text-muted); margin-top:2px;">${CATS[e.cat].emoji} ${esc(e.title)} — ${niceDateShort(e.date)}</div>`).join('')}
+  /* ---- 1 · lo que vence hoy o mañana (D104) ---- */
+  const vencen = [];
+  DATA.events.filter(e=>e.status!=='hecho' && e.date<=manana && !e.linkedType).forEach(e=>{
+    if(e.start) return;                       // lo que tiene hora va en Tu día
+    vencen.push({ titulo:e.title, cuando:e.date<t?'Atrasado':e.date===t?'Hoy':'Mañana',
+      sub:CATS[e.cat]?CATS[e.cat].label:'', color:CATS[e.cat]?CATS[e.cat].color:'var(--text-dim)', tarde:e.date<t });
+  });
+  DATA.events.filter(e=>e.status!=='hecho' && e.date<t && e.start).forEach(e=>{
+    vencen.push({ titulo:e.title, cuando:'Atrasado', sub:niceDateShort(e.date),
+      color:CATS[e.cat]?CATS[e.cat].color:'var(--text-dim)', tarde:true });
+  });
+  (DATA.suscripciones||[]).forEach(x=>{
+    const prox = proximoCobro(x);
+    if(prox && (prox===t || prox===manana)) vencen.push({ titulo:x.nombre, cuando:prox===t?'Hoy':'Mañana',
+      sub:montoConMoneda(x.monto,x.moneda,x.montoCOP), color:'var(--c-dinero)', tarde:false });
+  });
+  (DATA.deudas||[]).forEach(d=>{
+    if(d.fecha && (d.fecha===t || d.fecha===manana)) vencen.push({ titulo:d.nombre, cuando:d.fecha===t?'Hoy':'Mañana',
+      sub:money(saldoDeuda(d)), color:'var(--urgent)', tarde:false });
+  });
+
+  document.getElementById('hoyUrgent').innerHTML = vencen.length ? `
+    <div class="section-title"><span>Vence pronto</span><span class="cuenta">${vencen.length}</span></div>
+    ${vencen.map(v=>`
+      <div class="item" style="border-left-color:${v.color};">
+        <div class="body">
+          <div class="row1"><div class="title">${esc(v.titulo)}</div>
+            <span class="tag" style="background:${v.tarde?'var(--urgent-soft)':'var(--ambar-soft)'}; color:${v.tarde?'var(--urgent)':'var(--ambar)'};">${esc(v.cuando)}</span></div>
+          <div class="meta"><span>${esc(v.sub)}</span></div>
+        </div>
+      </div>`).join('')}` : '';
+
+  /* ---- 2 · tu día: todo lo que tiene hora, junto y en orden ---- */
+  const bloques = [];
+  weekdayItems(dow).forEach(c=>{
+    if(!c.start) return;
+    bloques.push({ titulo:c.name, start:c.start, end:c.end, color:c.color, sub:c.tag, fijo:true });
+  });
+  DATA.events.filter(e=>e.date===t && e.start).forEach(e=>{
+    bloques.push({ titulo:e.title, start:e.start, end:e.end, color:CATS[e.cat]?CATS[e.cat].color:'var(--text-dim)',
+      sub:CATS[e.cat]?CATS[e.cat].label:'', ev:e });
+  });
+  bloques.sort(porHora);
+
+  /* los huecos se ven como espacio entre bloques, no como un texto aparte (D108) */
+  let libres = 0;
+  const filas = [];
+  bloques.forEach((b,i)=>{
+    filas.push({ tipo:'bloque', b });
+    const sig = bloques[i+1];
+    if(!sig) return;
+    const fin = finEnMinutos(b.start, b.end||b.start);
+    const ini2 = minutosDe(sig.start);
+    const hueco = ini2 - fin;
+    if(hueco >= 30){ libres += hueco; filas.push({ tipo:'hueco', min:hueco, hasta:sig.start }); }
+  });
+
+  const cabe = (DATA.pendientes||[]).filter(p=>!p.hecho).sort((a,b)=> (a.urgencia==='urgente'?0:1)-(b.urgencia==='urgente'?0:1))[0];
+  let mayor = -1, mejor = 0;
+  filas.forEach((f,i)=>{ if(f.tipo==='hueco' && f.min>mejor){ mejor=f.min; mayor=i; } });
+  const lista = document.getElementById('hoyList');
+  lista.innerHTML = bloques.length ? filas.map(f=>{
+    if(f.tipo==='hueco') return `<div class="hueco">${duracionLarga(f.min)} libres · hasta ${esc(f.hasta)}${filas.indexOf(f)===mayor && f.min>=60 && cabe ? `<span class="cabe">cabe: ${esc(cabe.titulo)}</span>` : ''}</div>`;
+    const b = f.b;
+    return `<div class="item" style="border-left-color:${b.color};" ${b.ev?`data-id="${b.ev.id}"`:'style="cursor:default;"'}>
+      <div class="hora mono">${esc(b.start)}</div>
+      <div class="body"><div class="row1"><div class="title">${esc(b.titulo)}</div></div>
+      <div class="meta"><span>${esc(b.end?b.start+'–'+b.end:b.start)}${b.sub?' · '+esc(b.sub):''}</span></div></div>
     </div>`;
-  } else { urgentBox.innerHTML=''; }
+  }).join('') : `<div class="empty-card">Hoy no tienes nada con hora. Toca + para agregar algo.</div>`;
 
-  const list = document.getElementById('hoyList');
-  list.innerHTML = todays.length ? todays.map(itemHTML).join('') : `<div class="empty-card">Nada agendado para hoy. Toca + para agregar algo.</div>`;
+  document.getElementById('hoyClasses').innerHTML = bloques.length
+    ? `<div class="section-title"><span>Tu día</span><span class="cuenta">${bloques.length} bloque${bloques.length>1?'s':''}${libres?' · '+duracionLarga(libres)+' libres':''}</span></div>`
+    : `<div class="section-title">Tu día</div>`;
 
-  const upcoming = DATA.events.filter(e=>e.status!=='hecho' && e.date>t && daysBetween(t,e.date)<=14).sort((a,b)=>a.date.localeCompare(b.date));
-  const up = document.getElementById('hoyUpcoming');
-  up.innerHTML = upcoming.length ? upcoming.map(itemHTML).join('') : `<div class="empty-card">Sin nada próximo en 2 semanas.</div>`;
-
-  /* (decision de Sharon) Hoy sigue siendo el día agendado, pero abajo asoma
-     lo urgente de las listas para que no se le escape. */
+  /* ---- 3 · lo flexible de hoy: sin hora ---- */
+  const sueltos = DATA.events.filter(e=>e.date===t && !e.start && e.status!=='hecho');
   const urgentes = (DATA.pendientes||[]).filter(p=>!p.hecho && p.urgencia==='urgente');
-  document.getElementById('hoyUrgentListas').innerHTML = urgentes.length
-    ? `<div class="section-title">Urgente de tus listas</div>` + urgentes.map(p=>{
-        const l = (DATA.listas||[]).find(x=>x.id===p.listaId);
-        return `<div class="pend" style="border-left-color:var(--urgent)">
-          <button class="status-btn" data-action="togglePend" data-pid="${p.id}"></button>
-          <div class="txt">${esc(p.titulo)}</div>
-          <span class="urg" data-nivel="urgente">${l?esc(l.nombre):'lista'}</span>
-        </div>`;
-      }).join('')
-    : '';
+  const flexBox = document.getElementById('hoyUpcoming');
+  flexBox.innerHTML = (sueltos.length || urgentes.length) ? `
+    <div class="section-title">Lo flexible de hoy</div>
+    ${sueltos.map(itemHTML).join('')}
+    ${urgentes.map(p=>{
+      const l = (DATA.listas||[]).find(x=>x.id===p.listaId);
+      return `<div class="pend" style="border-left-color:var(--urgent)">
+        <button class="status-btn" data-action="togglePend" data-pid="${p.id}"></button>
+        <div class="txt">${esc(p.titulo)}</div>
+        <span class="urg" data-nivel="urgente">${l?esc(l.nombre):'lista'}</span>
+      </div>`;
+    }).join('')}` : '';
+
+  document.getElementById('hoyUrgentListas').innerHTML = '';
 
   bindItemClicks();
   bindPendClicks();
@@ -2005,7 +2068,7 @@ function sembrarCompromisos(){
   DATA.routines = [
     { id:uid(), cat:'personal', title:'Llevar a Joel',   days:colegio, start:'07:00', end:'07:30', notes:'Colegio', flex:'cubrible' },
     { id:uid(), cat:'personal', title:'Recoger a Joel',  days:colegio, start:'13:30', end:'14:00', notes:'Colegio', flex:'cubrible' },
-    { id:uid(), cat:'universidad', title:'Universidad',  days:colegio, start:'18:00', end:'22:00', notes:'', flex:'saltable' },
+    { id:uid(), cat:'universidad', title:'Universidad',  days:colegio, start:'18:00', end:'22:00', notes:'', flex:'saltable', auto:'universidad' },
     { id:uid(), cat:'personal', title:'SENA — inglés',   days:[3],     start:'08:00', end:'09:00', notes:'', flex:'saltable' },
     { id:uid(), cat:'personal', title:'Clase con Leslie',days:[3],     start:'10:30', end:'11:30', notes:'En línea', flex:'firme' }
   ];
