@@ -216,6 +216,12 @@ button{font-family:inherit;}
 .client-card .stat span{font-size:11px; color:var(--text-dim);}
 .small-btn{background:var(--surface-3); border:1px solid var(--border); color:var(--text); font-size:12.5px; font-weight:600; padding:7px 12px; border-radius:9px;}
 
+/* ---------- plata ---------- */
+.saldo-card .lbl{font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; font-weight:700; display:flex; align-items:baseline; gap:8px;}
+.saldo-edad{text-transform:none; letter-spacing:0; font-weight:600; color:var(--text-muted); font-size:11.5px;}
+.saldo-num{font-size:30px; font-weight:600; margin-top:3px; letter-spacing:-.02em;}
+.saldo-card{cursor:pointer;}
+
 /* ---------- turnos y choques ---------- */
 .lugares{display:grid; gap:8px; margin-top:6px;}
 .lugar{display:flex; align-items:center; gap:11px; width:100%; text-align:left; padding:12px 13px; border-radius:var(--radius); border:1px solid var(--border); background:var(--surface); color:var(--text); cursor:pointer;}
@@ -476,7 +482,11 @@ let DATA = {
   pendientes: [],  // {id,listaId,titulo,urgencia,hecho,creado} — sin fecha a proposito
   cycle: { starts: [], avgLen: 28, periodLen: 5 },
   turnos: [],          // {id,lugar,hotel,fecha,entra,sale,confirmado,trasladoMin,estimado}
-  compromisosSembrados: false
+  plata: { saldo:null, saldoFecha:'', tasaUSD:null, tasaFecha:'', topes:{} },
+  suscripciones: [],   // {id,nombre,monto,moneda,dia,nota} — vuelven cada mes
+  deudas: [],          // {id,nombre,sentido,monto,fecha,fechaHasta,aprox,nota,movs:[]}
+  compromisosSembrados: false,
+  platoSembrado: false
 };
 let saveTimer=null;
 let dirty=false;        // hay cambios locales que todavía no subieron
@@ -1419,7 +1429,10 @@ function openNexxaModal(){
       <div class="field"><label>Estado</label><select id="f_nstatus"><option value="cotizado">Cotizado</option><option value="confirmado">Confirmado</option><option value="realizado">Realizado</option></select></div>
       <div class="field"><label>Valor</label><input type="number" id="f_nvalue" placeholder="$"></div>
     </div>
-    <div class="field"><label>¿Quién va?</label><input type="text" id="f_nquien" placeholder="Ej: Sharon + 1 ayudante"></div>
+    <div class="field"><label>Ya abonaron</label><input type="number" id="f_nabono" placeholder="$ — lo que ya te pagaron"></div>
+    <div class="field"><label>¿Quién va?</label><input type="text" id="f_nquien" placeholder="Ej: Sharon, Karen"></div>
+    <label class="field-check"><input type="checkbox" id="f_nvoy" checked>
+      <span>Voy yo<br><span class="helptext" style="margin:2px 0 0;">Si no vas, el evento mueve plata pero no te ocupa el tiempo ni entra en los choques.</span></span></label>
     <div class="field-check"><input type="checkbox" id="f_nmaterial"><label for="f_nmaterial">Toca comprar material</label></div>
     <div class="field" id="materialDescField" style="display:none"><label>¿Qué material?</label><input type="text" id="f_nmatdesc" placeholder="Ej: Globos plateados, telón..."></div>
     <div class="sheet-actions"><button class="btn btn-primary" id="saveNexxa">Guardar</button></div>`);
@@ -1431,10 +1444,10 @@ function openNexxaModal(){
     const start = document.getElementById('f_nstart').value;
     const end = document.getElementById('f_nend').value;
     const type = document.getElementById('f_ntype').value;
-    const obj = { id:uid(), client, type, date, start, end, status:document.getElementById('f_nstatus').value, value:document.getElementById('f_nvalue').value||0, quienVa:document.getElementById('f_nquien').value, material:document.getElementById('f_nmaterial').checked, materialDesc:document.getElementById('f_nmatdesc').value };
+    const obj = { id:uid(), client, type, date, start, end, status:document.getElementById('f_nstatus').value, value:document.getElementById('f_nvalue').value||0, quienVa:document.getElementById('f_nquien').value, voy:document.getElementById('f_nvoy').checked, abonado:Number(document.getElementById('f_nabono').value)||0, material:document.getElementById('f_nmaterial').checked, materialDesc:document.getElementById('f_nmatdesc').value };
     DATA.nexxaEvents.push(obj);
     const ev = addLinkedEvent('nexxa', client + (type?' - '+type:''), date, start, end, 'nexxaEvent', obj.id);
-    if(ev) ev.status = obj.status==='realizado'?'hecho':obj.status==='confirmado'?'progreso':'pendiente';
+    if(ev){ ev.status = obj.status==='realizado'?'hecho':obj.status==='confirmado'?'progreso':'pendiente'; ev.noVoy = !obj.voy; }
     saveData(); closeSheet(); renderNexxaGestion();
   };
 }
@@ -1543,55 +1556,6 @@ function openSessionModal(clientId){
 }
 
 /* ---- Finanzas ---- */
-function renderFinanzas(){
-  const box = document.getElementById('sub-finanzas');
-  const t = todayStr(); const monthStr = t.slice(0,7);
-  const monthEvents = DATA.events.filter(e=>e.cat==='finanzas' && e.date.startsWith(monthStr));
-  const ingresos = monthEvents.filter(e=>e.type==='ingreso').reduce((a,e)=>a+Number(e.amount||0),0);
-  const gastos = monthEvents.filter(e=>e.type==='gasto').reduce((a,e)=>a+Number(e.amount||0),0);
-  const pendientes = DATA.events.filter(e=>e.cat==='finanzas' && e.type==='pago' && e.status!=='hecho');
-  const prestamos = DATA.events.filter(e=>e.cat==='finanzas' && (e.type==='prestamo_dado' || e.type==='prestamo_recibido'));
-
-  let html = `<div class="summary-row">
-      <div class="summary-box"><div class="lbl">Ingresos registrados (mes)</div><div class="val money" style="color:var(--done)">+${money(ingresos)}</div></div>
-      <div class="summary-box"><div class="lbl">Gastos registrados (mes)</div><div class="val money" style="color:var(--urgent)">-${money(gastos)}</div></div>
-    </div>`;
-
-  html += `<button class="btn btn-primary" style="width:100%; margin:2px 0 4px;" id="addMoneyBtn">+ Agregar ingreso, gasto, pago o préstamo</button>`;
-
-  html += `<div class="section-title">Pagos pendientes</div>`;
-  html += pendientes.length ? pendientes.map(itemHTML).join('') : '<div class="empty-card" style="margin-bottom:16px;">Sin pagos pendientes registrados.</div>';
-
-  html += `<div class="section-title">Préstamos</div>`;
-  html += prestamos.length ? prestamos.map(itemHTML).join('') : '<div class="empty-card" style="margin-bottom:16px;">Sin préstamos registrados.</div>';
-
-  html += `<div class="section-title">Compras a cuotas</div>`;
-  if(DATA.installments.length){
-    html += DATA.installments.map(inst=>{
-      const paid = inst.payments.reduce((a,p)=>a+Number(p.amount),0);
-      const pct = Math.min(100, Math.round((paid/Number(inst.total))*100));
-      return `<div class="card installment-card" data-id="${inst.id}">
-        <div style="display:flex; justify-content:space-between; align-items:baseline;">
-          <div style="font-weight:700; font-size:14.5px;">${esc(inst.name)}</div>
-          <div style="font-size:12px; color:var(--text-dim);">${inst.payments.length}/${esc(inst.cuotas)} cuotas</div>
-        </div>
-        <div style="font-size:12.5px; color:var(--text-muted); margin-top:3px;">${money(paid)} pagado de ${money(inst.total)}</div>
-        <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
-        <div style="display:flex; gap:8px; margin-top:10px;">
-          <button class="small-btn" data-action="payInstallment" data-id="${inst.id}">+ Registrar pago</button>
-          <button class="small-btn" data-action="delInstallment" data-id="${inst.id}" style="color:var(--urgent);">Eliminar</button>
-        </div>
-      </div>`;
-    }).join('');
-  } else { html += '<div class="empty-card" style="margin-bottom:10px;">Sin compras a cuotas registradas.</div>'; }
-  html += `<button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addInstallmentBtn">+ Agregar compra a cuotas</button>`;
-  box.innerHTML = html;
-  bindItemClicks();
-  document.getElementById('addMoneyBtn').onclick = ()=>openEventModal(null, {cat:'finanzas'});
-  document.getElementById('addInstallmentBtn').onclick = openInstallmentModal;
-  box.querySelectorAll('[data-action="payInstallment"]').forEach(b=>b.onclick=()=>openPayModal(b.dataset.id));
-  box.querySelectorAll('[data-action="delInstallment"]').forEach(b=>b.onclick=()=>{ DATA.installments = DATA.installments.filter(i=>i.id!==b.dataset.id); saveData(); renderFinanzas(); });
-}
 function openInstallmentModal(){
   openSheet(`<h3>Compra a cuotas</h3>
     <div class="field"><label>Nombre</label><input type="text" id="f_iname" placeholder="Ej: Celular, curso..."></div>
@@ -1601,7 +1565,7 @@ function openInstallmentModal(){
     const name = document.getElementById('f_iname').value.trim(); const total = document.getElementById('f_itotal').value;
     if(!name || !total){ alert('Completa nombre y valor total'); return; }
     DATA.installments.push({ id:uid(), name, total, cuotas:document.getElementById('f_icuotas').value||1, payments:[] });
-    saveData(); closeSheet(); renderFinanzas();
+    saveData(); closeSheet(); renderPlata();
   };
 }
 function openPayModal(instId){
@@ -1614,7 +1578,7 @@ function openPayModal(instId){
     if(!amount){ alert('Pon el monto'); return; }
     const inst = DATA.installments.find(i=>i.id===instId);
     inst.payments.push({ date:document.getElementById('f_pdate').value, amount });
-    saveData(); closeSheet(); renderFinanzas();
+    saveData(); closeSheet(); renderPlata();
   };
 }
 
@@ -1823,6 +1787,10 @@ function openEventModal(existing, preset){
         <div class="field"><label>Monto</label><input type="number" id="f_amount" value="${esc(e.amount)}" placeholder="$"></div>
       </div>
       <div class="field" id="personaField" style="display:${(e.type==='prestamo_dado'||e.type==='prestamo_recibido')?'block':'none'}"><label>¿Con quién?</label><input type="text" id="f_persona" value="${esc(e.persona)}" placeholder="Nombre"></div>
+      <div class="field" id="categoriaField" style="display:${e.type==='gasto'?'block':'none'}"><label>¿De qué categoría?</label>
+        <select id="f_categoria">${CATEGORIAS_GASTO.map(c=>`<option value="${esc(c)}" ${e.categoria===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
+        <div class="helptext">Tómate lo que haga falta para dejarlo bien clasificado: de esto sale el presupuesto.</div>
+      </div>
     </div>
     <div class="field"><label>Notas</label><textarea id="f_notes" placeholder="Opcional">${esc(e.notes)}</textarea></div>
     <div class="sheet-actions">
@@ -1848,7 +1816,10 @@ function openEventModal(existing, preset){
       c.onclick = ()=>{ c.classList.toggle('active'); const d=Number(c.dataset.day); if(repeatDays.includes(d)) repeatDays=repeatDays.filter(x=>x!==d); else repeatDays.push(d); };
     });
   }
-  document.getElementById('f_type').onchange = (ev)=>{ document.getElementById('personaField').style.display = (ev.target.value==='prestamo_dado'||ev.target.value==='prestamo_recibido') ? 'block' : 'none'; };
+  document.getElementById('f_type').onchange = (ev)=>{
+    document.getElementById('personaField').style.display = (ev.target.value==='prestamo_dado'||ev.target.value==='prestamo_recibido') ? 'block' : 'none';
+    document.getElementById('categoriaField').style.display = ev.target.value==='gasto' ? 'block' : 'none';
+  };
   document.getElementById('saveEvent').onclick = ()=>{
     const title = document.getElementById('f_title').value.trim();
     if(!title){ alert('Ponle un título'); return; }
@@ -1859,7 +1830,8 @@ function openEventModal(existing, preset){
       return;
     }
     const obj = { id: e.id || uid(), cat: selectedCat, title, date: document.getElementById('f_date').value || todayStr(), start: document.getElementById('f_start').value, end: document.getElementById('f_end').value, estMin: e.estMin || null, notes: document.getElementById('f_notes').value, status: e.status || 'pendiente', actualMin: e.actualMin || null };
-    if(selectedCat==='finanzas'){ obj.type = document.getElementById('f_type').value; obj.amount = document.getElementById('f_amount').value || 0; obj.persona = document.getElementById('f_persona') ? document.getElementById('f_persona').value : ''; }
+    if(selectedCat==='finanzas'){ obj.type = document.getElementById('f_type').value; obj.amount = document.getElementById('f_amount').value || 0; obj.persona = document.getElementById('f_persona') ? document.getElementById('f_persona').value : '';
+      obj.categoria = (obj.type==='gasto' && document.getElementById('f_categoria')) ? document.getElementById('f_categoria').value : ''; }
     if(isEdit){ const idx = DATA.events.findIndex(x=>x.id===e.id); DATA.events[idx] = obj; } else { DATA.events.push(obj); }
     saveData(); closeSheet(); renderAll();
   };
@@ -2037,6 +2009,40 @@ function sembrarCompromisos(){
     { id:uid(), cat:'personal', title:'SENA — inglés',   days:[3],     start:'08:00', end:'09:00', notes:'', flex:'saltable' },
     { id:uid(), cat:'personal', title:'Clase con Leslie',days:[3],     start:'10:30', end:'11:30', notes:'En línea', flex:'firme' }
   ];
+}
+
+/* Lo que Sharon me dicto de sus cobros, deudas y el evento del 27. Se siembra
+   una sola vez; de ahi en adelante manda lo que ella edite en la app. */
+function sembrarPlata(){
+  if(DATA.platoSembrado) return;
+  DATA.platoSembrado = true;
+
+  if(!DATA.suscripciones.length){
+    DATA.suscripciones = [
+      { id:uid(), nombre:'Datos',  monto:45000, moneda:'COP', dia:15, nota:'llega el 8, la pagas el 15' },
+      { id:uid(), nombre:'Claude', monto:20,    moneda:'USD', dia:19, nota:'' },
+      { id:uid(), nombre:'One',    monto:9000,  moneda:'COP', dia:'',  nota:'falta decirle qué día del mes' }
+    ];
+  }
+  if(!DATA.deudas.length){
+    DATA.deudas = [
+      { id:uid(), nombre:'Cuota del celular', sentido:'debo', monto:200000,
+        fecha:'2026-09-30', fechaHasta:'2026-10-03', aprox:true,
+        nota:'creo que es la última cuota — confirmar', movs:[] },
+      { id:uid(), nombre:'Jerson', sentido:'debo', monto:655000,
+        fecha:'', fechaHasta:'', aprox:false,
+        nota:'a veces le prestas tú y se va descontando', movs:[] }
+    ];
+  }
+  /* El evento del 27: va Karen, no ella, asi que no le ocupa el tiempo (D129). */
+  if(!DATA.nexxaEvents.some(e=>e.date==='2026-09-27')){
+    const ev27 = { id:uid(), client:'Evento del 27', type:'', date:'2026-09-27', start:'10:00', end:'',
+      status:'confirmado', value:300000, abonado:120000, quienVa:'Karen', voy:false,
+      material:false, materialDesc:'' };
+    DATA.nexxaEvents.push(ev27);
+    const ev = addLinkedEvent('nexxa', 'Evento del 27 · va Karen', ev27.date, ev27.start, '', 'nexxaEvent', ev27.id);
+    if(ev){ ev.status='progreso'; ev.noVoy = true; }
+  }
 }
 
 function turnoTitulo(t){
@@ -2246,17 +2252,369 @@ function renderChoquesSemana(){
 }
 
 /* ============================================================
+   PLATA
+   Orden de la pantalla, tal cual lo pediste (D112): cuanto tienes ahora,
+   cuanto vas a recibir y cuando, y como vas contra el presupuesto.
+============================================================ */
+
+/* Las ocho que elegiste, mas Otros para que ningun gasto te deje atascada (D98). */
+const CATEGORIAS_GASTO = ['Transporte','Comida fuera','Casa y servicios','Salud','Ropa y cuidado personal','Salidas y ocio','Datos y celular','Herramientas y cursos','Otros'];
+
+function tasaUSD(){ return Number(DATA.plata.tasaUSD) || null; }
+function enPesos(monto, moneda){
+  if(moneda!=='USD') return Number(monto)||0;
+  const t = tasaUSD();
+  return t ? Math.round(Number(monto)*t) : null;
+}
+function montoConMoneda(monto, moneda){
+  if(moneda!=='USD') return money(monto);
+  const pesos = enPesos(monto, moneda);
+  return 'US$' + Number(monto).toLocaleString('es-CO') + (pesos!==null ? ' · ' + money(pesos) : ' · falta la tasa');
+}
+function haceCuanto(fecha){
+  if(!fecha) return 'nunca';
+  const d = daysBetween(fecha, todayStr());
+  if(d<=0) return 'hoy';
+  if(d===1) return 'ayer';
+  return 'hace ' + d + ' días';
+}
+
+/* Cuando te pagan un turno. Asignar sale del corte del hotel; Infinity
+   paga el lunes siguiente; Movistar todavia no esta definido (D23, D37). */
+function fechaDePagoTurno(t){
+  if(t.lugar==='asignar' && t.hotel){ const p = pagoDeTurno(t.fecha, t.hotel); return p ? p.fecha : null; }
+  if(t.lugar==='infinity'){
+    const d = parseDate(t.fecha);
+    const faltan = (8 - d.getDay()) % 7 || 7;      // el lunes que viene
+    return fmtDate(addDays(d, faltan));
+  }
+  return null;
+}
+function porRecibir(){
+  const hoy = todayStr();
+  return DATA.turnos
+    .filter(t=>Number(t.estimado)>0 && !t.cobrado)
+    .map(t=>({ turno:t, fecha:fechaDePagoTurno(t), monto:Number(t.estimado) }))
+    .filter(x=> !x.fecha || x.fecha>=hoy)
+    .sort((a,b)=> (a.fecha||'9999').localeCompare(b.fecha||'9999'));
+}
+
+/* Un cobro que vuelve cada mes: el proximo que viene. */
+function proximoCobro(sus){
+  const hoy = new Date(), dia = Number(sus.dia);
+  if(!dia) return null;
+  let f = new Date(hoy.getFullYear(), hoy.getMonth(), Math.min(dia, ultimoDiaDelMes(hoy.getFullYear(), hoy.getMonth())));
+  if(fmtDate(f) < todayStr()){
+    const m = hoy.getMonth()+1;
+    f = new Date(hoy.getFullYear(), m, Math.min(dia, ultimoDiaDelMes(hoy.getFullYear(), m)));
+  }
+  return fmtDate(f);
+}
+
+/* Lo de Jerson no es un numero quieto: si a veces le prestas tu, se descuenta. */
+function saldoDeuda(d){
+  const movs = (d.movs||[]).reduce((a,m)=> a + (m.sentido==='abono' ? -Number(m.monto) : Number(m.monto)), 0);
+  return Number(d.monto) + movs;
+}
+
+function gastosDelMes(){
+  const mes = todayStr().slice(0,7);
+  const out = {};
+  DATA.events.filter(e=>e.cat==='finanzas' && e.type==='gasto' && e.date.startsWith(mes)).forEach(e=>{
+    const c = e.categoria || 'Otros';
+    out[c] = (out[c]||0) + Number(e.amount||0);
+  });
+  return out;
+}
+
+function renderPlata(){
+  const box = document.getElementById('sub-finanzas');
+  const P = DATA.plata;
+  let html = '';
+
+  /* 1 · cuanto tienes ahora — lo declaras tu y nunca miente en silencio (D99, D122) */
+  html += `<div class="card saldo-card" id="saldoCard">
+    <div class="lbl">Tengo ahora <span class="saldo-edad">${P.saldoFecha ? esc(haceCuanto(P.saldoFecha)) : 'sin declarar'}</span></div>
+    <div class="saldo-num mono">${P.saldo===null||P.saldo==='' ? '—' : money(P.saldo)}</div>
+    <div class="helptext" style="margin:4px 0 0;">${P.saldoFecha ? 'Tú lo declaraste el ' + esc(niceDate(P.saldoFecha)) + '. Tócalo para ajustarlo.' : 'Tócalo para decir cuánto tienes. Bitácora no lo calcula sola.'}</div>
+  </div>`;
+
+  /* 2 · cuanto vas a recibir y cuando (D112, D36) */
+  const recibir = porRecibir();
+  const totalRecibir = recibir.reduce((a,x)=>a+x.monto,0);
+  html += `<div class="section-title"><span>Por recibir</span><span class="mono" style="color:var(--c-dinero); font-weight:700;">${money(totalRecibir)}</span></div>`;
+  html += recibir.length ? recibir.map(x=>`
+    <div class="card" style="border-left:3px solid var(--c-trabajo);">
+      <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
+        <div style="font-weight:600;">${esc(turnoTitulo(x.turno))} <span class="tentativo">est.</span></div>
+        <div class="mono" style="font-weight:700;">${money(x.monto)}</div>
+      </div>
+      <div class="helptext" style="margin:3px 0 0;">${x.fecha ? 'Te pagan el ' + esc(niceDate(x.fecha)) : 'Sin fecha de pago definida'} · turno del ${esc(niceDateShort(x.turno.fecha))}</div>
+    </div>`).join('')
+    : '<div class="empty-card" style="margin-bottom:8px;">Nada por recibir. Ponle a cada turno lo que calculas que te pagan y aparece acá.</div>';
+  html += `<div class="helptext">Son estimados tuyos. Cuando te paguen los corriges y Bitácora ajusta.</div>`;
+
+  /* 3 · como vas contra el presupuesto — topes en pesos, y no te notifica (D80, D88) */
+  const gastado = gastosDelMes();
+  const conTope = CATEGORIAS_GASTO.filter(c=>Number(P.topes[c])>0);
+  html += `<div class="section-title"><span>Presupuesto</span><button class="small-btn" id="topesBtn">Topes</button></div>`;
+  if(conTope.length){
+    html += conTope.map(c=>{
+      const tope = Number(P.topes[c]), usado = gastado[c]||0;
+      const pct = Math.min(100, Math.round(usado/tope*100));
+      const color = pct>=100 ? 'var(--urgent)' : pct>=80 ? 'var(--ambar)' : 'var(--c-dinero)';
+      return `<div class="card">
+        <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
+          <div style="font-weight:600;">${esc(c)}</div>
+          <div class="mono" style="font-size:13px;"><b style="color:${color}">${money(usado)}</b> <span style="color:var(--text-dim);">/ ${money(tope)}</span></div>
+        </div>
+        <div class="progress-track"><div class="progress-fill" style="width:${pct}%; background:${color};"></div></div>
+      </div>`;
+    }).join('');
+    html += `<div class="helptext">Los topes se revisan cada vez que te pagan, no cada 30 días. Esto no te notifica: lo ves cuando entras.</div>`;
+  } else {
+    html += '<div class="empty-card" style="margin-bottom:8px;">Sin topes puestos. Tócale a Topes y ponles un máximo en pesos a las categorías que quieras vigilar.</div>';
+  }
+
+  /* 4 · lo que vuelve cada mes */
+  html += `<div class="section-title"><span>Cada mes</span><button class="small-btn" id="addSusBtn">+ Cobro</button></div>`;
+  html += DATA.suscripciones.length ? DATA.suscripciones.map(x=>{
+    const prox = proximoCobro(x);
+    const faltan = prox ? daysBetween(todayStr(), prox) : null;
+    const pronto = faltan!==null && faltan<=3;
+    return `<div class="card sus-card" data-id="${x.id}" style="cursor:pointer; border-left:3px solid var(--c-dinero);">
+      <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
+        <div style="font-weight:600;">${esc(x.nombre)}</div>
+        <div class="mono" style="font-weight:700;">${montoConMoneda(x.monto, x.moneda)}</div>
+      </div>
+      <div class="helptext" style="margin:3px 0 0; ${pronto?'color:var(--ambar); font-weight:600;':''}">
+        ${x.dia ? 'El ' + x.dia + ' de cada mes' + (prox ? ' · el próximo, ' + esc(niceDate(prox)) : '') : '⚠ falta el día del mes'}${x.nota ? ' · ' + esc(x.nota) : ''}
+      </div>
+    </div>`;
+  }).join('') : '<div class="empty-card" style="margin-bottom:8px;">Sin cobros mensuales.</div>';
+
+  /* 5 · deudas y prestamos, en los dos sentidos (D96, D39) */
+  html += `<div class="section-title"><span>Debo y me deben</span><button class="small-btn" id="addDeudaBtn">+ Préstamo</button></div>`;
+  html += DATA.deudas.length ? DATA.deudas.map(d=>{
+    const saldo = saldoDeuda(d);
+    const debo = d.sentido!=='meDeben';
+    const cuando = d.fecha ? (d.fechaHasta ? niceDateShort(d.fecha) + ' al ' + niceDateShort(d.fechaHasta) : niceDate(d.fecha)) + (d.aprox ? ' (estimado)' : '') : 'Sin fecha';
+    return `<div class="card deuda-card" data-id="${d.id}" style="cursor:pointer; border-left:3px solid ${debo?'var(--urgent)':'var(--c-dinero)'};">
+      <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
+        <div style="font-weight:600;">${esc(d.nombre)}</div>
+        <div class="mono" style="font-weight:700; color:${debo?'var(--urgent)':'var(--c-dinero)'};">${money(saldo)}</div>
+      </div>
+      <div class="helptext" style="margin:3px 0 0;">${debo?'Le debes':'Te debe'} · ${esc(cuando)}${d.nota ? ' · ' + esc(d.nota) : ''}${(d.movs||[]).length ? ' · ' + d.movs.length + ' movimiento' + (d.movs.length>1?'s':'') : ''}</div>
+    </div>`;
+  }).join('') : '<div class="empty-card" style="margin-bottom:8px;">Sin préstamos registrados.</div>';
+
+  /* 6 · movimientos sueltos y cuotas, lo que ya existia */
+  const mes = todayStr().slice(0,7);
+  const evMes = DATA.events.filter(e=>e.cat==='finanzas' && e.date.startsWith(mes));
+  const ingresos = evMes.filter(e=>e.type==='ingreso').reduce((a,e)=>a+Number(e.amount||0),0);
+  const gastos = evMes.filter(e=>e.type==='gasto').reduce((a,e)=>a+Number(e.amount||0),0);
+  html += `<div class="section-title">Este mes</div>
+    <div class="summary-row">
+      <div class="summary-box"><div class="lbl">Entró</div><div class="val money" style="color:var(--done)">+${money(ingresos)}</div></div>
+      <div class="summary-box"><div class="lbl">Salió</div><div class="val money" style="color:var(--urgent)">-${money(gastos)}</div></div>
+    </div>
+    <button class="btn btn-primary" style="width:100%; margin:2px 0 4px;" id="addMoneyBtn">+ Registrar un movimiento</button>`;
+
+  html += `<div class="section-title">Compras a cuotas</div>`;
+  if(DATA.installments.length){
+    html += DATA.installments.map(inst=>{
+      const paid = inst.payments.reduce((a,p)=>a+Number(p.amount),0);
+      const pct = Math.min(100, Math.round((paid/Number(inst.total))*100));
+      return `<div class="card installment-card" data-id="${inst.id}">
+        <div style="display:flex; justify-content:space-between; align-items:baseline;">
+          <div style="font-weight:700; font-size:14.5px;">${esc(inst.name)}</div>
+          <div style="font-size:12px; color:var(--text-dim);">${inst.payments.length}/${esc(inst.cuotas)} cuotas</div>
+        </div>
+        <div style="font-size:12.5px; color:var(--text-muted); margin-top:3px;">${money(paid)} pagado de ${money(inst.total)}</div>
+        <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+        <div style="display:flex; gap:8px; margin-top:10px;">
+          <button class="small-btn" data-action="payInstallment" data-id="${inst.id}">+ Registrar pago</button>
+          <button class="small-btn" data-action="delInstallment" data-id="${inst.id}" style="color:var(--urgent);">Eliminar</button>
+        </div>
+      </div>`;
+    }).join('');
+  } else { html += '<div class="empty-card" style="margin-bottom:10px;">Sin compras a cuotas registradas.</div>'; }
+  html += `<button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addInstallmentBtn">+ Agregar compra a cuotas</button>`;
+
+  /* la tasa del dolar vive abajo: la pones tu a mano y funciona sin internet (D128) */
+  html += `<div class="section-title" style="margin-top:26px;">Dólar</div>
+    <div class="card tasa-card" id="tasaCard" style="cursor:pointer;">
+      <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
+        <div style="font-weight:600;">1 USD</div>
+        <div class="mono" style="font-weight:700;">${tasaUSD() ? money(tasaUSD()) : 'sin poner'}</div>
+      </div>
+      <div class="helptext" style="margin:3px 0 0;">${DATA.plata.tasaFecha ? 'La pusiste ' + esc(haceCuanto(DATA.plata.tasaFecha)) + '. Tócala para cambiarla.' : 'Tócala para ponerla. La pones tú, así funciona sin internet.'}</div>
+    </div>`;
+
+  box.innerHTML = html;
+  bindItemClicks();
+  document.getElementById('saldoCard').onclick = openSaldoModal;
+  document.getElementById('tasaCard').onclick = openTasaModal;
+  document.getElementById('topesBtn').onclick = openTopesModal;
+  document.getElementById('addSusBtn').onclick = ()=>openSuscripcionModal();
+  document.getElementById('addDeudaBtn').onclick = ()=>openDeudaModal();
+  document.getElementById('addMoneyBtn').onclick = ()=>openEventModal(null, {cat:'finanzas'});
+  document.getElementById('addInstallmentBtn').onclick = openInstallmentModal;
+  box.querySelectorAll('.sus-card').forEach(c=>c.onclick=()=>openSuscripcionModal(DATA.suscripciones.find(x=>x.id===c.dataset.id)));
+  box.querySelectorAll('.deuda-card').forEach(c=>c.onclick=()=>openDeudaModal(DATA.deudas.find(x=>x.id===c.dataset.id)));
+  box.querySelectorAll('[data-action="payInstallment"]').forEach(b=>b.onclick=()=>openPayModal(b.dataset.id));
+  box.querySelectorAll('[data-action="delInstallment"]').forEach(b=>b.onclick=()=>{ DATA.installments = DATA.installments.filter(i=>i.id!==b.dataset.id); saveData(); renderPlata(); });
+}
+
+function openSaldoModal(){
+  const P = DATA.plata;
+  openSheet(`<h3>¿Cuánto tienes ahora?</h3>
+    <div class="field"><label>Lo que tienes hoy</label><input type="number" id="f_saldo" inputmode="numeric" value="${P.saldo??''}" placeholder="$"></div>
+    <div class="helptext">Bitácora no lo calcula sola. Si se desfasa no pasa nada: lo corriges cuando te des cuenta.</div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="saveSaldo">Guardar</button></div>`);
+  document.getElementById('saveSaldo').onclick = ()=>{
+    P.saldo = Number(document.getElementById('f_saldo').value)||0;
+    P.saldoFecha = todayStr();
+    saveData(); closeSheet(); renderPlata();
+  };
+}
+function openTasaModal(){
+  const P = DATA.plata;
+  openSheet(`<h3>¿A cómo está el dólar?</h3>
+    <div class="field"><label>Cuántos pesos vale 1 USD</label><input type="number" id="f_tasa" inputmode="numeric" value="${P.tasaUSD??''}" placeholder="Ej: 4100"></div>
+    <div class="helptext">La pones tú y la cambias cuando quieras. No se busca sola, porque eso necesitaría internet.</div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="saveTasa">Guardar</button></div>`);
+  document.getElementById('saveTasa').onclick = ()=>{
+    P.tasaUSD = Number(document.getElementById('f_tasa').value)||null;
+    P.tasaFecha = todayStr();
+    saveData(); closeSheet(); renderPlata();
+  };
+}
+function openTopesModal(){
+  const P = DATA.plata;
+  openSheet(`<h3>Topes del mes</h3>
+    <div class="helptext" style="margin-top:0;">Un máximo en pesos por categoría. Deja en blanco las que no quieras vigilar.</div>
+    ${CATEGORIAS_GASTO.map((c,i)=>`<div class="field"><label>${esc(c)}</label><input type="number" inputmode="numeric" data-cat="${i}" value="${P.topes[c]??''}" placeholder="Sin tope"></div>`).join('')}
+    <div class="sheet-actions"><button class="btn btn-primary" id="saveTopes">Guardar</button></div>`);
+  document.getElementById('saveTopes').onclick = ()=>{
+    sheet.querySelectorAll('[data-cat]').forEach(inp=>{
+      const c = CATEGORIAS_GASTO[Number(inp.dataset.cat)];
+      const v = Number(inp.value);
+      if(v>0) P.topes[c]=v; else delete P.topes[c];
+    });
+    saveData(); closeSheet(); renderPlata();
+  };
+}
+function openSuscripcionModal(existente){
+  const x = existente || { id:null, nombre:'', monto:'', moneda:'COP', dia:'', nota:'' };
+  openSheet(`<h3>${existente?'Editar cobro':'Cobro que vuelve cada mes'}</h3>
+    <div class="field"><label>¿Qué es?</label><input type="text" id="f_sname" value="${esc(x.nombre)}" placeholder="Ej: Datos, Claude"></div>
+    <div class="field-row">
+      <div class="field"><label>Cuánto</label><input type="number" id="f_smonto" inputmode="decimal" value="${x.monto}"></div>
+      <div class="field"><label>Moneda</label><select id="f_smoneda">
+        <option value="COP" ${x.moneda!=='USD'?'selected':''}>Pesos</option>
+        <option value="USD" ${x.moneda==='USD'?'selected':''}>Dólares</option>
+      </select></div>
+    </div>
+    <div class="field"><label>Qué día del mes</label><input type="number" id="f_sdia" inputmode="numeric" min="1" max="31" value="${x.dia}" placeholder="1 a 31"></div>
+    <div class="field"><label>Nota (opcional)</label><input type="text" id="f_snota" value="${esc(x.nota||'')}" placeholder="Ej: llega el 8, la pago el 15"></div>
+    <div class="sheet-actions">
+      ${existente?`<button class="btn btn-ghost" id="delSus">Borrar</button>`:''}
+      <button class="btn btn-primary" id="saveSus">Guardar</button>
+    </div>`);
+  const del = document.getElementById('delSus');
+  if(del) del.onclick = ()=>{ DATA.suscripciones = DATA.suscripciones.filter(s=>s.id!==existente.id); saveData(); closeSheet(); renderPlata(); };
+  document.getElementById('saveSus').onclick = ()=>{
+    const datos = {
+      nombre: document.getElementById('f_sname').value.trim(),
+      monto: Number(document.getElementById('f_smonto').value)||0,
+      moneda: document.getElementById('f_smoneda').value,
+      dia: Number(document.getElementById('f_sdia').value)||'',
+      nota: document.getElementById('f_snota').value.trim()
+    };
+    if(!datos.nombre){ alert('Ponle nombre.'); return; }
+    if(existente) Object.assign(existente, datos);
+    else DATA.suscripciones.push(Object.assign({id:uid()}, datos));
+    saveData(); closeSheet(); renderPlata();
+  };
+}
+function openDeudaModal(existente){
+  const d = existente || { id:null, nombre:'', sentido:'debo', monto:'', fecha:'', fechaHasta:'', aprox:true, nota:'', movs:[] };
+  const saldo = existente ? saldoDeuda(d) : 0;
+  openSheet(`<h3>${existente?esc(d.nombre):'Préstamo'}</h3>
+    ${existente?`<div class="card" style="margin-bottom:14px;"><div class="lbl">${d.sentido==='meDeben'?'Te debe':'Le debes'} ahora</div><div class="saldo-num mono">${money(saldo)}</div>
+      ${(d.movs||[]).length?`<div class="helptext" style="margin:6px 0 0;">${d.movs.map(m=>`${m.sentido==='abono'?'−':'+'} ${money(m.monto)} · ${esc(niceDateShort(m.fecha))}${m.nota?' · '+esc(m.nota):''}`).join('<br>')}</div>`:''}
+      <button class="small-btn" id="addMov" style="margin-top:10px;">+ Movimiento</button></div>`:''}
+    <div class="field"><label>¿Con quién o qué es?</label><input type="text" id="f_dname" value="${esc(d.nombre)}" placeholder="Ej: Jerson, cuota del celular"></div>
+    <div class="field"><label>Sentido</label><select id="f_dsentido">
+      <option value="debo" ${d.sentido!=='meDeben'?'selected':''}>Yo le debo</option>
+      <option value="meDeben" ${d.sentido==='meDeben'?'selected':''}>Me deben a mí</option>
+    </select></div>
+    <div class="field"><label>Cuánto era al principio</label><input type="number" id="f_dmonto" inputmode="numeric" value="${d.monto}"></div>
+    <div class="field-row">
+      <div class="field"><label>Fecha (o desde)</label><input type="date" id="f_dfecha" value="${d.fecha}"></div>
+      <div class="field"><label>Hasta (opcional)</label><input type="date" id="f_dhasta" value="${d.fechaHasta||''}"></div>
+    </div>
+    <label class="field-check"><input type="checkbox" id="f_daprox" ${d.aprox?'checked':''}>
+      <span>La fecha es un estimado<br><span class="helptext" style="margin:2px 0 0;">La corriges cuando la sepas de verdad.</span></span></label>
+    <div class="field"><label>Nota (opcional)</label><input type="text" id="f_dnota" value="${esc(d.nota||'')}" placeholder="Ej: creo que es la última cuota"></div>
+    <div class="sheet-actions">
+      ${existente?`<button class="btn btn-ghost" id="delDeuda">Borrar</button>`:''}
+      <button class="btn btn-primary" id="saveDeuda">Guardar</button>
+    </div>`);
+  const mov = document.getElementById('addMov');
+  if(mov) mov.onclick = ()=>openMovModal(existente);
+  const del = document.getElementById('delDeuda');
+  if(del) del.onclick = ()=>{ DATA.deudas = DATA.deudas.filter(x=>x.id!==existente.id); saveData(); closeSheet(); renderPlata(); };
+  document.getElementById('saveDeuda').onclick = ()=>{
+    const datos = {
+      nombre: document.getElementById('f_dname').value.trim(),
+      sentido: document.getElementById('f_dsentido').value,
+      monto: Number(document.getElementById('f_dmonto').value)||0,
+      fecha: document.getElementById('f_dfecha').value,
+      fechaHasta: document.getElementById('f_dhasta').value,
+      aprox: document.getElementById('f_daprox').checked,
+      nota: document.getElementById('f_dnota').value.trim()
+    };
+    if(!datos.nombre){ alert('Ponle nombre.'); return; }
+    if(existente) Object.assign(existente, datos);
+    else DATA.deudas.push(Object.assign({id:uid(), movs:[]}, datos));
+    saveData(); closeSheet(); renderPlata();
+  };
+}
+function openMovModal(deuda){
+  openSheet(`<h3>Movimiento · ${esc(deuda.nombre)}</h3>
+    <div class="field"><label>Qué pasó</label><select id="f_msentido">
+      <option value="abono">Le abonaste / te abonó — baja la deuda</option>
+      <option value="suma">Se prestaron más — sube la deuda</option>
+    </select></div>
+    <div class="field"><label>Cuánto</label><input type="number" id="f_mmonto" inputmode="numeric"></div>
+    <div class="field"><label>Cuándo</label><input type="date" id="f_mfecha" value="${todayStr()}"></div>
+    <div class="field"><label>Nota (opcional)</label><input type="text" id="f_mnota"></div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="saveMov">Guardar</button></div>`);
+  document.getElementById('saveMov').onclick = ()=>{
+    const monto = Number(document.getElementById('f_mmonto').value);
+    if(!monto){ alert('Pon el monto.'); return; }
+    deuda.movs = deuda.movs || [];
+    deuda.movs.push({ id:uid(), sentido:document.getElementById('f_msentido').value, monto,
+      fecha:document.getElementById('f_mfecha').value || todayStr(), nota:document.getElementById('f_mnota').value.trim() });
+    saveData(); closeSheet(); renderPlata();
+  };
+}
+
+/* ============================================================
    RENDER ALL
 ============================================================ */
 function renderAll(){
   asegurarListas();
   sembrarCompromisos();
+  sembrarPlata();
   renderHeader();
   const active = views.find(v=>document.getElementById('view-'+v).classList.contains('active'));
   if(active==='hoy') renderHoy();
   if(active==='calendario'){ renderCalendar(); renderChoquesSemana(); renderTurnos(); renderRutinas(); }
   if(active==='pendientes'){ renderTareasView(); renderMaterias(); renderNexxaGestion(); renderTrabajo(); }
-  if(active==='plata') renderFinanzas();
+  if(active==='plata') renderPlata();
   if(active==='yo'){ renderYo(); renderPersonalGestion(); }
 }
 
