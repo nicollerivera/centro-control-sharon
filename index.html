@@ -1314,6 +1314,12 @@ function cortesDe(s){ return s.cortes || (s.cortes = []); }
 /* Con lo evaluado hasta ahora: cuanto lleva, cuanto del total ya se jugo, y
    cuanto necesita en lo que falta para pasar (D90). */
 function estadoMateria(s){
+  /* Si ya le dieron la definitiva, no hay nada que estimar: esa es la nota. */
+  if(s.definitiva !== null && s.definitiva !== undefined && s.definitiva !== ''){
+    return { total:100, evaluado:100, falta:0, nota:Number(s.definitiva),
+             acumulado:Number(s.definitiva), necesita:null, imposible:false,
+             yaPaso:Number(s.definitiva) >= uniCfg().pasaCon, esDefinitiva:true };
+  }
   const cortes = cortesDe(s);
   const total = cortes.reduce((a,c)=>a+Number(c.pct||0), 0);
   const puestos = cortes.filter(c=>c.nota!==null && c.nota!=='' && c.nota!==undefined);
@@ -1562,7 +1568,7 @@ function renderMaterias(){
   }
 
   /* ---- las materias ---- */
-  html += `<div class="section-title"><span>Materias</span><span class="cuenta">${subs.length}</span></div>`;
+  html += `<div class="section-title"><span>Materias</span>${subs.length ? `<button class="small-btn" id="defiBtn">Poner definitivas</button>` : `<span class="cuenta">0</span>`}</div>`;
   if(subs.length){
     subs.forEach(s=>{
       const e = estadoMateria(s);
@@ -1572,7 +1578,11 @@ function renderMaterias(){
         <div class="subject-row materia-row" data-id="${s.id}" style="cursor:pointer; border-left-color:var(--c-uni);">
           <div class="info">
             <div class="name">${esc(s.name)}</div>
-            <div class="time">${DOW[s.day]} · ${esc(s.start||'--')}${s.end?'–'+esc(s.end):''} · ${e.total ? Math.round(e.evaluado)+'% evaluado' : 'sin porcentajes'}${s.fallas ? ' · '+s.fallas+' falla'+(s.fallas>1?'s':'') : ''}</div>
+            <div class="time">${[
+              s.start ? DOW[s.day] + ' · ' + esc(s.start) + (s.end?'–'+esc(s.end):'') : 'sin horario',
+              e.esDefinitiva ? 'definitiva' : (e.total ? Math.round(e.evaluado)+'% evaluado' : 'sin porcentajes'),
+              s.fallas ? s.fallas+' falla'+(s.fallas>1?'s':'') : ''
+            ].filter(Boolean).join(' · ')}</div>
           </div>
           <div class="mono" style="font-size:19px; font-weight:600; color:${colorNota};">${nota1(e.nota)}</div>
         </div>
@@ -1621,6 +1631,8 @@ function renderMaterias(){
   document.getElementById('addSubjectBtn').onclick = openSubjectModal;
   document.getElementById('addTaskBtn').onclick = openTaskModal;
   document.getElementById('fallasBox').onclick = openUniAjustes;
+  const defiBtn = document.getElementById('defiBtn');
+  if(defiBtn) defiBtn.onclick = openDefinitivasModal;
   document.getElementById('cerrarBimestreBtn').onclick = cerrarBimestre;
   box.querySelectorAll('.materia-row').forEach(r=>{
     r.onclick = (ev)=>{ if(ev.target.closest('.small-btn')) return; openMateriaModal(DATA.subjects.find(x=>x.id===r.dataset.id)); };
@@ -1647,6 +1659,11 @@ function openMateriaModal(s){
       </div>
       <div class="helptext" style="margin:3px 0 0;">${e.total ? Math.round(e.evaluado)+'% evaluado de '+Math.round(e.total)+'%' : 'Ponle los cortes para que esto calcule'}${
         e.necesita!==null && e.falta>0 ? (e.yaPaso ? ' · ya pasaste, pase lo que pase' : e.imposible ? ' · ya no alcanzas a pasar' : ' · necesitas '+nota1(e.necesita)+' en el '+Math.round(e.falta)+'% que falta') : ''}</div>
+    </div>
+
+    <div class="field"><label>Nota definitiva</label>
+      <input type="number" id="f_definitiva" step="0.1" inputmode="decimal" value="${s.definitiva ?? ''}" placeholder="La que te dio la universidad">
+      <div class="helptext">Si la pones, manda sobre los cortes y ya no se calcula nada. Déjala en blanco mientras el período siga abierto.</div>
     </div>
 
     <div class="field"><label>Cortes y porcentajes</label>
@@ -1693,10 +1710,60 @@ function openMateriaModal(s){
   };
   document.getElementById('saveMateria').onclick = ()=>{
     s.cortes = leerCortes();
+    const defi = document.getElementById('f_definitiva').value;
+    s.definitiva = defi==='' ? null : Number(defi);
     s.fallas = Number(document.getElementById('f_fallas').value)||0;
     s.day = Number(document.getElementById('f_mday').value);
     s.start = document.getElementById('f_mstart').value;
     s.end = document.getElementById('f_mend').value;
+    saveData(); closeSheet(); renderAll();
+  };
+}
+
+/* Cuando la universidad le entrega las definitivas, ese numero manda sobre
+   todo lo calculado: ya no hay nada que estimar. */
+function openDefinitivasModal(){
+  const subs = [...DATA.subjects].sort((a,b)=> a.day-b.day || (a.start||'').localeCompare(b.start||''));
+  const extras = 5 - subs.length;
+  openSheet(`<h3>Notas definitivas</h3>
+    <div class="helptext" style="margin:-4px 0 14px;">Las de ${esc(DATA.period || 'este período')}. Escribe la que te dieron y ya: manda sobre lo que Bitácora venía calculando. Deja en blanco las que todavía no te den.</div>
+
+    <div id="defiBox">
+      ${subs.map(s=>`
+        <div class="field-row defi-row" data-id="${s.id}" style="align-items:flex-end;">
+          <div class="field" style="flex:2;"><label>${esc(s.name)}</label>
+            <input type="number" data-defi step="0.1" inputmode="decimal" value="${s.definitiva ?? ''}" placeholder="${nota1(estadoMateria(s).nota)}"></div>
+        </div>`).join('')}
+      ${Array.from({length: Math.max(extras, 2)}, (_, i)=>`
+        <div class="field-row defi-nueva" style="align-items:flex-end;">
+          <div class="field" style="flex:2;"><label>${i===0 && subs.length ? 'Otra materia' : (subs.length ? '' : 'Materia')}</label>
+            <input type="text" data-nombre placeholder="Nombre de la materia"></div>
+          <div class="field" style="flex:1;"><label>Nota</label>
+            <input type="number" data-nota step="0.1" inputmode="decimal" placeholder="Ej: 4,2"></div>
+        </div>`).join('')}
+    </div>
+
+    <div class="helptext">Si una materia no está en la lista, escríbela abajo con su nota y queda creada.</div>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" id="d_volver">Volver</button>
+      <button class="btn btn-primary" id="d_guardar">Guardar</button>
+    </div>`);
+
+  document.getElementById('d_volver').onclick = closeSheet;
+  document.getElementById('d_guardar').onclick = ()=>{
+    sheet.querySelectorAll('.defi-row').forEach(row=>{
+      const s = DATA.subjects.find(x=>x.id===row.dataset.id);
+      if(!s) return;
+      const v = row.querySelector('[data-defi]').value;
+      s.definitiva = v==='' ? null : Number(v);
+    });
+    sheet.querySelectorAll('.defi-nueva').forEach(row=>{
+      const nombre = row.querySelector('[data-nombre]').value.trim();
+      const nota = row.querySelector('[data-nota]').value;
+      if(!nombre) return;
+      DATA.subjects.push({ id:uid(), name:nombre, day:1, start:'', end:'',
+        cortes:[], fallas:0, definitiva: nota==='' ? null : Number(nota) });
+    });
     saveData(); closeSheet(); renderAll();
   };
 }
