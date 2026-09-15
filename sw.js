@@ -1,4 +1,4 @@
-/* Service worker del Centro de Control.
+/* Service worker de Bitacora.
 
    Guarda la app en el telefono para que abra sin internet. Los datos siguen
    viniendo de /api/data como siempre: eso NO se cachea nunca, porque es lo
@@ -10,9 +10,9 @@
    - /api/*: siempre la red, el service worker ni se mete
 */
 
-const VERSION = 'v1';
-const CACHE = `centro-control-${VERSION}`;
-const CACHE_EXTERNO = `centro-externo-${VERSION}`;
+const VERSION = 'v2';
+const CACHE = `bitacora-${VERSION}`;
+const CACHE_EXTERNO = `bitacora-externo-${VERSION}`;
 
 /* Lo minimo para que la app arranque sin conexion. */
 const ESENCIALES = [

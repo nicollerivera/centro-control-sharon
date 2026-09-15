@@ -6,10 +6,10 @@
 <title>Bitácora</title>
 <script>
 /* Modo claro u oscuro (D55). La primera vez sigue al teléfono; después manda el botón. */
+/* Arranca en claro. El oscuro se elige con el boton, no lo decide el
+   telefono: lo que pidio Sharon fue un boton manual (D55). */
 try{
-  var _t = localStorage.getItem('bitacora:tema');
-  if(!_t) _t = matchMedia('(prefers-color-scheme: dark)').matches ? 'oscuro' : 'claro';
-  document.documentElement.dataset.tema = _t;
+  document.documentElement.dataset.tema = localStorage.getItem('bitacora:tema') || 'claro';
 }catch(e){}
 </script>
 <link rel="manifest" href="/manifest.json">
@@ -134,25 +134,25 @@ button{font-family:inherit;}
 .view.active{display:block;}
 @keyframes fade{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);}}
 
-.section-title{font-size:12px; text-transform:uppercase; letter-spacing:.09em; color:var(--text-dim); font-weight:700; margin:22px 0 10px; display:flex; align-items:center; justify-content:space-between; gap:8px;}
+.section-title{font-size:12px; text-transform:uppercase; letter-spacing:.09em; color:var(--text-muted); font-weight:700; margin:22px 0 10px; display:flex; align-items:center; justify-content:space-between; gap:8px;}
 .section-title:first-child{margin-top:4px;}
 .section-title .count{color:var(--accent); font-weight:700;}
 
 /* ---------- cards ---------- */
 .card{background:var(--surface); border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:var(--radius); padding:14px; margin-bottom:10px;}
-.empty-card{background:var(--surface); border:1px dashed var(--border); border-radius:var(--radius); padding:20px 16px; text-align:center; color:var(--text-dim); font-size:13.5px;}
+.empty-card{background:var(--surface); border:1px dashed var(--border); border-radius:var(--radius); padding:20px 16px; text-align:center; color:var(--text-muted); font-size:13.5px;}
 
 .item{display:flex; align-items:flex-start; gap:11px; background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--accent); border-radius:var(--radius-sm); padding:12px; margin-bottom:8px; cursor:pointer;}
 .item:active{background:var(--surface-2);}
 .item .hora{flex:none; width:44px; font-size:12.5px; font-weight:600; color:var(--text-muted); padding-top:1px;}
-.hueco{margin:0 0 8px 0; padding:7px 12px 7px 15px; border-left:2px dashed var(--border-2); font-size:12.5px; color:var(--text-dim); display:flex; align-items:center; gap:9px; flex-wrap:wrap;}
+.hueco{margin:0 0 8px 0; padding:7px 12px 7px 15px; border-left:2px dashed var(--border-2); font-size:12.5px; color:var(--text-muted); display:flex; align-items:center; gap:9px; flex-wrap:wrap;}
 .cabe{background:var(--accent-soft); color:var(--accent); font-weight:600; padding:2px 8px; border-radius:20px; font-size:11.5px;}
-.cuenta{font-size:11.5px; color:var(--text-dim); font-weight:600; text-transform:none; letter-spacing:0;}
+.cuenta{font-size:11.5px; color:var(--text-muted); font-weight:600; text-transform:none; letter-spacing:0;}
 .item .body{flex:1; min-width:0;}
 .item .row1{display:flex; align-items:center; justify-content:space-between; gap:8px;}
 .item .title{font-size:14.5px; font-weight:600; line-height:1.3;}
 .item.done .title{color:var(--text-dim); text-decoration:line-through;}
-.item .meta{font-size:12px; color:var(--text-dim); margin-top:3px; display:flex; gap:8px; flex-wrap:wrap;}
+.item .meta{font-size:12px; color:var(--text-muted); margin-top:3px; display:flex; gap:8px; flex-wrap:wrap;}
 .tag{font-size:10.5px; padding:2px 7px; border-radius:20px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; flex-shrink:0;}
 .status-btn{width:26px; height:26px; border-radius:50%; border:1.5px solid var(--border); background:transparent; flex-shrink:0; margin-top:1px;}
 .status-btn.progreso{border-color:var(--accent); background:conic-gradient(var(--accent) 50%, transparent 0);}
@@ -160,7 +160,7 @@ button{font-family:inherit;}
 
 /* ---------- bottom nav ---------- */
 .bottomnav{position:fixed; bottom:0; left:0; right:0; z-index:30; background:rgba(255,255,255,.9); backdrop-filter:blur(14px); border-top:1px solid var(--border); padding:8px 4px calc(8px + env(safe-area-inset-bottom)); display:flex; justify-content:space-around;}
-.navbtn{background:none; border:none; color:var(--text-dim); display:flex; flex-direction:column; align-items:center; gap:3px; font-size:10.5px; font-weight:700; padding:4px 6px; border-radius:10px; flex:1; max-width:90px; position:relative;}
+.navbtn{background:none; border:none; color:var(--text-muted); display:flex; flex-direction:column; align-items:center; gap:3px; font-size:10.5px; font-weight:700; padding:4px 6px; border-radius:10px; flex:1; max-width:90px; position:relative;}
 .navbtn.active{color:var(--accent);}
 .navbtn svg{width:21px; height:21px;}
 .navbtn .badge{position:absolute; top:0; right:12px; background:var(--urgent); color:#fff; font-size:9px; font-weight:800; min-width:15px; height:15px; border-radius:8px; display:flex; align-items:center; justify-content:center; padding:0 3px;}
@@ -176,8 +176,15 @@ button{font-family:inherit;}
 .chip.active{border-color:var(--chip-color, var(--accent)); background:var(--chip-color-soft, var(--accent-soft)); color:var(--text);}
 
 /* ---------- subtabs ---------- */
-.subtabs{display:flex; gap:6px; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:4px; margin-bottom:16px; overflow-x:auto; scrollbar-width:none;}
+.subtabs-wrap{position:relative; margin-bottom:16px;}
+.subtabs{display:flex; gap:6px; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:4px; overflow-x:auto; scrollbar-width:none; scroll-behavior:smooth;}
 .subtabs::-webkit-scrollbar{display:none;}
+/* una sombrita al borde avisa que hay mas pestanas para ese lado */
+.subtabs-wrap::after, .subtabs-wrap::before{content:''; position:absolute; top:1px; bottom:1px; width:26px; pointer-events:none; opacity:0; transition:opacity .18s; border-radius:12px;}
+.subtabs-wrap::after{right:1px; background:linear-gradient(90deg, transparent, var(--surface) 72%);}
+.subtabs-wrap::before{left:1px; background:linear-gradient(270deg, transparent, var(--surface) 72%); z-index:1;}
+.subtabs-wrap[data-mas-derecha]::after{opacity:1;}
+.subtabs-wrap[data-mas-izquierda]::before{opacity:1;}
 .subtab{flex-shrink:0; border:none; background:none; color:var(--text-dim); font-weight:700; font-size:12.5px; padding:9px 12px; border-radius:9px; white-space:nowrap;}
 .subtab.active{background:var(--accent); color:#fff;}
 
@@ -324,7 +331,7 @@ button{font-family:inherit;}
 .btn-ghost{background:var(--surface-2); color:var(--text-muted);}
 .btn-danger{background:var(--urgent-soft); color:var(--urgent);}
 .close-x{position:absolute; top:16px; right:16px; background:var(--surface-2); border:none; color:var(--text-muted); width:30px; height:30px; border-radius:50%; font-size:15px;}
-.helptext{font-size:11.5px; color:var(--text-dim); margin:-8px 0 14px; line-height:1.4;}
+.helptext{font-size:12px; color:var(--text-muted); margin:-8px 0 14px; line-height:1.45;}
 
 ::selection{background:var(--accent-soft);}
 
@@ -386,12 +393,14 @@ button{font-family:inherit;}
 
   <!-- ===== PENDIENTES ===== -->
   <div class="view" id="view-pendientes">
-    <div class="subtabs">
-      <button class="subtab active" data-sub="listas">Todo</button>
-      <button class="subtab" data-sub="materias">Universidad</button>
-      <button class="subtab" data-sub="marca">Marca personal</button>
-      <button class="subtab" data-sub="nexxa">Nexxa</button>
-      <button class="subtab" data-sub="trabajo">Trabajo</button>
+    <div class="subtabs-wrap">
+      <div class="subtabs">
+        <button class="subtab active" data-sub="listas">Todo</button>
+        <button class="subtab" data-sub="materias">Universidad</button>
+        <button class="subtab" data-sub="marca">Marca personal</button>
+        <button class="subtab" data-sub="nexxa">Nexxa</button>
+        <button class="subtab" data-sub="trabajo">Trabajo</button>
+      </div>
     </div>
     <div id="sub-listas">
       <div class="section-title">Agregar a</div>
@@ -715,18 +724,33 @@ function showView(v){
   document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
   document.getElementById('fabAdd').style.display = 'flex';
   renderAll();
+  /* la barra recien se puede medir cuando su seccion esta a la vista */
+  document.querySelectorAll('#view-'+v+' .subtabs').forEach(marcarBordes);
 }
 document.querySelectorAll('.navbtn').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view)));
+
+/* Marca en que lado quedan pestanas escondidas, para pintar la sombrita. */
+function marcarBordes(barra){
+  const caja = barra.closest('.subtabs-wrap');
+  if(!caja) return;
+  const hayMas = barra.scrollWidth - barra.clientWidth;
+  caja.toggleAttribute('data-mas-izquierda', barra.scrollLeft > 4);
+  caja.toggleAttribute('data-mas-derecha', barra.scrollLeft < hayMas - 4);
+}
 
 /* Cada barra de subpestañas manda solo sobre las suyas. */
 document.querySelectorAll('.subtabs').forEach(barra=>{
   const botones = [...barra.querySelectorAll('.subtab')];
   const subs = botones.map(b=>b.dataset.sub);
+  barra.addEventListener('scroll', ()=>marcarBordes(barra), {passive:true});
+  addEventListener('resize', ()=>marcarBordes(barra));
+  requestAnimationFrame(()=>marcarBordes(barra));
   botones.forEach(b=>{
     b.addEventListener('click', ()=>{
       botones.forEach(x=>x.classList.remove('active'));
       b.classList.add('active');
       b.scrollIntoView({behavior:'smooth', inline:'center', block:'nearest'});
+      setTimeout(()=>marcarBordes(barra), 320);
       subs.forEach(sub=>{
         const el = document.getElementById('sub-'+sub);
         if(el) el.style.display = (sub===b.dataset.sub) ? 'block' : 'none';
@@ -3332,6 +3356,7 @@ function renderAll(){
 (async function init(){
   await loadData();
   renderAll();
+  document.querySelectorAll('.view.active .subtabs').forEach(marcarBordes);
 
   const temaBtn = document.getElementById('temaBtn');
   function pintarTema(){
