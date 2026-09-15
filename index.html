@@ -2396,7 +2396,8 @@ function opcionesDeAgregar(){
     { que:'Un movimiento', nota:'gasto, ingreso, préstamo', hacer:()=>openMovimientoModal() },
     { que:'Un cobro de cada mes', nota:'como Datos o Claude', hacer:()=>openSuscripcionModal() },
     { que:'Un préstamo', nota:'lo que debes o te deben', hacer:()=>openDeudaModal() },
-    { que:'Una compra a cuotas', nota:'', hacer:()=>openInstallmentModal() }
+    { que:'Una compra a cuotas', nota:'', hacer:()=>openInstallmentModal() },
+    ...(CATEGORIAS_GASTO.some(c=>Number(DATA.plata.topes[c])>0) ? [] : [{ que:'Topes de presupuesto', nota:'un máximo por categoría', hacer:()=>openTopesModal() }])
   ];
   if(vista==='pendientes'){
     const sub = subActiva('pendientes');
@@ -3282,82 +3283,7 @@ function renderPlata(){
     <div class="helptext" style="margin:4px 0 0;">${P.saldoFecha ? 'Tú lo declaraste el ' + esc(niceDate(P.saldoFecha)) + '. Tócalo para ajustarlo.' : 'Tócalo para decir cuánto tienes. Bitácora no lo calcula sola.'}</div>
   </div>`;
 
-  /* 2 · cuanto vas a recibir y cuando (D112, D36) */
-  const recibir = porRecibir();
-  const totalRecibir = recibir.reduce((a,x)=>a+x.monto,0);
-  html += `<div class="section-title"><span>Por recibir</span><span class="mono" style="color:var(--c-dinero); font-weight:700;">${money(totalRecibir)}</span></div>`;
-  html += recibir.length ? recibir.map(x=>`
-    <div class="card" style="border-left:3px solid var(--c-trabajo);">
-      <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
-        <div style="font-weight:600;">${esc(turnoTitulo(x.turno))} <span class="tentativo">est.</span></div>
-        <div class="mono" style="font-weight:700;">${money(x.monto)}</div>
-      </div>
-      <div class="helptext" style="margin:3px 0 0;">${x.fecha ? 'Te pagan el ' + esc(niceDate(x.fecha)) : 'Sin fecha de pago definida'} · turno del ${esc(niceDateShort(x.turno.fecha))}</div>
-      <button class="small-btn" data-cobrar="${x.turno.id}" style="margin-top:9px;">Ya me pagaron</button>
-    </div>`).join('')
-    : '<div class="empty-card" style="margin-bottom:8px;">Nada por recibir. Ponle a cada turno lo que calculas que te pagan y aparece acá.</div>';
-  html += `<div class="helptext">Son estimados tuyos. Cuando te paguen los corriges y Bitácora ajusta.</div>`;
-
-  /* 3 · como vas contra el presupuesto — topes en pesos, y no te notifica (D80, D88) */
-  const gastado = gastosDelMes();
-  const conTope = CATEGORIAS_GASTO.filter(c=>Number(P.topes[c])>0);
-  html += `<div class="section-title"><span>Presupuesto</span><button class="small-btn" id="topesBtn">Topes</button></div>`;
-  if(conTope.length){
-    html += conTope.map(c=>{
-      const tope = Number(P.topes[c]), usado = gastado[c]||0;
-      const pct = Math.min(100, Math.round(usado/tope*100));
-      const color = pct>=100 ? 'var(--urgent)' : pct>=80 ? 'var(--ambar)' : 'var(--c-dinero)';
-      return `<div class="card">
-        <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
-          <div style="font-weight:600;">${esc(c)}</div>
-          <div class="mono" style="font-size:13px;"><b style="color:${color}">${money(usado)}</b> <span style="color:var(--text-dim);">/ ${money(tope)}</span></div>
-        </div>
-        <div class="progress-track"><div class="progress-fill" style="width:${pct}%; background:${color};"></div></div>
-      </div>`;
-    }).join('');
-    html += `<div class="helptext">Los topes se revisan cada vez que te pagan, no cada 30 días. Esto no te notifica: lo ves cuando entras.</div>`;
-  } else {
-    html += '<div class="empty-card" style="margin-bottom:8px;">Sin topes puestos. Tócale a Topes y ponles un máximo en pesos a las categorías que quieras vigilar.</div>';
-  }
-
-  /* 4 · lo que vuelve cada mes */
-  html += `<div class="section-title"><span>Cada mes</span></div>`;
-  html += DATA.suscripciones.length ? DATA.suscripciones.map(x=>{
-    const prox = proximoCobro(x);
-    const faltan = prox ? daysBetween(todayStr(), prox) : null;
-    const pronto = faltan!==null && faltan<=3;
-    return `<div class="card sus-card" data-id="${x.id}" data-sel-tipo="suscripcion" data-sel-id="${x.id}" style="cursor:pointer; border-left:3px solid var(--c-dinero);">
-      <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
-        <div style="font-weight:600;">${esc(x.nombre)}</div>
-        <div class="mono" style="font-weight:700;">${montoConMoneda(x.monto, x.moneda, x.montoCOP)}</div>
-      </div>
-      <div class="helptext" style="margin:3px 0 0; ${pronto?'color:var(--ambar); font-weight:600;':''}">
-        ${x.dia ? 'El ' + x.dia + ' de cada mes' + (prox ? ' · el próximo, ' + esc(niceDate(prox)) : '') : '⚠ falta el día del mes'}${x.nota ? ' · ' + esc(x.nota) : ''}
-      </div>
-      ${tasaImplicita(x) ? `<div class="helptext" style="margin:4px 0 0;">Te lo descontaron a ${money(tasaImplicita(x))} el dólar${tasaImplicita(x)!==tasaUSD() ? ` · <button class="small-btn" data-usar-tasa="${x.id}">usar esta tasa</button>` : ''}</div>` : ''}
-      ${x.dia && pagadoEsteMes(x) ? `<div class="helptext" style="margin:6px 0 0; color:var(--done); font-weight:600;">✓ Pagado este mes</div>` : ''}
-      ${x.dia && !pagadoEsteMes(x) && pronto ? `<button class="small-btn" data-pagar-sus="${x.id}" style="margin-top:9px;">Ya lo pagué</button>` : ''}
-    </div>`;
-  }).join('') : '<div class="empty-card" style="margin-bottom:8px;">Sin cobros mensuales.</div>';
-
-  /* 5 · deudas y prestamos, en los dos sentidos (D96, D39) */
-  html += `<div class="section-title"><span>Debo y me deben</span></div>`;
-  const deudasOrden = [...DATA.deudas].sort((a,b)=> (a.saldada?1:0) - (b.saldada?1:0));
-  html += deudasOrden.length ? deudasOrden.map(d=>{
-    const saldo = saldoDeuda(d);
-    const debo = d.sentido!=='meDeben';
-    const cuando = d.fecha ? (d.fechaHasta ? niceDateShort(d.fecha) + ' al ' + niceDateShort(d.fechaHasta) : niceDate(d.fecha)) + (d.aprox ? ' (estimado)' : '') : 'Sin fecha';
-    const color = d.saldada ? 'var(--done)' : debo ? 'var(--urgent)' : 'var(--c-dinero)';
-    return `<div class="card deuda-card ${d.saldada?'saldada':''}" data-id="${d.id}" data-sel-tipo="deuda" data-sel-id="${d.id}" style="cursor:pointer; border-left:3px solid ${color};">
-      <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
-        <div style="font-weight:600;">${d.saldada?'✓ ':''}${esc(d.nombre)}</div>
-        <div class="mono" style="font-weight:700; color:${color};">${d.saldada ? 'saldada' : money(saldo)}</div>
-      </div>
-      <div class="helptext" style="margin:3px 0 0;">${d.saldada ? 'Saldada el ' + esc(niceDate(d.saldadaFecha||todayStr())) : (debo?'Le debes':'Te debe') + ' · ' + esc(cuando) + (d.nota ? ' · ' + esc(d.nota) : '') + ((d.movs||[]).length ? ' · ' + d.movs.length + ' movimiento' + (d.movs.length>1?'s':'') : '')}</div>
-    </div>`;
-  }).join('') : '<div class="empty-card" style="margin-bottom:8px;">Sin préstamos registrados.</div>';
-
-  /* 6 · movimientos sueltos y cuotas, lo que ya existia */
+  /* 2 · este mes, lo primero despues del saldo: es lo que se llena a diario */
   const mes = todayStr().slice(0,7);
   const evMes = DATA.events.filter(e=>e.cat==='finanzas' && e.date.startsWith(mes));
   const ingresos = evMes.filter(e=>e.type==='ingreso').reduce((a,e)=>a+Number(e.amount||0),0);
@@ -3382,10 +3308,83 @@ function renderPlata(){
       ${pendiente ? `<button class="small-btn" data-pagado="${m.id}" style="margin-top:9px;">Ya lo pagué</button>` : ''}
       ${m.type==='pago' && m.status==='hecho' ? `<div class="helptext" style="margin:5px 0 0; color:var(--done); font-weight:600;">✓ Pagado</div>` : ''}
     </div>`;
-  }).join('') : '<div class="empty-card" style="margin-bottom:8px;">Sin movimientos este mes.</div>';
+  }).join('') : '<div class="helptext">Todavía nada este mes. Anota un gasto o un ingreso con el +.</div>';
 
-  html += `<div class="section-title">Compras a cuotas</div>`;
+
+  /* 2 · cuanto vas a recibir y cuando (D112, D36) */
+  const recibir = porRecibir();
+  const totalRecibir = recibir.reduce((a,x)=>a+x.monto,0);
+  if(recibir.length){
+  html += `<div class="section-title"><span>Por recibir</span><span class="mono" style="color:var(--c-dinero); font-weight:700;">${money(totalRecibir)}</span></div>`;
+  html += recibir.map(x=>`
+    <div class="card" style="border-left:3px solid var(--c-trabajo);">
+      <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
+        <div style="font-weight:600;">${esc(turnoTitulo(x.turno))} <span class="tentativo">est.</span></div>
+        <div class="mono" style="font-weight:700;">${money(x.monto)}</div>
+      </div>
+      <div class="helptext" style="margin:3px 0 0;">${x.fecha ? 'Te pagan el ' + esc(niceDate(x.fecha)) : 'Sin fecha de pago definida'} · turno del ${esc(niceDateShort(x.turno.fecha))}</div>
+      <button class="small-btn" data-cobrar="${x.turno.id}" style="margin-top:9px;">Ya me pagaron</button>
+    </div>`).join('');
+  html += `<div class="helptext">Son estimados tuyos. Cuando te paguen los corriges y Bitácora ajusta.</div>`;
+  }
+
+  /* 3 · como vas contra el presupuesto — topes en pesos, y no te notifica (D80, D88) */
+  const gastado = gastosDelMes();
+  const conTope = CATEGORIAS_GASTO.filter(c=>Number(P.topes[c])>0);
+  if(conTope.length){
+    html += `<div class="section-title"><span>Presupuesto</span><button class="small-btn" id="topesBtn">Topes</button></div>`;
+    html += conTope.map(c=>{
+      const tope = Number(P.topes[c]), usado = gastado[c]||0;
+      const pct = Math.min(100, Math.round(usado/tope*100));
+      const color = pct>=100 ? 'var(--urgent)' : pct>=80 ? 'var(--ambar)' : 'var(--c-dinero)';
+      return `<div class="card">
+        <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
+          <div style="font-weight:600;">${esc(c)}</div>
+          <div class="mono" style="font-size:13px;"><b style="color:${color}">${money(usado)}</b> <span style="color:var(--text-dim);">/ ${money(tope)}</span></div>
+        </div>
+        <div class="progress-track"><div class="progress-fill" style="width:${pct}%; background:${color};"></div></div>
+      </div>`;
+    }).join('');
+    html += `<div class="helptext">Los topes se revisan cada vez que te pagan, no cada 30 días. Esto no te notifica: lo ves cuando entras.</div>`;
+  }
+
+  /* 4 · lo que vuelve cada mes */
+  if(DATA.suscripciones.length) html += `<div class="section-title"><span>Cada mes</span></div>` + DATA.suscripciones.map(x=>{
+    const prox = proximoCobro(x);
+    const faltan = prox ? daysBetween(todayStr(), prox) : null;
+    const pronto = faltan!==null && faltan<=3;
+    return `<div class="card sus-card" data-id="${x.id}" data-sel-tipo="suscripcion" data-sel-id="${x.id}" style="cursor:pointer; border-left:3px solid var(--c-dinero);">
+      <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
+        <div style="font-weight:600;">${esc(x.nombre)}</div>
+        <div class="mono" style="font-weight:700;">${montoConMoneda(x.monto, x.moneda, x.montoCOP)}</div>
+      </div>
+      <div class="helptext" style="margin:3px 0 0; ${pronto?'color:var(--ambar); font-weight:600;':''}">
+        ${x.dia ? 'El ' + x.dia + ' de cada mes' + (prox ? ' · el próximo, ' + esc(niceDate(prox)) : '') : '⚠ falta el día del mes'}${x.nota ? ' · ' + esc(x.nota) : ''}
+      </div>
+      ${tasaImplicita(x) ? `<div class="helptext" style="margin:4px 0 0;">Te lo descontaron a ${money(tasaImplicita(x))} el dólar${tasaImplicita(x)!==tasaUSD() ? ` · <button class="small-btn" data-usar-tasa="${x.id}">usar esta tasa</button>` : ''}</div>` : ''}
+      ${x.dia && pagadoEsteMes(x) ? `<div class="helptext" style="margin:6px 0 0; color:var(--done); font-weight:600;">✓ Pagado este mes</div>` : ''}
+      ${x.dia && !pagadoEsteMes(x) && pronto ? `<button class="small-btn" data-pagar-sus="${x.id}" style="margin-top:9px;">Ya lo pagué</button>` : ''}
+    </div>`;
+  }).join('');
+
+  /* 5 · deudas y prestamos, en los dos sentidos (D96, D39) */
+  const deudasOrden = [...DATA.deudas].sort((a,b)=> (a.saldada?1:0) - (b.saldada?1:0));
+  if(deudasOrden.length) html += `<div class="section-title"><span>Debo y me deben</span></div>` + deudasOrden.map(d=>{
+    const saldo = saldoDeuda(d);
+    const debo = d.sentido!=='meDeben';
+    const cuando = d.fecha ? (d.fechaHasta ? niceDateShort(d.fecha) + ' al ' + niceDateShort(d.fechaHasta) : niceDate(d.fecha)) + (d.aprox ? ' (estimado)' : '') : 'Sin fecha';
+    const color = d.saldada ? 'var(--done)' : debo ? 'var(--urgent)' : 'var(--c-dinero)';
+    return `<div class="card deuda-card ${d.saldada?'saldada':''}" data-id="${d.id}" data-sel-tipo="deuda" data-sel-id="${d.id}" style="cursor:pointer; border-left:3px solid ${color};">
+      <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
+        <div style="font-weight:600;">${d.saldada?'✓ ':''}${esc(d.nombre)}</div>
+        <div class="mono" style="font-weight:700; color:${color};">${d.saldada ? 'saldada' : money(saldo)}</div>
+      </div>
+      <div class="helptext" style="margin:3px 0 0;">${d.saldada ? 'Saldada el ' + esc(niceDate(d.saldadaFecha||todayStr())) : (debo?'Le debes':'Te debe') + ' · ' + esc(cuando) + (d.nota ? ' · ' + esc(d.nota) : '') + ((d.movs||[]).length ? ' · ' + d.movs.length + ' movimiento' + (d.movs.length>1?'s':'') : '')}</div>
+    </div>`;
+  }).join('');
+
   if(DATA.installments.length){
+    html += `<div class="section-title">Compras a cuotas</div>`;
     html += DATA.installments.map(inst=>{
       const paid = inst.payments.reduce((a,p)=>a+Number(p.amount),0);
       const pct = Math.min(100, Math.round((paid/Number(inst.total))*100));
@@ -3399,7 +3398,7 @@ function renderPlata(){
         <button class="small-btn" data-action="payInstallment" data-id="${inst.id}" style="margin-top:10px;">Registrar pago</button>
       </div>`;
     }).join('');
-  } else { html += '<div class="empty-card" style="margin-bottom:10px;">Sin compras a cuotas registradas.</div>'; }
+  }
 
   /* la tasa del dolar vive abajo: la pones tu a mano y funciona sin internet (D128) */
   html += `<div class="section-title" style="margin-top:26px;">Dólar</div>
@@ -3415,7 +3414,7 @@ function renderPlata(){
   bindItemClicks();
   document.getElementById('saldoCard').onclick = openSaldoModal;
   document.getElementById('tasaCard').onclick = openTasaModal;
-  document.getElementById('topesBtn').onclick = openTopesModal;
+  const _b_topesBtn = document.getElementById('topesBtn'); if(_b_topesBtn) _b_topesBtn.onclick = openTopesModal;
   const _b_addSusBtn = document.getElementById('addSusBtn'); if(_b_addSusBtn) _b_addSusBtn.onclick = ()=>openSuscripcionModal();
   const _b_addDeudaBtn = document.getElementById('addDeudaBtn'); if(_b_addDeudaBtn) _b_addDeudaBtn.onclick = ()=>openDeudaModal();
   const _b_addMoneyBtn = document.getElementById('addMoneyBtn'); if(_b_addMoneyBtn) _b_addMoneyBtn.onclick = ()=>openMovimientoModal();
