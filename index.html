@@ -216,6 +216,23 @@ button{font-family:inherit;}
 .client-card .stat span{font-size:11px; color:var(--text-dim);}
 .small-btn{background:var(--surface-3); border:1px solid var(--border); color:var(--text); font-size:12.5px; font-weight:600; padding:7px 12px; border-radius:9px;}
 
+/* ---------- turnos y choques ---------- */
+.lugares{display:grid; gap:8px; margin-top:6px;}
+.lugar{display:flex; align-items:center; gap:11px; width:100%; text-align:left; padding:12px 13px; border-radius:var(--radius); border:1px solid var(--border); background:var(--surface); color:var(--text); cursor:pointer;}
+.lugar.sel{border-color:var(--c-trabajo); background:color-mix(in srgb, var(--c-trabajo) 8%, var(--surface));}
+.lugar .ini{flex:none; width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:15px; color:#fff; background:var(--c-trabajo); font-family:'Bricolage Grotesque',sans-serif;}
+.lugar .nom{font-weight:600; font-size:15px;}
+.lugar .sub{font-size:12.5px; color:var(--text-muted); margin-top:1px;}
+.choque-head{display:flex; align-items:center; gap:8px; color:var(--urgent); font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:.06em;}
+.choque-box{margin-top:9px; padding:13px 14px; border-radius:var(--radius); background:var(--urgent-soft); border-left:3px solid var(--urgent); font-size:14.5px; line-height:1.45;}
+.choque-box p{margin:0 0 7px;} .choque-box p:last-child{margin-bottom:0;}
+.opcion{width:100%; text-align:left; padding:12px 13px; border-radius:var(--radius); border:1px solid var(--border); background:var(--surface); color:var(--text); cursor:default; margin-bottom:8px;}
+.opcion .qué{font-weight:600; font-size:14.5px;}
+.opcion .porqué{font-size:12.5px; color:var(--text-muted); margin-top:2px;}
+.nota-suave{font-size:12.5px; color:var(--text-dim); margin:12px 0 14px; line-height:1.45;}
+.pago-calc{margin-top:8px; padding:10px 12px; border-radius:var(--radius-sm); background:var(--done-soft); color:var(--done); font-size:13px; font-weight:600;}
+.tentativo{display:inline-block; font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; padding:2px 7px; border-radius:999px; background:var(--ambar-soft); color:var(--ambar); margin-left:6px;}
+
 /* ---------- finanzas ---------- */
 .progress-track{height:7px; border-radius:6px; background:var(--surface-3); overflow:hidden; margin-top:9px;}
 .progress-fill{height:100%; background:var(--c-fin); border-radius:6px;}
@@ -345,6 +362,12 @@ button{font-family:inherit;}
     </div>
     <div class="cal-grid" id="calGrid"></div>
     <div class="cal-daylist" id="calDayList"></div>
+    <div id="choquesSemana"></div>
+    <div class="section-title" style="margin-top:28px;">
+      <span>Turnos</span>
+      <button class="small-btn" id="addTurnoBtn">+ Turno</button>
+    </div>
+    <div id="turnosBody"></div>
     <div class="section-title" style="margin-top:28px;">Lo que se repite</div>
     <div id="sub-rutinas"></div>
   </div>
@@ -448,7 +471,9 @@ let DATA = {
   routines: [], // {id,cat,title,days:[0..6],start,end,notes}
   listas: [],      // {id,nombre,color} — las secciones que arma Sharon
   pendientes: [],  // {id,listaId,titulo,urgencia,hecho,creado} — sin fecha a proposito
-  cycle: { starts: [], avgLen: 28, periodLen: 5 }
+  cycle: { starts: [], avgLen: 28, periodLen: 5 },
+  turnos: [],          // {id,lugar,hotel,fecha,entra,sale,confirmado,trasladoMin,estimado}
+  compromisosSembrados: false
 };
 let saveTimer=null;
 let dirty=false;        // hay cambios locales que todavía no subieron
@@ -1720,12 +1745,18 @@ function closeSheet(){ overlay.classList.remove('active'); }
 overlay.addEventListener('click', (e)=>{ if(e.target===overlay) closeSheet(); });
 document.addEventListener('click', (e)=>{ if(e.target.id==='closeSheet') closeSheet(); });
 
-document.getElementById('fabAdd').onclick = ()=> openEventModal();
+/* El boton de agregar cambia segun donde estes (D109). */
+document.getElementById('fabAdd').onclick = ()=>{
+  const activa = views.find(v=>document.getElementById('view-'+v).classList.contains('active'));
+  if(activa==='calendario') return openTurnoModal();
+  openEventModal();
+};
+document.addEventListener('click', (e)=>{ if(e.target.id==='addTurnoBtn') openTurnoModal(); });
 
 function openEventModal(existing, preset){
   const isEdit = !!existing;
   const e = existing || Object.assign(
-    {cat:'personal', date: calSelected && document.getElementById('view-mes').classList.contains('active') ? calSelected : todayStr(), status:'pendiente'},
+    {cat:'personal', date: calSelected && document.getElementById('view-calendario').classList.contains('active') ? calSelected : todayStr(), status:'pendiente'},
     preset||{});
   openSheet(`
     <h3>${isEdit ? 'Editar' : 'Agregar'}</h3>
@@ -1843,14 +1874,337 @@ function openSubjectModal(){
 }
 
 /* ============================================================
+   TURNOS Y CHOQUES
+   La funcion central del proyecto (D25): Bitacora te avisa y te muestra
+   que tendrias que mover, pero nunca te lo impide (D16).
+============================================================ */
+
+/* Los tres lugares, con sus reglas distintas (D23). */
+const LUGARES = {
+  infinity:{ nombre:'Infinity',       ini:'I', sub:'Horario variable · paga lunes',   entra:'', sale:'',      traslado:60 },
+  asignar:{  nombre:'Asignar',        ini:'A', sub:'8 h · hotel variable · por corte', entra:'', sale:'',     traslado:90 },
+  movistar:{ nombre:'Movistar Arena', ini:'M', sub:'15:00 — 00:00 · horario parejo',   entra:'15:00', sale:'00:00', traslado:120 }
+};
+
+/* Los cuatro cortes de nomina de Asignar, de la cartelera que mando Sharon.
+   Con el hotel del turno, Bitacora ya sabe que dia le pagan. */
+const CORTES_ASIGNAR = [
+  { grupo:'01', cortes:[{desde:26, hasta:10, pago:15}, {desde:11, hasta:25, pago:30}],
+    hoteles:['Corferias','Estelares','Colsubsidio','JW Marriot','Dann 93'] },
+  { grupo:'02', cortes:[{desde:1, hasta:15, pago:20}, {desde:16, hasta:30, pago:5}],
+    hoteles:['Grupo GHL','Habitel','Movich','Dann 19','Dann 103'] },
+  { grupo:'03', cortes:[{desde:1, hasta:15, pago:15}, {desde:16, hasta:30, pago:30}],
+    hoteles:['Metrotel','Grupo NH','Temporales'] },
+  { grupo:'04', cortes:[{desde:23, hasta:10, pago:15}, {desde:11, hasta:22, pago:30}],
+    hoteles:['Hyatt','W Marriot'] }
+];
+const HOTELES_ASIGNAR = CORTES_ASIGNAR.flatMap(g=>g.hoteles).sort((a,b)=>a.localeCompare(b,'es'));
+
+function grupoDeHotel(hotel){ return CORTES_ASIGNAR.find(g=>g.hoteles.includes(hotel)) || null; }
+
+function ultimoDiaDelMes(anio,mes){ return new Date(anio, mes+1, 0).getDate(); }
+
+/* De la fecha del turno y el hotel sale el dia de pago. Los cortes que
+   arrancan a fin de mes (26 al 10, 23 al 10) se pagan el mes siguiente. */
+function pagoDeTurno(fechaStr, hotel){
+  const g = grupoDeHotel(hotel); if(!g) return null;
+  const d = parseDate(fechaStr), dia = d.getDate();
+  for(const c of g.cortes){
+    const cruzaMes = c.desde > c.hasta;
+    const dentro = cruzaMes ? (dia>=c.desde || dia<=c.hasta) : (dia>=c.desde && dia<=c.hasta);
+    if(!dentro) continue;
+    let anio=d.getFullYear(), mes=d.getMonth();
+    // si el corte cruza el mes y estamos en la punta de arriba, el pago cae el mes que viene
+    if(cruzaMes && dia>=c.desde) mes++;
+    // el corte 16 al 30 del grupo 02 se paga el 05 del mes siguiente
+    else if(!cruzaMes && c.pago < c.desde) mes++;
+    const f = new Date(anio, mes, Math.min(c.pago, ultimoDiaDelMes(anio,mes)));
+    return { fecha: fmtDate(f), corte: c.desde+' al '+c.hasta, grupo: g.grupo };
+  }
+  return null;
+}
+
+function minutosDe(hhmm){
+  if(!hhmm) return null;
+  const [h,m] = hhmm.split(':').map(Number);
+  return h*60 + (m||0);
+}
+/* Un turno que sale a medianoche termina despues de entrar, no antes. */
+function finEnMinutos(entra, sale){
+  const a = minutosDe(entra), b = minutosDe(sale);
+  if(a===null || b===null) return null;
+  return b <= a ? b + 1440 : b;
+}
+
+/* Todo lo que ya ocupa ese dia: eventos con hora, rutinas del dia y otros turnos. */
+function bloquesDelDia(fecha, exceptoTurnoId){
+  const d = parseDate(fecha), dow = d.getDay();
+  const out = [];
+  DATA.events.forEach(e=>{
+    if(e.date!==fecha || !e.start || e.status==='hecho') return;
+    if(e.saltable) return;                        // una clase grabada no te alarma (D69)
+    if(e.linkedType==='turno' && e.linkedId===exceptoTurnoId) return;
+    if(e.cat==='nexxa' && e.noVoy) return;        // si no vas, no te ocupa el tiempo (D129)
+    out.push({ titulo:e.title, desde:minutosDe(e.start), hasta:finEnMinutos(e.start, e.end||e.start), fuente:'evento', ref:e });
+  });
+  (DATA.routines||[]).forEach(r=>{
+    if(!r.days || !r.days.includes(dow) || !r.start) return;
+    if(r.saltable) return;
+    out.push({ titulo:r.title, desde:minutosDe(r.start), hasta:finEnMinutos(r.start, r.end||r.start), fuente:'rutina', ref:r });
+  });
+  return out.filter(b=>b.desde!==null && b.hasta!==null);
+}
+
+/* El corazon: choque directo, o choque porque el traslado no te da (D70, D95). */
+function detectarChoques(turno){
+  const desde = minutosDe(turno.entra), hasta = finEnMinutos(turno.entra, turno.sale);
+  if(desde===null || hasta===null) return [];
+  const traslado = Number(turno.trasladoMin || LUGARES[turno.lugar]?.traslado || 0);
+  const choques = [];
+  bloquesDelDia(turno.fecha, turno.id).forEach(b=>{
+    if(b.desde < hasta && desde < b.hasta){
+      choques.push({ tipo:'directo', bloque:b });
+    } else if(b.hasta <= desde && desde - b.hasta < traslado){
+      choques.push({ tipo:'traslado', bloque:b, faltan: traslado - (desde - b.hasta) });
+    } else if(hasta <= b.desde && b.desde - hasta < traslado){
+      choques.push({ tipo:'traslado-despues', bloque:b, faltan: traslado - (b.desde - hasta) });
+    }
+  });
+  return choques;
+}
+
+function hhmm(min){
+  const m = ((min % 1440) + 1440) % 1440;
+  return String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0');
+}
+function duracionLarga(min){
+  const h = Math.floor(min/60), m = min%60;
+  return h ? (h + ' h' + (m ? ' ' + m : '')) : (m + ' min');
+}
+
+/* Los compromisos fijos que Sharon ya tiene (D27). Solo se siembran una vez. */
+function sembrarCompromisos(){
+  if(DATA.compromisosSembrados) return;
+  DATA.compromisosSembrados = true;
+  if((DATA.routines||[]).length) return;   // si ya armo los suyos, no le metemos nada
+  const colegio = [1,2,3,4,5];
+  DATA.routines = [
+    { id:uid(), cat:'personal', title:'Llevar a Joel',   days:colegio, start:'07:00', end:'07:30', notes:'Colegio' },
+    { id:uid(), cat:'personal', title:'Recoger a Joel',  days:colegio, start:'13:30', end:'14:00', notes:'Colegio' },
+    { id:uid(), cat:'universidad', title:'Universidad',  days:colegio, start:'18:00', end:'22:00', notes:'' },
+    { id:uid(), cat:'personal', title:'SENA — inglés',   days:[3],     start:'08:00', end:'09:00', notes:'' },
+    { id:uid(), cat:'personal', title:'Clase con Leslie',days:[3],     start:'10:30', end:'11:30', notes:'En línea' }
+  ];
+}
+
+function turnoTitulo(t){
+  const l = LUGARES[t.lugar];
+  return (l ? l.nombre : 'Turno') + (t.hotel ? ' · ' + t.hotel : '');
+}
+
+/* El turno vive en el calendario como bloque de Trabajo. */
+function guardarTurno(t){
+  const existente = DATA.turnos.find(x=>x.id===t.id);
+  if(existente) Object.assign(existente, t); else DATA.turnos.push(t);
+  removeLinkedEvent('turno', t.id);
+  const ev = addLinkedEvent('trabajo', turnoTitulo(t), t.fecha, t.entra, t.sale, 'turno', t.id);
+  if(ev){ ev.tentativo = !t.confirmado; ev.amount = t.estimado || 0; ev.type = 'ingreso'; }
+  saveData(); renderAll();
+}
+function borrarTurno(id){
+  DATA.turnos = DATA.turnos.filter(t=>t.id!==id);
+  removeLinkedEvent('turno', id);
+  saveData(); renderAll();
+}
+
+let turnoBorrador = null;
+
+function openTurnoModal(existente){
+  turnoBorrador = existente ? Object.assign({}, existente) : {
+    id: uid(), lugar:'', hotel:'', fecha: (calSelected || todayStr()),
+    entra:'', sale:'', confirmado:true, trasladoMin:null, estimado:''
+  };
+  pintarTurnoModal();
+}
+
+function pintarTurnoModal(){
+  const t = turnoBorrador;
+  const l = LUGARES[t.lugar];
+  const pago = (t.lugar==='asignar' && t.hotel) ? pagoDeTurno(t.fecha, t.hotel) : null;
+  openSheet(`
+    <h3>${DATA.turnos.some(x=>x.id===t.id) ? 'Editar turno' : 'Nuevo turno'}</h3>
+    <div class="field"><label>Elige el lugar</label>
+      <div class="lugares">
+        ${Object.entries(LUGARES).map(([k,v])=>`
+          <button type="button" class="lugar ${t.lugar===k?'sel':''}" data-lugar="${k}">
+            <span class="ini">${v.ini}</span>
+            <span><span class="nom">${esc(v.nombre)}</span><br><span class="sub">${esc(v.sub)}</span></span>
+          </button>`).join('')}
+      </div>
+    </div>
+    ${t.lugar==='asignar' ? `
+      <div class="field"><label>¿Qué hotel?</label>
+        <select id="t_hotel">
+          <option value="">— elige el hotel —</option>
+          ${HOTELES_ASIGNAR.map(h=>`<option value="${esc(h)}" ${t.hotel===h?'selected':''}>${esc(h)}</option>`).join('')}
+        </select>
+        ${pago ? `<div class="pago-calc">Corte ${esc(pago.corte)} (grupo ${pago.grupo}) · te pagan el ${niceDate(pago.fecha)}</div>` : ''}
+      </div>` : ''}
+    <div class="field"><label>Día</label><input type="date" id="t_fecha" value="${t.fecha}"></div>
+    <div class="field-row">
+      <div class="field"><label>Entra</label><input type="time" id="t_entra" value="${t.entra}"></div>
+      <div class="field"><label>Sale</label><input type="time" id="t_sale" value="${t.sale}"></div>
+    </div>
+    <div class="field"><label>Lo que calculas que te pagan (opcional)</label>
+      <input type="number" id="t_estimado" inputmode="numeric" placeholder="Un estimado, lo corriges cuando te paguen" value="${t.estimado||''}"></div>
+    <div class="field"><label>Traslado</label>
+      <input type="number" id="t_traslado" inputmode="numeric" placeholder="${l ? l.traslado : 60}" value="${t.trasladoMin||''}">
+      <div class="helptext">Minutos de puerta a puerta.${t.lugar==='asignar' ? ' En Asignar arranca en 1 h 30 porque cada vez te mandan a un hotel distinto — cámbialo si este queda lejos.' : ''}</div>
+    </div>
+    <label class="field-check"><input type="checkbox" id="t_tentativo" ${t.confirmado?'':'checked'}>
+      <span>Todavía sin confirmar<br><span class="helptext" style="margin:2px 0 0;">Te lo ofrecieron pero aún no dices que sí.</span></span></label>
+    <div class="sheet-actions">
+      ${DATA.turnos.some(x=>x.id===t.id) ? `<button class="btn-ghost" id="t_borrar">Borrar</button>` : ''}
+      <button class="btn-primary" id="t_guardar">Guardar turno</button>
+    </div>
+  `);
+
+  function leer(){
+    const g = id => document.getElementById(id);
+    t.fecha = g('t_fecha').value || t.fecha;
+    t.entra = g('t_entra').value;
+    t.sale  = g('t_sale').value;
+    t.estimado = g('t_estimado').value;
+    t.trasladoMin = g('t_traslado').value ? Number(g('t_traslado').value) : null;
+    t.confirmado = !g('t_tentativo').checked;
+    if(g('t_hotel')) t.hotel = g('t_hotel').value;
+  }
+
+  sheet.querySelectorAll('.lugar').forEach(b=>{
+    b.onclick = ()=>{
+      leer();
+      t.lugar = b.dataset.lugar;
+      const v = LUGARES[t.lugar];
+      if(v.entra && !t.entra){ t.entra = v.entra; t.sale = v.sale; }   // plantilla en dos toques (D67)
+      if(t.lugar!=='asignar') t.hotel='';
+      pintarTurnoModal();
+    };
+  });
+  const selHotel = document.getElementById('t_hotel');
+  if(selHotel) selHotel.onchange = ()=>{ leer(); pintarTurnoModal(); };
+  const inFecha = document.getElementById('t_fecha');
+  if(inFecha) inFecha.onchange = ()=>{ leer(); if(t.lugar==='asignar' && t.hotel) pintarTurnoModal(); };
+
+  const btnBorrar = document.getElementById('t_borrar');
+  if(btnBorrar) btnBorrar.onclick = ()=>{ borrarTurno(t.id); closeSheet(); };
+
+  document.getElementById('t_guardar').onclick = ()=>{
+    leer();
+    if(!t.lugar){ alert('Elige el lugar del turno.'); return; }
+    if(!t.entra || !t.sale){ alert('Falta la hora de entrada o de salida.'); return; }
+    const choques = detectarChoques(t);
+    if(choques.length){ mostrarChoque(t, choques); return; }
+    guardarTurno(t); closeSheet();
+  };
+}
+
+/* La pantalla de choque. Muestra que se cruza y que tendria que mover,
+   y deja aceptarlo igual: Bitacora no decide por ella (D16). */
+function mostrarChoque(t, choques){
+  const l = LUGARES[t.lugar];
+  const traslado = Number(t.trasladoMin || l.traslado || 0);
+  const desde = minutosDe(t.entra);
+
+  const frases = choques.map(c=>{
+    if(c.tipo==='directo') return `Se cruza con <b>${esc(c.bloque.titulo)}</b>, de ${hhmm(c.bloque.desde)} a ${hhmm(c.bloque.hasta)}.`;
+    if(c.tipo==='traslado') return `Con ${duracionLarga(traslado)} de traslado no alcanzas: <b>${esc(c.bloque.titulo)}</b> termina ${hhmm(c.bloque.hasta)} y te faltan ${duracionLarga(c.faltan)}.`;
+    return `Al salir no alcanzas a llegar a <b>${esc(c.bloque.titulo)}</b>, que empieza ${hhmm(c.bloque.desde)}: te faltan ${duracionLarga(c.faltan)}.`;
+  });
+
+  const opciones = choques.map(c=>({
+    que: 'Soltar ' + c.bloque.titulo,
+    por: hhmm(c.bloque.desde) + '–' + hhmm(c.bloque.hasta) + (c.bloque.fuente==='rutina' ? ' · se repite cada semana' : '')
+  }));
+  /* Solo tiene sentido ofrecer entrar mas tarde si todavia queda turno. */
+  const hasta = finEnMinutos(t.entra, t.sale);
+  const masTarde = Math.max(...choques.map(c=> c.bloque.hasta + traslado));
+  if(isFinite(masTarde) && masTarde > desde && masTarde < hasta){
+    const dia = masTarde >= 1440 ? ' del día siguiente' : '';
+    opciones.push({ que:'Pedir entrar más tarde', por: l.nombre + ' · llegarías ' + hhmm(masTarde) + dia });
+  }
+
+  openSheet(`
+    <h3>${esc(turnoTitulo(t))}</h3>
+    <div class="helptext" style="margin:-4px 0 12px;">${niceDate(t.fecha)} · ${t.entra} — ${t.sale}${t.confirmado?'':' <span class="tentativo">sin confirmar</span>'}</div>
+    <div class="choque-head">⚠ Se cruza con ${choques.length===1?'una cosa':choques.length+' cosas'}</div>
+    <div class="choque-box">${frases.map(f=>`<p>${f}</p>`).join('')}</div>
+    <div class="section-title" style="margin-top:20px;">Qué tendrías que mover o soltar</div>
+    ${opciones.map(o=>`<div class="opcion"><div class="qué">${esc(o.que)}</div><div class="porqué">${esc(o.por)}</div></div>`).join('')}
+    <p class="nota-suave">Bitácora no decide por ti. Puedes aceptarlo igual.</p>
+    <div class="sheet-actions">
+      <button class="btn-ghost" id="ch_volver">Volver</button>
+      <button class="btn-primary" id="ch_igual">Aceptar igual</button>
+    </div>
+  `);
+  document.getElementById('ch_volver').onclick = ()=> pintarTurnoModal();
+  document.getElementById('ch_igual').onclick = ()=>{ guardarTurno(t); closeSheet(); };
+}
+
+/* Los turnos que vienen. */
+function renderTurnos(){
+  const caja = document.getElementById('turnosBody');
+  if(!caja) return;
+  const hoy = todayStr();
+  const proximos = DATA.turnos.filter(t=>t.fecha>=hoy).sort((a,b)=> a.fecha===b.fecha ? (a.entra||'').localeCompare(b.entra||'') : a.fecha.localeCompare(b.fecha));
+  if(!proximos.length){
+    caja.innerHTML = '<div class="empty-card">Sin turnos cargados. Tócale a + Turno apenas te avisen.</div>';
+    return;
+  }
+  caja.innerHTML = proximos.map(t=>{
+    const pago = (t.lugar==='asignar' && t.hotel) ? pagoDeTurno(t.fecha, t.hotel) : null;
+    const cruza = detectarChoques(t).length;
+    const meta = [niceDate(t.fecha), t.entra + '–' + t.sale];
+    if(pago) meta.push('te pagan el ' + niceDateShort(pago.fecha));
+    if(t.estimado) meta.push(money(t.estimado) + ' est.');
+    return `<div class="card turno-card" data-turno="${t.id}" style="border-left:3px solid var(--c-trabajo); cursor:pointer;">
+      <div style="font-weight:600;">${esc(turnoTitulo(t))}${t.confirmado?'':'<span class="tentativo">sin confirmar</span>'}</div>
+      <div class="helptext" style="margin:3px 0 0;">${esc(meta.join(' · '))}</div>
+      ${cruza ? `<div class="helptext" style="margin:5px 0 0; color:var(--urgent); font-weight:600;">⚠ se cruza con ${cruza===1?'algo':cruza+' cosas'} de ese día</div>` : ''}
+    </div>`;
+  }).join('');
+  caja.querySelectorAll('.turno-card').forEach(c=>{
+    c.onclick = ()=> openTurnoModal(DATA.turnos.find(t=>t.id===c.dataset.turno));
+  });
+}
+
+/* Aviso de cruces de la semana, arriba del calendario (D25). */
+function renderChoquesSemana(){
+  const caja = document.getElementById('choquesSemana');
+  if(!caja) return;
+  const hoy = new Date();
+  const cruces = [];
+  for(let i=0;i<7;i++){
+    const f = fmtDate(addDays(hoy,i));
+    DATA.turnos.filter(t=>t.fecha===f).forEach(t=>{
+      if(detectarChoques(t).length) cruces.push({ fecha:f, turno:t });
+    });
+  }
+  if(!cruces.length){ caja.innerHTML=''; return; }
+  caja.innerHTML = `
+    <div class="choque-head" style="margin-top:4px;">⚠ ${cruces.length===1?'1 cruce':cruces.length+' cruces'} esta semana</div>
+    <div class="choque-box">${cruces.map(c=>`<p>${esc(niceDate(c.fecha))}: <b>${esc(turnoTitulo(c.turno))}</b> se cruza con algo que ya tenías.</p>`).join('')}</div>`;
+}
+
+/* ============================================================
    RENDER ALL
 ============================================================ */
 function renderAll(){
   asegurarListas();
+  sembrarCompromisos();
   renderHeader();
   const active = views.find(v=>document.getElementById('view-'+v).classList.contains('active'));
   if(active==='hoy') renderHoy();
-  if(active==='calendario'){ renderCalendar(); renderRutinas(); }
+  if(active==='calendario'){ renderCalendar(); renderChoquesSemana(); renderTurnos(); renderRutinas(); }
   if(active==='pendientes'){ renderTareasView(); renderMaterias(); renderNexxaGestion(); renderTrabajo(); }
   if(active==='plata') renderFinanzas();
   if(active==='yo'){ renderYo(); renderPersonalGestion(); }
