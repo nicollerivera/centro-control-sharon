@@ -501,6 +501,7 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 .plan-box.ojo{background:var(--ambar-soft);}
 .bloque.auto .raya{background:repeating-linear-gradient(to bottom, var(--raya) 0 5px, transparent 5px 9px) !important;}
 .bloque.auto .nombre::after{content:' · sugerido'; font-weight:500; font-size:12px; color:var(--text-dim);}
+.bloque.auto.movido .nombre::after{content:' · movido'; color:var(--ambar);}
 .huecos-sug{display:flex; flex-wrap:wrap; gap:6px; margin:-6px 0 14px;}
 .huecos-sug .chip{font-size:12px; padding:5px 10px;}
 .suelto .cuando{flex:none; font-size:12px; color:var(--text-muted);}
@@ -1296,16 +1297,37 @@ function ordenarViejos(){
    abierto de 8 a 8) y la hora en que ella decide hacerlo. Solo esa hora
    ocupa el dia: la ventana no. */
 function colorDeLista(p){ const l = (DATA.listas||[]).find(x=>x.id===p.listaId); return l ? l.color : 'var(--accent)'; }
-function finDePendiente(p){ return p.horaFin || hhmm(minutosDe(p.hora) + (Number(p.duracion)||30)); }
+/* El tiempo que dan (el profe dice 60) no es lo que ella se demora. De lo que
+   ya marco hecho con su tiempo real sale cuanto le toma de verdad: primero
+   comparando con su misma lista, y si alli no hay con que, con todo. Hace
+   falta al menos dos casos para creerle. */
+function ritmoDe(p){
+  const hechos = (DATA.pendientes||[]).filter(x=>x.hecho && Number(x.realMin) && Number(x.duracion) && x.id!==p.id)
+    .sort((a,b)=>(b.hechoFecha||'').localeCompare(a.hechoFecha||''));
+  const deLista = hechos.filter(x=>x.listaId===p.listaId);
+  const base = (deLista.length>=2 ? deLista : hechos).slice(0,10);
+  if(base.length<2) return null;
+  const r = base.map(x=>x.realMin/x.duracion).sort((a,b)=>a-b);
+  const mediana = r.length%2 ? r[(r.length-1)/2] : (r[r.length/2-1]+r[r.length/2])/2;
+  return { factor: Math.min(1.5, Math.max(0.25, mediana)), casos: base.length, deLista: base===deLista };
+}
+function duracionEstimada(p){
+  const dada = Number(p.duracion)||30;
+  const ritmo = ritmoDe(p);
+  return ritmo ? Math.max(10, Math.round(dada*ritmo.factor/5)*5) : dada;
+}
+function finDePendiente(p){ return hhmm(minutosDe(p.hora) + duracionEstimada(p)); }
 function ventanaTexto(p){ return p.desde && p.hasta ? `de ${p.desde} a ${p.hasta}` : p.desde ? `desde ${p.desde}` : p.hasta ? `hasta ${p.hasta}` : ''; }
 function cuandoPendiente(p){
   if(!p.fecha) return null;
   const t = todayStr(), dias = daysBetween(t, p.fecha);
   const dia = dias===0 ? 'Hoy' : dias===1 ? 'Mañana' : dias===-1 ? 'Ayer' : niceDateShort(p.fecha);
   const partes = [dia];
-  const auto = !p.hecho && !p.hora ? horaAuto(p) : null;
-  if(p.hora) partes.push(`${p.hora}–${finDePendiente(p)}`);
+  const auto = !p.hecho ? horaAuto(p) : null;
+  if(auto && auto.movidoPor) partes.push(`movido a ${auto.start}–${auto.end}`);
+  else if(p.hora && !p.hecho) partes.push(`${p.hora}–${finDePendiente(p)}`);
   else if(auto) partes.push(`sugerido ${auto.start}–${auto.end}`);
+  else if(p.hecho){ if(p.realMin) partes.push(`te tomó ${p.realMin} min`); }
   else if(!p.hecho) partes.push(ventanaTexto(p) ? `${ventanaTexto(p)} · no te cabe` : 'no te cabe');
   return { texto: partes.join(' · '), clase: p.hecho ? '' : dias<0 ? 'tarde' : dias===0 ? 'hoy' : '' };
 }
@@ -1318,30 +1340,54 @@ function pendientesConFecha(fecha){ return (DATA.pendientes||[]).filter(p=>!p.he
    elige otra hora, queda fija. `cambio` deja probar un pendiente editado
    sin guardarlo (lo usa la ficha). */
 function acomodarDia(fecha, cambio){
-  const fijos = bloquesFijos(fecha, cambio);
-  const lista = (DATA.pendientes||[]).map(p=>cambio && p.id===cambio.id ? cambio : p)
-    .filter(p=>!p.hecho && p.fecha===fecha && !p.hora)
-    .sort((a,b)=> URG_ORDEN[a.urgencia||'normal']-URG_ORDEN[b.urgencia||'normal'] || (a.orden??1e9)-(b.orden??1e9));
-  if(cambio && !cambio.hecho && cambio.fecha===fecha && !cambio.hora && !lista.includes(cambio)) lista.push(cambio);
+  const firmes = bloquesFijos(fecha);
+  const delDia = (DATA.pendientes||[]).map(p=>cambio && p.id===cambio.id ? cambio : p)
+    .filter(p=>!p.hecho && p.fecha===fecha);
+  if(cambio && !cambio.hecho && cambio.fecha===fecha && !delDia.includes(cambio)) delDia.push(cambio);
+  const ventanaDe = p => ventanaTexto(p) ? 'Se puede ' + ventanaTexto(p) : '';
+  const lugar = {}, fijos = [...firmes], aMover = [];
+
+  /* la hora que ella fijo se respeta, salvo que le caiga encima algo firme
+     (un turno, una clase, una cita): ahi se corre sola */
+  delDia.filter(p=>p.hora).forEach(p=>{
+    const d = minutosDe(p.hora), h = d + duracionEstimada(p);
+    const choca = firmes.find(f=>{ const fd = minutosDe(f.start), fh = finEnMinutos(f.start, f.end||f.start); return fd!==null && fh!==null && d < fh && fd < h; });
+    if(choca){ aMover.push({ p, por: choca.titulo }); return; }
+    const b = { titulo:p.titulo, start:p.hora, end:hhmm(h), color:colorDeLista(p), lugar:ventanaDe(p), pend:p };
+    fijos.push(b); lugar[p.id] = b;
+  });
+
+  const autos = [...aMover, ...delDia.filter(p=>!p.hora).map(p=>({ p }))]
+    .sort((a,b)=> URG_ORDEN[a.p.urgencia||'normal']-URG_ORDEN[b.p.urgencia||'normal'] || (a.p.orden??1e9)-(b.p.orden??1e9));
   const ahora = new Date();
   const minAhora = fecha===todayStr() ? Math.ceil((ahora.getHours()*60 + ahora.getMinutes())/15)*15 : null;
-  const puestos = [], lugar = {};
-  lista.forEach(p=>{
-    const dur = Number(p.duracion)||30;
+  const puestos = [];
+  autos.forEach(({ p, por })=>{
+    const dur = duracionEstimada(p);
     const lo = Math.max(DIA_DESDE, minutosDe(p.desde) ?? 0, minAhora ?? 0);
     const hi = Math.min(DIA_HASTA, minutosDe(p.hasta) ?? 1440);
-    const h = huecosDelDia([...fijos, ...puestos]).map(h=>({ desde:Math.ceil(Math.max(h.desde, lo)/15)*15, hasta:Math.min(h.hasta, hi) }))
-      .find(h=>h.hasta - h.desde >= dur);
-    if(!h){ lugar[p.id] = null; return; }
+    const huecos = huecosDelDia([...fijos, ...puestos]).map(h=>({ desde:Math.ceil(Math.max(h.desde, lo)/15)*15, hasta:Math.min(h.hasta, hi) }))
+      .filter(h=>h.hasta - h.desde >= dur);
+    if(!huecos.length){ lugar[p.id] = null; return; }
+    /* lo nuevo va al primer hueco; lo que se corrio por un choque, al rato
+       libre mas cercano a la hora que ella habia puesto */
+    let inicio = huecos[0].desde;
+    if(por){
+      const quiso = minutosDe(p.hora);
+      const candidatos = huecos.flatMap(h=>[h.desde, Math.floor((h.hasta-dur)/15)*15].filter(x=>x>=h.desde && x+dur<=h.hasta));
+      inicio = candidatos.sort((x,y)=>Math.abs(x-quiso)-Math.abs(y-quiso))[0];
+    }
+    const h = { desde:inicio };
     const b = { titulo:p.titulo, start:hhmm(h.desde), end:hhmm(h.desde+dur), color:colorDeLista(p),
-      lugar: ventanaTexto(p) ? 'Se puede ' + ventanaTexto(p) : '', pend:p, auto:true };
+      lugar: por ? `Se movió: a las ${p.hora} se cruzaba con ${por}` : ventanaDe(p), pend:p, auto:true, movidoPor:por||null };
     puestos.push(b); lugar[p.id] = b;
   });
   return { fijos, puestos, lugar };
 }
 function horaAuto(p, cambio){
-  if(!p.fecha || p.hora || p.hecho) return null;
-  return acomodarDia(p.fecha, cambio).lugar[p.id] || null;
+  if(!p.fecha || p.hecho) return null;
+  const b = acomodarDia(p.fecha, cambio).lugar[p.id] || null;
+  return b && b.auto ? b : null;
 }
 
 function pendienteHTML(p){
@@ -1395,6 +1441,7 @@ function bindPendClicks(){
     b.onclick = ()=>{
       const p = DATA.pendientes.find(x=>x.id===b.dataset.pid);
       if(!p) return;
+      if(!p.hecho && p.fecha){ marcarPendienteHecho(p); return; }
       p.hecho = !p.hecho;
       /* al desmarcarlo vuelve al final de lo pendiente, como en Keep */
       if(!p.hecho) p.orden = Math.max(0, ...DATA.pendientes.filter(x=>x.listaId===p.listaId && !x.hecho && x!==p).map(x=>(x.orden??0)+1));
@@ -1494,6 +1541,7 @@ function engancharFila(el){
   el.querySelector('[data-action="editPend"]').onclick = (ev)=>editarEnSitio(ev.currentTarget);
   el.querySelector('[data-action="togglePend"]').onclick = ()=>{
     const p = DATA.pendientes.find(x=>x.id===el.dataset.pid); if(!p) return;
+    if(!p.hecho && p.fecha){ marcarPendienteHecho(p); return; }
     p.hecho = !p.hecho; saveData(); renderAll();
   };
   const h = el.querySelector('.kdrag'); if(h && h.textContent) engancharArrastre(h);
@@ -1545,7 +1593,7 @@ function openPendienteModal(p){
     <div class="field"><label>¿Qué hay que hacer?</label><input type="text" id="f_ptitulo" value="${esc(p.titulo)}"></div>
     <div class="field-row">
       <div class="field"><label>Día</label><input type="date" id="f_pfecha" value="${esc(p.fecha||'')}"></div>
-      <div class="field"><label>Me toma</label><select id="f_pdur">${DUR.map(([v,l])=>`<option value="${v}" ${Number(p.duracion||30)===v?'selected':''}>${l}</option>`).join('')}</select></div>
+      <div class="field"><label>Tiempo que dan</label><select id="f_pdur">${DUR.map(([v,l])=>`<option value="${v}" ${Number(p.duracion||30)===v?'selected':''}>${l}</option>`).join('')}</select></div>
     </div>
     <div id="f_pconfecha" ${p.fecha?'':'hidden'}>
       <div class="field-row">
@@ -1577,22 +1625,29 @@ function openPendienteModal(p){
     if(!d.fecha){ caja.innerHTML = ''; return; }
     const ventana = minutosDe(d.desde)!==null || minutosDe(d.hasta)!==null;
 
-    if(horaFija && !eligiendo){
-      caja.innerHTML = `<div class="plan-box"><div class="qd">Lo haces a las <b>${horaFija}–${finDePendiente(d)}</b>. Lo fijaste tú.</div>
+    const ritmo = ritmoDe(d), est = duracionEstimada(d);
+    const notaRitmo = ritmo && est !== d.duracion
+      ? `<div class="helptext" style="margin:6px 0 0;">Dan ${d.duracion} min, pero ${ritmo.deLista?'en esta lista ':''}sueles tardar ${est<d.duracion?'menos':'más'}: te guardo ${est} min.</div>` : '';
+    const lugarD = acomodarDia(d.fecha, d).lugar[p.id];
+    if(horaFija && !eligiendo && lugarD && lugarD.movidoPor){
+      caja.innerHTML = `<div class="plan-box ojo"><div class="qd">A las ${horaFija} se te cruza con <b>${esc(lugarD.movidoPor)}</b>. Lo corrí a <b>${lugarD.start}–${lugarD.end}</b>.</div>${notaRitmo}
+        <div class="acc"><button class="small-btn" id="pl_si" data-hora="${lugarD.start}">Dejarlo ahí</button><button class="small-btn" id="pl_otra">Otra hora</button></div></div>`;
+    } else if(horaFija && !eligiendo){
+      caja.innerHTML = `<div class="plan-box"><div class="qd">Lo haces a las <b>${horaFija}–${finDePendiente(d)}</b>. Lo fijaste tú.</div>${notaRitmo}
         <div class="acc"><button class="small-btn" id="pl_otra">Cambiar hora</button><button class="small-btn" id="pl_auto">Que Bitácora lo acomode</button></div></div>`;
     } else if(!eligiendo){
       const auto = acomodarDia(d.fecha, Object.assign(d, { hora:'' })).lugar[p.id];
       caja.innerHTML = auto
         ? `<div class="plan-box"><div class="qd">Bitácora te lo acomoda a las <b>${auto.start}–${auto.end}</b>, en tu primer hueco libre${ventana?' dentro de la ventana':''}.</div>
-            <div class="helptext" style="margin:4px 0 0;">Si se te llena ese rato, se corre sola.</div>
+            ${notaRitmo}<div class="helptext" style="margin:4px 0 0;">Si se te llena ese rato, se corre sola.</div>
             <div class="acc"><button class="small-btn" id="pl_si" data-hora="${auto.start}">Sí, ahí lo hago</button><button class="small-btn" id="pl_otra">Otra hora</button></div></div>`
-        : `<div class="plan-box ojo"><div class="qd">Ese día no te queda un hueco de ${d.duracion} min${ventana?' dentro de la ventana':''}.</div>
+        : `<div class="plan-box ojo"><div class="qd">Ese día no te queda un hueco de ${est} min${ventana?' dentro de la ventana':''}.</div>
             <div class="acc"><button class="small-btn" id="pl_otra">Ponerle hora igual</button></div></div>`;
     } else {
       const bloques = bloquesDeFecha(d.fecha).filter(b=>!(b.pend && b.pend.id===p.id));
       const vD = minutosDe(d.desde), vH = minutosDe(d.hasta);
       const huecos = huecosDelDia(bloques).map(h=>({ desde:Math.max(h.desde, vD ?? h.desde), hasta:Math.min(h.hasta, vH ?? h.hasta) }))
-        .filter(h=>h.hasta - h.desde >= d.duracion);
+        .filter(h=>h.hasta - h.desde >= est);
       caja.innerHTML = `<div class="plan-box">
           <div class="field" style="margin-bottom:8px;"><label>Lo hago a las</label><input type="time" id="pl_hora" value="${esc(horaFija)}"></div>
           ${huecos.length ? `<div class="helptext" style="margin:0 0 6px;">Libres ese día:</div><div class="huecos-sug" style="margin:0;">${huecos.map(h=>`<div class="chip" data-hora="${hhmm(h.desde)}">${hhmm(h.desde)}–${hhmm(h.hasta)}</div>`).join('')}</div>` : ''}
@@ -1631,6 +1686,72 @@ function openPendienteModal(p){
     saveData(); closeSheet(); renderAll(); refrescarDiaCalendario();
   };
 }
+/* Marcar hecho algo con fecha: pregunta cuanto tomo (para aprender su ritmo)
+   y, si termino antes, ofrece adelantar lo que venia despues. */
+function marcarPendienteHecho(p){
+  const t = todayStr(), ahora = new Date(), minAhora = ahora.getHours()*60 + ahora.getMinutes();
+  const bloque = p.fecha ? acomodarDia(p.fecha).lugar[p.id] : null;
+  p.hecho = true; p.hechoFecha = t;
+  saveData(); renderAll(); refrescarDiaCalendario();
+  if(!p.fecha) return;
+
+  const dada = Number(p.duracion)||30;
+  const ini = bloque ? minutosDe(bloque.start) : null, fin = bloque ? minutosDe(bloque.end) : null;
+  const enSuRato = bloque && p.fecha===t && minAhora > ini && minAhora <= fin + 30;
+  const sugerido = enSuRato ? Math.max(5, Math.round((minAhora-ini)/5)*5) : null;
+  const opciones = [...new Set([sugerido, 15, 30, 45, 60, 90, 120].filter(Boolean))].sort((a,b)=>a-b);
+  openSheet(`<h3>¡Hecho! ¿Cuánto te tomó?</h3>
+    <div class="helptext" style="margin:-8px 0 14px;">Daban ${dada} min. Con esto aprendo cuánto te demoras de verdad y te acomodo mejor lo que viene.</div>
+    <div class="chiprow" id="realChips" style="flex-wrap:wrap;">${opciones.map(m=>`<div class="chip ${m===sugerido?'active':''}" data-min="${m}">${m} min${m===sugerido?' · desde que empezó':''}</div>`).join('')}</div>
+    <div class="field" style="margin-top:12px;"><label>Otro</label><input type="number" id="realOtro" inputmode="numeric" min="1" placeholder="minutos"></div>
+    <div class="sheet-actions"><button class="btn btn-ghost" id="realNo">No sé</button><button class="btn btn-primary" id="realSi">Guardar</button></div>`);
+  let elegido = sugerido;
+  document.querySelectorAll('#realChips .chip').forEach(c=>c.onclick=()=>{
+    document.querySelectorAll('#realChips .chip').forEach(x=>x.classList.remove('active')); c.classList.add('active');
+    elegido = Number(c.dataset.min); document.getElementById('realOtro').value = '';
+  });
+  document.getElementById('realNo').onclick = ()=>{ closeSheet(); ofrecerAdelantar(p, bloque); };
+  document.getElementById('realSi').onclick = ()=>{
+    const otro = Number(document.getElementById('realOtro').value);
+    const min = otro > 0 ? otro : elegido;
+    if(min){ p.realMin = min; saveData(); }
+    closeSheet(); renderAll(); refrescarDiaCalendario();
+    ofrecerAdelantar(p, bloque);
+  };
+}
+
+/* Si termino antes de lo que tenia guardado, lo que venia despues puede
+   correrse. Lo automatico ya se corre solo; lo que ella fijo, se lo pregunta. */
+function ofrecerAdelantar(p, bloque){
+  const t = todayStr();
+  if(!bloque || p.fecha!==t) return;
+  const ahora = new Date(), minAhora = ahora.getHours()*60 + ahora.getMinutes();
+  const libre = minutosDe(bloque.end) - minAhora;
+  if(libre < 10) return;
+  const { lugar } = acomodarDia(t);
+  const siguientes = pendientesConFecha(t).map(q=>({ q, b:lugar[q.id] }))
+    .filter(x=>x.b && minutosDe(x.b.start) >= minAhora).sort((a,b)=>minutosDe(a.b.start)-minutosDe(b.b.start));
+  const fijos = siguientes.filter(x=>!x.b.auto).map(x=>{
+    const antes = acomodarDia(t, Object.assign({}, x.q, { hora:'' })).lugar[x.q.id];
+    return antes && minutosDe(antes.start) < minutosDe(x.b.start) ? { ...x, nueva:antes.start } : null;
+  }).filter(Boolean);
+  const autos = siguientes.filter(x=>x.b.auto);
+  const sinFecha = (DATA.pendientes||[]).filter(q=>!q.hecho && !q.fecha).sort((a,b)=>URG_ORDEN[a.urgencia||'normal']-URG_ORDEN[b.urgencia||'normal'])[0];
+  if(!fijos.length && !autos.length && !sinFecha) return;
+  openSheet(`<h3>Te sobraron ${duracionLarga(libre)}</h3>
+    ${autos.length ? `<div class="plan-box"><div class="qd">Ya corrí lo que se acomoda solo:</div>${autos.map(x=>`<div class="helptext" style="margin:4px 0 0;"><b>${esc(x.q.titulo)}</b> ahora a las ${x.b.start}</div>`).join('')}</div>` : ''}
+    ${fijos.map(x=>`<div class="plan-box"><div class="qd"><b>${esc(x.q.titulo)}</b> lo tenías a las ${x.q.hora}. ¿Lo adelanto?</div>
+      <div class="acc"><button class="small-btn" data-adelantar="${x.q.id}" data-hora="${x.nueva}">Adelantar a las ${x.nueva}</button></div></div>`).join('')}
+    ${!fijos.length && !autos.length && sinFecha ? `<div class="plan-box"><div class="qd">Te cabe algo sin fecha: <b>${esc(sinFecha.titulo)}</b>.</div></div>` : ''}
+    <div class="sheet-actions"><button class="btn btn-primary" id="adelOk">Listo</button></div>`);
+  document.querySelectorAll('[data-adelantar]').forEach(bt=>bt.onclick=()=>{
+    const q = DATA.pendientes.find(x=>x.id===bt.dataset.adelantar); if(!q) return;
+    q.hora = bt.dataset.hora; saveData(); renderAll(); refrescarDiaCalendario();
+    bt.textContent = `✓ Ahora a las ${q.hora}`; bt.disabled = true;
+  });
+  document.getElementById('adelOk').onclick = closeSheet;
+}
+
 function refrescarDiaCalendario(){
   if(document.getElementById('view-calendario').classList.contains('active')) renderCalDayList();
 }
@@ -4483,8 +4604,8 @@ function bloquesDeFecha(fecha){
   const { fijos, puestos } = acomodarDia(fecha);
   return [...fijos, ...puestos].sort(porHora);
 }
-/* Lo que ocupa el dia sin contar lo que Bitacora acomoda sola. */
-function bloquesFijos(fecha, cambio){
+/* Lo firme del dia: rutinas, clases, turnos y lo agendado con hora. */
+function bloquesFijos(fecha){
   const d = parseDate(fecha), dow = d.getDay();
   const out = [];
   weekdayItems(dow).forEach(c=>{
@@ -4495,12 +4616,6 @@ function bloquesFijos(fecha, cambio){
   DATA.events.filter(e=>e.date===fecha && e.start).forEach(e=>{
     out.push({ titulo:e.title, start:e.start, end:e.end,
       color:CATS[e.cat]?CATS[e.cat].color:'var(--text-dim)', lugar:e.lugar||'', ev:e });
-  });
-  /* los pendientes que ya decidio a que hora hacer; al marcarlos hechos se van */
-  (DATA.pendientes||[]).map(p=>cambio && p.id===cambio.id ? cambio : p)
-    .filter(p=>!p.hecho && p.fecha===fecha && p.hora).forEach(p=>{
-    out.push({ titulo:p.titulo, start:p.hora, end:finDePendiente(p), color:colorDeLista(p),
-      lugar: ventanaTexto(p) ? 'Se puede ' + ventanaTexto(p) : '', pend:p });
   });
   return out.sort(porHora);
 }
@@ -4583,7 +4698,7 @@ function tiraDelDia(fecha, opciones){
       : b.rutina ? `data-rutina="${b.rutina.id}" data-sel-tipo="rutina" data-sel-id="${b.rutina.id}"`
       : b.materia ? `data-materia="${b.materia.id}" data-sel-tipo="materia" data-sel-id="${b.materia.id}"`
       : b.pend ? `data-pend="${b.pend.id}" data-sel-tipo="pendiente" data-sel-id="${b.pend.id}"` : '';
-    return `<div class="bloque${hecho?' hecho':''}${b.auto?' auto':''}" ${marca} ${b.auto?`style="--raya:${b.color}"`:''}>
+    return `<div class="bloque${hecho?' hecho':''}${b.auto?' auto':''}${b.movidoPor?' movido':''}" ${marca} ${b.auto?`style="--raya:${b.color}"`:''}>
       <div class="hora mono">${esc(b.start)}${b.end?`<span class="hasta">${esc(b.end)}</span>`:''}</div>
       <div class="raya" style="background:${b.color};"></div>
       <div class="cuerpo">
@@ -4611,8 +4726,7 @@ function engancharTira(caja){
     b.onclick = (ev)=>{
       ev.stopPropagation();
       const p = DATA.pendientes.find(x=>x.id===b.dataset.pid); if(!p) return;
-      p.hecho = true; p.hechoFecha = todayStr();
-      saveData(); renderAll(); refrescarDiaCalendario();
+      marcarPendienteHecho(p);
     };
   });
   bindItemClicks();
