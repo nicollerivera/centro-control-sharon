@@ -10,7 +10,7 @@
    - /api/*: siempre la red, el service worker ni se mete
 */
 
-const VERSION = 'v2';
+const VERSION = 'v3';
 const CACHE = `bitacora-${VERSION}`;
 const CACHE_EXTERNO = `bitacora-externo-${VERSION}`;
 
@@ -98,4 +98,45 @@ self.addEventListener('fetch', (evento) => {
   if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') {
     evento.respondWith(copiaPrimero(request, CACHE_EXTERNO));
   }
+});
+
+/* ============================================================
+   LOS AVISOS
+   Llegan del servidor aunque la app este cerrada. El service worker solo los
+   muestra: que se avisa y que no se decide en /api/_avisos.js.
+============================================================ */
+self.addEventListener('push', (evento) => {
+  let aviso = {};
+  try { aviso = evento.data ? evento.data.json() : {}; } catch (e) { aviso = {}; }
+  const titulo = aviso.titulo || 'Bitácora';
+  evento.waitUntil(
+    self.registration.showNotification(titulo, {
+      body: aviso.cuerpo || '',
+      icon: '/icons/icono-192.png',
+      badge: '/icons/icono-192.png',
+      lang: 'es',
+      /* el tag agrupa por tipo: dos avisos de pago no se apilan como dos torres */
+      tag: 'bitacora-' + (aviso.tipo || 'general'),
+      renotify: false,
+      data: { ir: aviso.ir || 'hoy' },
+    })
+  );
+});
+
+/* Al tocarla, abre la app donde corresponde en vez de una pestana nueva. */
+self.addEventListener('notificationclick', (evento) => {
+  evento.notification.close();
+  const ir = evento.notification.data?.ir || 'hoy';
+  const destino = new URL('/?ir=' + ir, self.location.origin).href;
+  evento.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((abiertas) => {
+      for (const c of abiertas) {
+        if (c.url.startsWith(self.location.origin)) {
+          c.postMessage({ tipo: 'ir', a: ir });
+          return c.focus();
+        }
+      }
+      return clients.openWindow(destino);
+    })
+  );
 });

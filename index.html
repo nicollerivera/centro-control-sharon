@@ -232,6 +232,8 @@ button{font-family:inherit;}
 .saldo-edad{text-transform:none; letter-spacing:0; font-weight:600; color:var(--text-muted); font-size:11.5px;}
 .saldo-num{font-size:30px; font-weight:600; margin-top:3px; letter-spacing:-.02em;}
 .saldo-card{cursor:pointer;}
+.lista-avisos{margin:0 0 10px; padding-left:20px; font-size:13.5px; color:var(--text); line-height:1.5;}
+.lista-avisos li{margin:3px 0;}
 .deuda-card.saldada{opacity:.62;}
 
 /* ---------- turnos y choques ---------- */
@@ -438,6 +440,8 @@ button{font-family:inherit;}
     <div class="card" id="timeSummary"></div>
     <div class="section-title">Patrones</div>
     <div id="insights"></div>
+    <div class="section-title" style="margin-top:28px;">Avisos</div>
+    <div id="avisosBox"></div>
     <div class="section-title" style="margin-top:28px;">Tus notas</div>
     <div id="sub-personal"></div>
   </div>
@@ -2801,6 +2805,141 @@ function renderChoquesSemana(){
 }
 
 /* ============================================================
+   AVISOS
+   Solo existen tres, y se explican en la pantalla para que sepa exactamente
+   que va a recibir antes de decir que si (D45, D46, D49, D07).
+============================================================ */
+const PUSH_URL = '/api/push';
+
+function soportaAvisos(){
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+function b64aBytes(base64){
+  const relleno = '='.repeat((4 - base64.length % 4) % 4);
+  const limpio = (base64 + relleno).replace(/-/g, '+').replace(/_/g, '/');
+  const crudo = atob(limpio);
+  return Uint8Array.from([...crudo].map(c => c.charCodeAt(0)));
+}
+async function pushRequest(method, body){
+  const headers = { 'Content-Type':'application/json' };
+  const pass = lsGet(PASS_KEY);
+  if(pass) headers['x-app-password'] = pass;
+  const res = await fetch(PUSH_URL, { method, headers, cache:'no-store', body: body ? JSON.stringify(body) : undefined });
+  if(!res.ok){
+    let detalle=''; try{ detalle = (await res.json()).error || ''; }catch(e){}
+    throw new Error(detalle || ('HTTP '+res.status));
+  }
+  return res.json();
+}
+async function suscripcionActual(){
+  if(!soportaAvisos()) return null;
+  const reg = await navigator.serviceWorker.getRegistration();
+  return reg ? await reg.pushManager.getSubscription() : null;
+}
+
+async function renderAvisos(){
+  const caja = document.getElementById('avisosBox');
+  if(!caja) return;
+
+  const explicacion = `
+    <div class="helptext" style="margin:0 0 10px;">Solo existen tres, y llegan el día antes:</div>
+    <ol class="lista-avisos">
+      <li>Una entrega de la universidad que se acerca</li>
+      <li>Un pago o una cuota por vencer</li>
+      <li>Un hueco libre con un pendiente que cabe</li>
+    </ol>
+    <div class="helptext">Nunca de recoger a Joel ni de entrar o salir de un turno. Nada entre las 11 de la noche y las 6 de la mañana, ni en noches de turno. Máximo 8 en un día.</div>`;
+
+  if(!soportaAvisos()){
+    caja.innerHTML = `<div class="card">${explicacion}
+      <div class="helptext" style="color:var(--ambar); font-weight:600; margin-top:10px;">Este navegador no los soporta. En el celular, instala Bitácora desde el menú de Chrome y ábrela desde el ícono.</div></div>`;
+    return;
+  }
+
+  const permiso = Notification.permission;
+  const sub = await suscripcionActual();
+  let estado, accion;
+
+  if(permiso === 'denied'){
+    estado = `<div class="helptext" style="color:var(--urgent); font-weight:600;">Los bloqueaste. Para volver a activarlos toca el candado de la barra de direcciones y permite las notificaciones.</div>`;
+    accion = '';
+  } else if(sub){
+    estado = `<div class="helptext" style="color:var(--done); font-weight:600;">✓ Activados en este dispositivo.</div>`;
+    accion = `<button class="small-btn" id="avisosProbar">Mandarme uno de prueba</button>
+              <button class="small-btn" id="avisosQuitar" style="color:var(--urgent);">Desactivar</button>`;
+  } else {
+    estado = `<div class="helptext">Apagados. No te llega nada.</div>`;
+    accion = `<button class="btn btn-primary" style="width:100%; margin-top:4px;" id="avisosPrender">Activar los avisos</button>`;
+  }
+
+  caja.innerHTML = `<div class="card">${explicacion}<div style="margin-top:12px;">${estado}</div>
+    <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">${accion}</div></div>`;
+
+  const prender = document.getElementById('avisosPrender');
+  if(prender) prender.onclick = activarAvisos;
+  const quitar = document.getElementById('avisosQuitar');
+  if(quitar) quitar.onclick = desactivarAvisos;
+  const probar = document.getElementById('avisosProbar');
+  if(probar) probar.onclick = async ()=>{
+    const reg = await navigator.serviceWorker.getRegistration();
+    reg.showNotification('Bitácora', {
+      body: 'Así se van a ver. Este es el único que te mando yo.',
+      icon: '/icons/icono-192.png', badge: '/icons/icono-192.png', tag: 'bitacora-prueba'
+    });
+  };
+}
+
+async function activarAvisos(){
+  const btn = document.getElementById('avisosPrender');
+  if(btn){ btn.disabled = true; btn.textContent = 'Un momento…'; }
+  try{
+    const permiso = await Notification.requestPermission();
+    if(permiso !== 'granted'){ renderAvisos(); return; }
+
+    const { publicKey } = await pushRequest('GET');
+    if(!publicKey) throw new Error('Al proyecto le faltan las llaves VAPID en Vercel.');
+
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: b64aBytes(publicKey)
+    });
+    await pushRequest('POST', { subscription: sub.toJSON() });
+    renderAvisos();
+  }catch(err){
+    alert('No se pudieron activar: ' + err.message);
+    renderAvisos();
+  }
+}
+
+async function desactivarAvisos(){
+  try{
+    const sub = await suscripcionActual();
+    if(sub){
+      await pushRequest('POST', { subscription: sub.toJSON(), quitar: true }).catch(()=>{});
+      await sub.unsubscribe();
+    }
+  }catch(err){ /* si falla el servidor, igual se quita del navegador */ }
+  renderAvisos();
+}
+
+/* Al tocar un aviso, la app abre donde toca. */
+function engancharAvisos(){
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.addEventListener('message', (ev)=>{
+      if(ev.data?.tipo === 'ir' && views.includes(ev.data.a)) showView(ev.data.a);
+    });
+  }
+  try{
+    const ir = new URLSearchParams(location.search).get('ir');
+    if(ir && views.includes(ir)){
+      showView(ir);
+      history.replaceState(null, '', location.pathname);
+    }
+  }catch(e){}
+}
+
+/* ============================================================
    PLATA
    Orden de la pantalla, tal cual lo pediste (D112): cuanto tienes ahora,
    cuanto vas a recibir y cuando, y como vas contra el presupuesto.
@@ -3420,13 +3559,14 @@ function renderAll(){
   if(active==='calendario'){ renderCalendar(); renderChoquesSemana(); renderTurnos(); renderRutinas(); }
   if(active==='pendientes'){ renderTareasView(); renderMaterias(); renderMarca(); renderNexxaGestion(); renderTrabajo(); }
   if(active==='plata') renderPlata();
-  if(active==='yo'){ renderYo(); renderPersonalGestion(); }
+  if(active==='yo'){ renderYo(); renderAvisos(); renderPersonalGestion(); }
 }
 
 (async function init(){
   await loadData();
   renderAll();
   document.querySelectorAll('.view.active .subtabs').forEach(marcarBordes);
+  engancharAvisos();
 
   const temaBtn = document.getElementById('temaBtn');
   function pintarTema(){
