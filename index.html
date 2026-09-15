@@ -1521,5 +1521,21 @@ function renderAll(){
   document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') syncNow(); });
 })();
 </script>
+<script>
+/* Guarda la app en el telefono para que abra sin internet (ver sw.js).
+   Si mientras tanto se publico una version nueva, se recarga sola una vez. */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    const habiaControlador = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (habiaControlador && !window.__recargando) {
+        window.__recargando = true;
+        window.location.reload();
+      }
+    });
+  });
+}
+</script>
 </body>
 </html>
