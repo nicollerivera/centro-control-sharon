@@ -2016,12 +2016,13 @@ function sembrarCompromisos(){
 function sembrarPlata(){
   if(DATA.platoSembrado) return;
   DATA.platoSembrado = true;
+  if(DATA.plata.tasaUSD===null){ DATA.plata.tasaUSD = 3200; DATA.plata.tasaFecha = todayStr(); }
 
   if(!DATA.suscripciones.length){
     DATA.suscripciones = [
       { id:uid(), nombre:'Datos',  monto:45000, moneda:'COP', dia:15, nota:'llega el 8, la pagas el 15' },
       { id:uid(), nombre:'Claude', monto:20,    moneda:'USD', dia:19, nota:'' },
-      { id:uid(), nombre:'One',    monto:9000,  moneda:'COP', dia:'',  nota:'falta decirle qué día del mes' }
+      { id:uid(), nombre:'One',    monto:9000,  moneda:'COP', dia:27, nota:'' }
     ];
   }
   if(!DATA.deudas.length){
@@ -2266,10 +2267,17 @@ function enPesos(monto, moneda){
   const t = tasaUSD();
   return t ? Math.round(Number(monto)*t) : null;
 }
-function montoConMoneda(monto, moneda){
+function montoConMoneda(monto, moneda, montoCOP){
   if(moneda!=='USD') return money(monto);
+  const etiqueta = 'US$' + Number(monto).toLocaleString('es-CO');
+  if(Number(montoCOP)>0) return etiqueta + ' · ' + money(montoCOP);
   const pesos = enPesos(monto, moneda);
-  return 'US$' + Number(monto).toLocaleString('es-CO') + (pesos!==null ? ' · ' + money(pesos) : ' · falta la tasa');
+  return etiqueta + (pesos!==null ? ' · ' + money(pesos) : ' · falta la tasa');
+}
+/* Si escribio lo que le descontaron, de ahi sale la tasa real de ese cobro. */
+function tasaImplicita(x){
+  if(x.moneda!=='USD' || !Number(x.montoCOP) || !Number(x.monto)) return null;
+  return Math.round(Number(x.montoCOP) / Number(x.monto));
 }
 function haceCuanto(fecha){
   if(!fecha) return 'nunca';
@@ -2385,11 +2393,12 @@ function renderPlata(){
     return `<div class="card sus-card" data-id="${x.id}" style="cursor:pointer; border-left:3px solid var(--c-dinero);">
       <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
         <div style="font-weight:600;">${esc(x.nombre)}</div>
-        <div class="mono" style="font-weight:700;">${montoConMoneda(x.monto, x.moneda)}</div>
+        <div class="mono" style="font-weight:700;">${montoConMoneda(x.monto, x.moneda, x.montoCOP)}</div>
       </div>
       <div class="helptext" style="margin:3px 0 0; ${pronto?'color:var(--ambar); font-weight:600;':''}">
         ${x.dia ? 'El ' + x.dia + ' de cada mes' + (prox ? ' · el próximo, ' + esc(niceDate(prox)) : '') : '⚠ falta el día del mes'}${x.nota ? ' · ' + esc(x.nota) : ''}
       </div>
+      ${tasaImplicita(x) ? `<div class="helptext" style="margin:4px 0 0;">Te lo descontaron a ${money(tasaImplicita(x))} el dólar${tasaImplicita(x)!==tasaUSD() ? ` · <button class="small-btn" data-usar-tasa="${x.id}">usar esta tasa</button>` : ''}</div>` : ''}
     </div>`;
   }).join('') : '<div class="empty-card" style="margin-bottom:8px;">Sin cobros mensuales.</div>';
 
@@ -2461,6 +2470,12 @@ function renderPlata(){
   document.getElementById('addMoneyBtn').onclick = ()=>openEventModal(null, {cat:'finanzas'});
   document.getElementById('addInstallmentBtn').onclick = openInstallmentModal;
   box.querySelectorAll('.sus-card').forEach(c=>c.onclick=()=>openSuscripcionModal(DATA.suscripciones.find(x=>x.id===c.dataset.id)));
+  box.querySelectorAll('[data-usar-tasa]').forEach(b=>b.onclick=(ev)=>{
+    ev.stopPropagation();
+    const x = DATA.suscripciones.find(s=>s.id===b.dataset.usarTasa);
+    DATA.plata.tasaUSD = tasaImplicita(x); DATA.plata.tasaFecha = todayStr();
+    saveData(); renderPlata();
+  });
   box.querySelectorAll('.deuda-card').forEach(c=>c.onclick=()=>openDeudaModal(DATA.deudas.find(x=>x.id===c.dataset.id)));
   box.querySelectorAll('[data-action="payInstallment"]').forEach(b=>b.onclick=()=>openPayModal(b.dataset.id));
   box.querySelectorAll('[data-action="delInstallment"]').forEach(b=>b.onclick=()=>{ DATA.installments = DATA.installments.filter(i=>i.id!==b.dataset.id); saveData(); renderPlata(); });
@@ -2516,6 +2531,10 @@ function openSuscripcionModal(existente){
         <option value="USD" ${x.moneda==='USD'?'selected':''}>Dólares</option>
       </select></div>
     </div>
+    <div class="field" id="copField" style="display:${x.moneda==='USD'?'block':'none'}"><label>O lo que te descontaron, en pesos</label>
+      <input type="number" id="f_scop" inputmode="numeric" value="${x.montoCOP||''}" placeholder="Ej: 64.000">
+      <div class="helptext">Si es más fácil escribir cuánto te llegó que andar con la tasa, ponlo acá y manda esto.</div>
+    </div>
     <div class="field"><label>Qué día del mes</label><input type="number" id="f_sdia" inputmode="numeric" min="1" max="31" value="${x.dia}" placeholder="1 a 31"></div>
     <div class="field"><label>Nota (opcional)</label><input type="text" id="f_snota" value="${esc(x.nota||'')}" placeholder="Ej: llega el 8, la pago el 15"></div>
     <div class="sheet-actions">
@@ -2524,14 +2543,17 @@ function openSuscripcionModal(existente){
     </div>`);
   const del = document.getElementById('delSus');
   if(del) del.onclick = ()=>{ DATA.suscripciones = DATA.suscripciones.filter(s=>s.id!==existente.id); saveData(); closeSheet(); renderPlata(); };
+  document.getElementById('f_smoneda').onchange = (ev)=>{ document.getElementById('copField').style.display = ev.target.value==='USD' ? 'block' : 'none'; };
   document.getElementById('saveSus').onclick = ()=>{
     const datos = {
       nombre: document.getElementById('f_sname').value.trim(),
       monto: Number(document.getElementById('f_smonto').value)||0,
       moneda: document.getElementById('f_smoneda').value,
+      montoCOP: Number(document.getElementById('f_scop').value)||'',
       dia: Number(document.getElementById('f_sdia').value)||'',
       nota: document.getElementById('f_snota').value.trim()
     };
+    if(datos.moneda!=='USD') datos.montoCOP='';
     if(!datos.nombre){ alert('Ponle nombre.'); return; }
     if(existente) Object.assign(existente, datos);
     else DATA.suscripciones.push(Object.assign({id:uid()}, datos));
