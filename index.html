@@ -326,7 +326,7 @@ body.con-barra .elegido .urg, body.con-barra .elegido .tag{visibility:hidden;}
 .linea-plata:focus-within{border-color:var(--accent);}
 .linea-plata input{flex:1; min-width:0; border:none; background:none; color:var(--text); font:inherit; font-size:15px; padding:10px 0; outline:none;}
 .linea-plata button{flex:none; width:32px; height:32px; border:none; border-radius:8px; background:var(--accent); color:#fff; font-size:18px; display:flex; align-items:center; justify-content:center;}
-.linea-plata button:disabled{background:var(--surface-3); color:var(--text-dim);}
+.linea-plata button:disabled{display:none;}
 .linea-lee{font-size:12px; color:var(--text-dim); min-height:17px; margin:0 4px 18px;}
 .linea-lee b{font-family:'Space Grotesk',sans-serif;}
 .quedaria{margin-top:6px; cursor:pointer;}
@@ -385,7 +385,16 @@ body.con-barra .elegido .urg, body.con-barra .elegido .tag{visibility:hidden;}
 .pleg-lista{border-top:1px solid var(--border);}
 .pleg-lista .pleg{margin:0; border-bottom:1px solid var(--border);}
 .pleg-lista .pleg-head{background:none; border:none; border-radius:0; padding:14px 2px;}
-.pleg-lista .pleg-body{padding:0 0 12px;}
+.pleg-lista .pleg-body{padding:0 0 10px;}
+.pleg-head:focus{outline:none;}
+.pleg-head:focus-visible{outline:2px solid var(--accent-soft); outline-offset:-2px;}
+/* adentro, cada cosa es una fila con linea fina, no una tarjeta */
+.pleg-lista .card{background:none; border:none !important; border-radius:0; padding:9px 2px; margin:0; border-top:1px solid var(--border) !important; font-size:14px;}
+.pleg-lista .pleg-body > .card:first-child{border-top:none !important;}
+.pleg-lista .card .mono{font-size:14px !important; font-weight:600 !important;}
+.pleg-lista .card .helptext{font-size:12px; margin-top:2px !important;}
+.pleg-lista .card .small-btn{margin-top:6px !important;}
+.pleg-lista .progress-track{height:4px; margin-top:6px;}
 .pleg-acciones{display:flex; justify-content:flex-end; gap:8px; margin:2px 0 8px;}
 
 /* ---------- turnos y choques ---------- */
@@ -4156,10 +4165,10 @@ function renderPlata(){
     </div>` : '')(cuentaQuedaria())}
   </div>
   <div class="linea-plata">
-    <input id="lineaPlata" type="text" enterkeyhint="done" autocomplete="off" placeholder="almuerzo 15000 · +80000 Infinity">
+    <input id="lineaPlata" type="text" enterkeyhint="done" autocomplete="off" placeholder="Anotar gasto o ingreso">
     <button id="lineaPlataOk" aria-label="Anotar" disabled>↵</button>
   </div>
-  <div class="linea-lee" id="lineaLee">Si te entró, empieza con +</div>
+  <div class="linea-lee" id="lineaLee"></div>
   <div class="pleg-lista">`;
 
   /* 2 · lo demas va plegado: cerrado se ve el nombre y un resumen, y se abre
@@ -4310,7 +4319,7 @@ function renderPlata(){
   linea.oninput = ()=>{
     const r = leerLineaDePlata(linea.value);
     ok.disabled = !(r && r.monto);
-    if(!linea.value.trim()){ lee.innerHTML = 'Si te entró, empieza con +'; return; }
+    if(!linea.value.trim()){ lee.innerHTML = ''; return; }
     if(!r || !r.monto){ lee.innerHTML = 'Falta cuánto…'; return; }
     const dia = r.fecha===todayStr() ? 'hoy' : niceDateShort(r.fecha);
     lee.innerHTML = r.tipo==='gasto'
