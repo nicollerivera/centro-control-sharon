@@ -321,6 +321,15 @@ body.con-barra .elegido .urg, body.con-barra .elegido .tag{visibility:hidden;}
 .lista-avisos{margin:0 0 10px; padding-left:20px; font-size:13.5px; color:var(--text); line-height:1.5;}
 .lista-avisos li{margin:3px 0;}
 .deuda-card.saldada{opacity:.62;}
+/* secciones plegables: cerradas muestran solo nombre y resumen */
+.pleg{margin-bottom:8px;}
+.pleg-head{display:flex; align-items:center; gap:10px; width:100%; text-align:left; padding:14px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); font:inherit; cursor:pointer;}
+.pleg-tit{flex:1; font-weight:600; font-size:14.5px;}
+.pleg-res{font-size:13px; color:var(--text-muted); text-align:right;}
+.pleg-res.alerta{color:var(--ambar); font-weight:600;}
+.pleg-chev{flex:none; color:var(--text-dim); transition:transform .18s;}
+.pleg.abierta .pleg-chev{transform:rotate(90deg);}
+.pleg-body{padding:8px 0 6px;}
 
 /* ---------- turnos y choques ---------- */
 .lugares{display:grid; gap:8px; margin-top:6px;}
@@ -3230,7 +3239,7 @@ function openMovimientoModal(existente){
       if(!e.title) e.title = TIPOS_MOV[e.type];
       /* lo que se guarda son pesos, con el original anotado al lado */
       const pesos = e.moneda==='USD' ? enPesos(e.amount,'USD') : Number(e.amount);
-      if(pesos===null){ alert('Ponle la tasa del dólar primero, abajo en Plata.'); return; }
+      if(pesos===null){ alert('Ponle la tasa del dólar primero: en Plata, abre Dólar.'); return; }
       const obj = {
         cat:'finanzas', type:e.type, amount:pesos, moneda:e.moneda,
         montoOriginal: e.moneda==='USD' ? Number(e.amount) : null,
@@ -3271,6 +3280,19 @@ function openCobroModal(t){
   };
 }
 
+let PLATA_ABIERTAS = new Set();
+try{ PLATA_ABIERTAS = new Set(JSON.parse(localStorage.getItem('plataAbiertas')||'[]')); }catch(e){}
+function plegable(key, titulo, resumen, contenido, alerta){
+  const abierta = PLATA_ABIERTAS.has(key);
+  return `<div class="pleg ${abierta?'abierta':''}" data-pleg="${key}">
+    <button class="pleg-head" aria-expanded="${abierta}">
+      <span class="pleg-tit">${titulo}</span>
+      <span class="pleg-res ${alerta?'alerta':''}">${resumen}</span>
+      <svg class="pleg-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 6l6 6-6 6"/></svg>
+    </button>
+    <div class="pleg-body" ${abierta?'':'hidden'}>${contenido}</div>
+  </div>`;
+}
 function renderPlata(){
   const box = document.getElementById('sub-finanzas');
   const P = DATA.plata;
@@ -3283,20 +3305,14 @@ function renderPlata(){
     <div class="helptext" style="margin:4px 0 0;">${P.saldoFecha ? 'Tú lo declaraste el ' + esc(niceDate(P.saldoFecha)) + '. Tócalo para ajustarlo.' : 'Tócalo para decir cuánto tienes. Bitácora no lo calcula sola.'}</div>
   </div>`;
 
-  /* 2 · este mes, lo primero despues del saldo: es lo que se llena a diario */
+  /* 2 · lo demas va plegado: cerrado se ve el nombre y un resumen, y se abre
+     tocandolo. Lo vacio no aparece. */
   const mes = todayStr().slice(0,7);
   const evMes = DATA.events.filter(e=>e.cat==='finanzas' && e.date.startsWith(mes));
   const ingresos = evMes.filter(e=>e.type==='ingreso').reduce((a,e)=>a+Number(e.amount||0),0);
   const gastos = evMes.filter(e=>e.type==='gasto').reduce((a,e)=>a+Number(e.amount||0),0);
-  html += `<div class="section-title">Este mes</div>
-    <div class="summary-row">
-      <div class="summary-box"><div class="lbl">Entró</div><div class="val money" style="color:var(--done)">+${money(ingresos)}</div></div>
-      <div class="summary-box"><div class="lbl">Salió</div><div class="val money" style="color:var(--urgent)">-${money(gastos)}</div></div>
-    </div>`;
-
-  /* los movimientos, uno por uno y tocables: antes solo se veian los totales */
   const movs = evMes.slice().sort((a,b)=>b.date.localeCompare(a.date));
-  html += movs.length ? movs.map(m=>{
+  const movsHtml = movs.length ? movs.map(m=>{
     const entra = m.type==='ingreso' || m.type==='prestamo_recibido';
     const pendiente = m.type==='pago' && m.status!=='hecho';
     return `<div class="card mov-card" data-id="${m.id}" data-sel-tipo="movimiento" data-sel-id="${m.id}" style="cursor:pointer; border-left:3px solid ${pendiente?'var(--ambar)':entra?'var(--c-dinero)':'var(--urgent)'};">
@@ -3310,13 +3326,14 @@ function renderPlata(){
     </div>`;
   }).join('') : '<div class="helptext">Todavía nada este mes. Anota un gasto o un ingreso con el +.</div>';
 
+  html += plegable('mes', 'Este mes',
+    `<span style="color:var(--done)">+${money(ingresos)}</span> · <span style="color:var(--urgent)">−${money(gastos)}</span>`,
+    movsHtml);
 
-  /* 2 · cuanto vas a recibir y cuando (D112, D36) */
   const recibir = porRecibir();
-  const totalRecibir = recibir.reduce((a,x)=>a+x.monto,0);
   if(recibir.length){
-  html += `<div class="section-title"><span>Por recibir</span><span class="mono" style="color:var(--c-dinero); font-weight:700;">${money(totalRecibir)}</span></div>`;
-  html += recibir.map(x=>`
+    const totalRecibir = recibir.reduce((a,x)=>a+x.monto,0);
+    const recHtml = recibir.map(x=>`
     <div class="card" style="border-left:3px solid var(--c-trabajo);">
       <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
         <div style="font-weight:600;">${esc(turnoTitulo(x.turno))} <span class="tentativo">est.</span></div>
@@ -3325,15 +3342,15 @@ function renderPlata(){
       <div class="helptext" style="margin:3px 0 0;">${x.fecha ? 'Te pagan el ' + esc(niceDate(x.fecha)) : 'Sin fecha de pago definida'} · turno del ${esc(niceDateShort(x.turno.fecha))}</div>
       <button class="small-btn" data-cobrar="${x.turno.id}" style="margin-top:9px;">Ya me pagaron</button>
     </div>`).join('');
-  html += `<div class="helptext">Son estimados tuyos. Cuando te paguen los corriges y Bitácora ajusta.</div>`;
+    html += plegable('recibir', 'Por recibir', money(totalRecibir),
+      recHtml + `<div class="helptext">Son estimados tuyos. Cuando te paguen los corriges y Bitácora ajusta.</div>`);
   }
 
-  /* 3 · como vas contra el presupuesto — topes en pesos, y no te notifica (D80, D88) */
   const gastado = gastosDelMes();
   const conTope = CATEGORIAS_GASTO.filter(c=>Number(P.topes[c])>0);
   if(conTope.length){
-    html += `<div class="section-title"><span>Presupuesto</span><button class="small-btn" id="topesBtn">Topes</button></div>`;
-    html += conTope.map(c=>{
+    const cerca = conTope.filter(c=>(gastado[c]||0) >= Number(P.topes[c])*0.8).length;
+    const topesHtml = conTope.map(c=>{
       const tope = Number(P.topes[c]), usado = gastado[c]||0;
       const pct = Math.min(100, Math.round(usado/tope*100));
       const color = pct>=100 ? 'var(--urgent)' : pct>=80 ? 'var(--ambar)' : 'var(--c-dinero)';
@@ -3345,11 +3362,14 @@ function renderPlata(){
         <div class="progress-track"><div class="progress-fill" style="width:${pct}%; background:${color};"></div></div>
       </div>`;
     }).join('');
-    html += `<div class="helptext">Los topes se revisan cada vez que te pagan, no cada 30 días. Esto no te notifica: lo ves cuando entras.</div>`;
+    html += plegable('presupuesto', 'Presupuesto',
+      cerca ? cerca + ' cerca del tope' : 'todo en orden',
+      `<div style="text-align:right; margin-bottom:8px;"><button class="small-btn" id="topesBtn">Cambiar topes</button></div>` + topesHtml, cerca>0);
   }
 
-  /* 4 · lo que vuelve cada mes */
-  if(DATA.suscripciones.length) html += `<div class="section-title"><span>Cada mes</span></div>` + DATA.suscripciones.map(x=>{
+  if(DATA.suscripciones.length){
+    const porVencer = DATA.suscripciones.filter(x=>{ const pr=proximoCobro(x); return x.dia && pr && !pagadoEsteMes(x) && daysBetween(todayStr(), pr)<=3; });
+    const susHtml = DATA.suscripciones.map(x=>{
     const prox = proximoCobro(x);
     const faltan = prox ? daysBetween(todayStr(), prox) : null;
     const pronto = faltan!==null && faltan<=3;
@@ -3365,11 +3385,21 @@ function renderPlata(){
       ${x.dia && pagadoEsteMes(x) ? `<div class="helptext" style="margin:6px 0 0; color:var(--done); font-weight:600;">✓ Pagado este mes</div>` : ''}
       ${x.dia && !pagadoEsteMes(x) && pronto ? `<button class="small-btn" data-pagar-sus="${x.id}" style="margin-top:9px;">Ya lo pagué</button>` : ''}
     </div>`;
-  }).join('');
+  }).join('');;
+    html += plegable('cadames', 'Cada mes',
+      porVencer.length ? esc(porVencer.map(x=>x.nombre).join(', ')) + ' vence pronto' : DATA.suscripciones.length + (DATA.suscripciones.length>1?' cobros':' cobro'),
+      susHtml, porVencer.length>0);
+  }
 
-  /* 5 · deudas y prestamos, en los dos sentidos (D96, D39) */
   const deudasOrden = [...DATA.deudas].sort((a,b)=> (a.saldada?1:0) - (b.saldada?1:0));
-  if(deudasOrden.length) html += `<div class="section-title"><span>Debo y me deben</span></div>` + deudasOrden.map(d=>{
+  if(deudasOrden.length){
+    const abiertas = deudasOrden.filter(d=>!d.saldada);
+    const debes = abiertas.filter(d=>d.sentido!=='meDeben').reduce((a,d)=>a+saldoDeuda(d),0);
+    const teDeben = abiertas.filter(d=>d.sentido==='meDeben').reduce((a,d)=>a+saldoDeuda(d),0);
+    const partes = [];
+    if(debes) partes.push('debes ' + money(debes));
+    if(teDeben) partes.push('te deben ' + money(teDeben));
+    const deuHtml = deudasOrden.map(d=>{
     const saldo = saldoDeuda(d);
     const debo = d.sentido!=='meDeben';
     const cuando = d.fecha ? (d.fechaHasta ? niceDateShort(d.fecha) + ' al ' + niceDateShort(d.fechaHasta) : niceDate(d.fecha)) + (d.aprox ? ' (estimado)' : '') : 'Sin fecha';
@@ -3381,11 +3411,12 @@ function renderPlata(){
       </div>
       <div class="helptext" style="margin:3px 0 0;">${d.saldada ? 'Saldada el ' + esc(niceDate(d.saldadaFecha||todayStr())) : (debo?'Le debes':'Te debe') + ' · ' + esc(cuando) + (d.nota ? ' · ' + esc(d.nota) : '') + ((d.movs||[]).length ? ' · ' + d.movs.length + ' movimiento' + (d.movs.length>1?'s':'') : '')}</div>
     </div>`;
-  }).join('');
+  }).join('');;
+    html += plegable('deudas', 'Debo y me deben', partes.join(' · ') || 'todo saldado', deuHtml);
+  }
 
   if(DATA.installments.length){
-    html += `<div class="section-title">Compras a cuotas</div>`;
-    html += DATA.installments.map(inst=>{
+    const cuoHtml = DATA.installments.map(inst=>{
       const paid = inst.payments.reduce((a,p)=>a+Number(p.amount),0);
       const pct = Math.min(100, Math.round((paid/Number(inst.total))*100));
       return `<div class="card installment-card" data-id="${inst.id}">
@@ -3398,19 +3429,28 @@ function renderPlata(){
         <button class="small-btn" data-action="payInstallment" data-id="${inst.id}" style="margin-top:10px;">Registrar pago</button>
       </div>`;
     }).join('');
+    html += plegable('cuotas', 'Compras a cuotas', DATA.installments.length + (DATA.installments.length>1?' compras':' compra'), cuoHtml);
   }
 
-  /* la tasa del dolar vive abajo: la pones tu a mano y funciona sin internet (D128) */
-  html += `<div class="section-title" style="margin-top:26px;">Dólar</div>
-    <div class="card tasa-card" id="tasaCard" style="cursor:pointer;">
+  /* la tasa del dolar: la pones tu a mano y funciona sin internet (D128) */
+  html += plegable('dolar', 'Dólar', tasaUSD() ? money(tasaUSD()) : 'sin poner', `<div class="card tasa-card" id="tasaCard" style="cursor:pointer;">
       <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
         <div style="font-weight:600;">1 USD</div>
         <div class="mono" style="font-weight:700;">${tasaUSD() ? money(tasaUSD()) : 'sin poner'}</div>
       </div>
       <div class="helptext" style="margin:3px 0 0;">${DATA.plata.tasaFecha ? 'La pusiste ' + esc(haceCuanto(DATA.plata.tasaFecha)) + '. Tócala para cambiarla.' : 'Tócala para ponerla. La pones tú, así funciona sin internet.'}</div>
-    </div>`;
+    </div>`);
 
   box.innerHTML = html;
+  box.querySelectorAll('.pleg-head').forEach(h=>h.onclick=()=>{
+    const el = h.parentElement, key = el.dataset.pleg;
+    const abrir = !el.classList.contains('abierta');
+    el.classList.toggle('abierta', abrir);
+    h.setAttribute('aria-expanded', abrir);
+    el.querySelector('.pleg-body').hidden = !abrir;
+    abrir ? PLATA_ABIERTAS.add(key) : PLATA_ABIERTAS.delete(key);
+    try{ localStorage.setItem('plataAbiertas', JSON.stringify([...PLATA_ABIERTAS])); }catch(e){}
+  });
   bindItemClicks();
   document.getElementById('saldoCard').onclick = openSaldoModal;
   document.getElementById('tasaCard').onclick = openTasaModal;
