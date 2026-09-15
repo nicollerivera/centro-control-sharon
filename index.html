@@ -237,6 +237,20 @@ button{font-family:inherit;}
 .helptext{font-size:11.5px; color:var(--text-dim); margin:-8px 0 14px; line-height:1.4;}
 
 ::selection{background:var(--accent-soft);}
+
+/* ---------- listas de pendientes (sin fecha, por seccion) ---------- */
+.lista-head{display:flex; align-items:center; justify-content:space-between; gap:8px; margin:20px 0 9px;}
+.lista-head .nombre{display:flex; align-items:center; gap:8px; font-size:14px; font-weight:700;}
+.lista-head .punto{width:9px; height:9px; border-radius:50%; flex:none;}
+.lista-head .acciones{display:flex; gap:6px; flex:none;}
+.pend{display:flex; align-items:center; gap:10px; background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--accent); border-radius:var(--radius-sm); padding:11px 12px; margin-bottom:7px;}
+.pend.hecho{opacity:.5;}
+.pend.hecho .txt{text-decoration:line-through;}
+.pend .txt{flex:1; font-size:14px; line-height:1.35; cursor:pointer;}
+.urg{flex:none; font-size:10px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; padding:5px 9px; border-radius:20px; border:none; font-family:inherit;}
+.urg[data-nivel="normal"]{background:var(--surface-3); color:var(--text-dim);}
+.urg[data-nivel="importante"]{background:var(--accent-soft); color:var(--accent);}
+.urg[data-nivel="urgente"]{background:var(--urgent-soft); color:var(--urgent);}
 </style>
 </head>
 <body>
@@ -259,6 +273,7 @@ button{font-family:inherit;}
     <div id="hoyList"></div>
     <div class="section-title">Próximos 14 días</div>
     <div id="hoyUpcoming"></div>
+    <div id="hoyUrgentListas"></div>
   </div>
 
   <!-- ===== MES ===== -->
@@ -272,16 +287,19 @@ button{font-family:inherit;}
     <div class="cal-daylist" id="calDayList"></div>
   </div>
 
-  <!-- ===== TAREAS (checklist unificado) ===== -->
+  <!-- ===== TAREAS (listas propias + lo agendado) ===== -->
   <div class="view" id="view-tareas">
-    <div class="section-title">Agregar rápido</div>
-    <div class="addbar">
-      <input type="text" id="reminderInput" placeholder="¿Qué es pendiente?">
-      <button id="addReminderBtn">Añadir</button>
+    <div class="section-title">Agregar a</div>
+    <div class="chiprow" id="listaChips"></div>
+    <div class="addbar" style="margin-top:10px;">
+      <input type="text" id="pendienteInput" placeholder="¿Qué hay que hacer?">
+      <button id="addPendienteBtn">Añadir</button>
     </div>
+    <div class="helptext">Esto se queda en su lista, sin fecha, hasta que lo marques. Si querés agendarlo para un día, tocá el texto y ponele fecha.</div>
+    <div id="listasBody"></div>
 
-    <div class="section-title" style="margin-top:24px;">
-      <span>Pendientes</span>
+    <div class="section-title" style="margin-top:28px;">
+      <span>Agendado pendiente</span>
       <button class="small-btn" id="markDoneBtn" style="background:var(--done-soft); color:var(--done); border-color:transparent;">✓ Ya lo hice</button>
     </div>
     <div id="checklistBody"></div>
@@ -367,6 +385,8 @@ let DATA = {
   personalItems: [],
   reminders: [],
   routines: [], // {id,cat,title,days:[0..6],start,end,notes}
+  listas: [],      // {id,nombre,color} — las secciones que arma Sharon
+  pendientes: [],  // {id,listaId,titulo,urgencia,hecho,creado} — sin fecha a proposito
   cycle: { starts: [], avgLen: 28, periodLen: 5 }
 };
 let saveTimer=null;
@@ -603,7 +623,8 @@ function renderHeader(){
   document.getElementById('greetLabel').textContent = DOW[now.getDay()].toUpperCase() + ' · ' + now.getDate() + ' ' + MONTHS[now.getMonth()].toUpperCase();
   const h = now.getHours();
   document.getElementById('dateLabel').textContent = h<12 ? 'Buenos días, Sharon' : h<19 ? 'Buenas tardes, Sharon' : 'Buenas noches, Sharon';
-  const pendingCount = DATA.events.filter(e=>e.status!=='hecho' && e.date<=todayStr()).length;
+  const urgentesListas = (DATA.pendientes||[]).filter(p=>!p.hecho && p.urgencia==='urgente').length;
+  const pendingCount = DATA.events.filter(e=>e.status!=='hecho' && e.date<=todayStr()).length + urgentesListas;
   const badge = document.getElementById('tareasBadge');
   if(pendingCount>0){ badge.style.display='flex'; badge.textContent = pendingCount>99?'99+':pendingCount; } else { badge.style.display='none'; }
 }
@@ -694,7 +715,22 @@ function renderHoy(){
   const up = document.getElementById('hoyUpcoming');
   up.innerHTML = upcoming.length ? upcoming.map(itemHTML).join('') : `<div class="empty-card">Sin nada próximo en 2 semanas.</div>`;
 
+  /* (decision de Sharon) Hoy sigue siendo el día agendado, pero abajo asoma
+     lo urgente de las listas para que no se le escape. */
+  const urgentes = (DATA.pendientes||[]).filter(p=>!p.hecho && p.urgencia==='urgente');
+  document.getElementById('hoyUrgentListas').innerHTML = urgentes.length
+    ? `<div class="section-title">Urgente de tus listas</div>` + urgentes.map(p=>{
+        const l = (DATA.listas||[]).find(x=>x.id===p.listaId);
+        return `<div class="pend" style="border-left-color:var(--urgent)">
+          <button class="status-btn" data-action="togglePend" data-pid="${p.id}"></button>
+          <div class="txt">${esc(p.titulo)}</div>
+          <span class="urg" data-nivel="urgente">${l?esc(l.nombre):'lista'}</span>
+        </div>`;
+      }).join('')
+    : '';
+
   bindItemClicks();
+  bindPendClicks();
 }
 
 /* ============================================================
@@ -769,10 +805,11 @@ function predictCycle(){
 /* ============================================================
    RENDER: TAREAS (checklist unificado + recordatorios)
 ============================================================ */
-function renderTareasView(){
+/* Lo agendado con fecha, agrupado por categoria. Sigue igual que siempre. */
+function renderAgendadoPendiente(){
   const pending = DATA.events.filter(e=>e.status!=='hecho').sort((a,b)=>a.date.localeCompare(b.date));
   const body = document.getElementById('checklistBody');
-  if(!pending.length){ body.innerHTML = '<div class="empty-card">Nada pendiente. Vas al día 🎉</div>'; bindItemClicks(); return; }
+  if(!pending.length){ body.innerHTML = '<div class="empty-card">Nada agendado pendiente. Vas al día 🎉</div>'; bindItemClicks(); return; }
   const groups = {};
   pending.forEach(e=>{ (groups[e.cat] = groups[e.cat]||[]).push(e); });
   let html = '';
@@ -783,14 +820,207 @@ function renderTareasView(){
   body.innerHTML = html;
   bindItemClicks();
 }
-document.getElementById('addReminderBtn').onclick = ()=>{
-  const inp = document.getElementById('reminderInput');
+
+function renderTareasView(){
+  renderListas();
+  renderAgendadoPendiente();
+}
+
+/* ============================================================
+   LISTAS DE PENDIENTES
+   Decision de Sharon (14 sep 2026): lo que se agrega acá NO es "para hoy".
+   Se queda en su lista, sin fecha, hasta que ella lo marque; si lo quiere
+   en un día concreto se lo pone a mano y recién ahí pasa a la agenda.
+============================================================ */
+const URGENCIAS = ['normal','importante','urgente'];
+const URG_ORDEN = { urgente:0, importante:1, normal:2 };
+const URG_COLOR = { normal:'var(--text-dim)', importante:'var(--accent)', urgente:'var(--urgent)' };
+const COLORES_LISTA = ['var(--c-uni)','var(--c-nexxa)','var(--c-ads)','var(--c-work)','var(--c-fin)','var(--c-ciclo)','var(--c-personal)'];
+/* Tres para arrancar, con los ejemplos que ella misma dio. Puede renombrarlas. */
+const LISTAS_SEMILLA = [
+  { nombre:'Universidad', color:'var(--c-uni)' },
+  { nombre:'Aseo', color:'var(--c-work)' },
+  { nombre:'Compras', color:'var(--c-fin)' },
+];
+let listaActiva = null;
+
+function asegurarListas(){
+  if(!Array.isArray(DATA.listas)) DATA.listas = [];
+  if(!Array.isArray(DATA.pendientes)) DATA.pendientes = [];
+  if(!DATA.listas.length){
+    LISTAS_SEMILLA.forEach(l=> DATA.listas.push({ id:uid(), nombre:l.nombre, color:l.color }));
+    saveData();
+  }
+  if(!listaActiva || !DATA.listas.some(l=>l.id===listaActiva)) listaActiva = DATA.listas[0].id;
+}
+function chipColor(color){ return `--chip-color:${color}; --chip-color-soft:color-mix(in srgb, ${color} 16%, transparent);`; }
+function pendientesDe(listaId){
+  return DATA.pendientes.filter(p=>p.listaId===listaId).sort((a,b)=>
+    (a.hecho?1:0)-(b.hecho?1:0) ||
+    URG_ORDEN[a.urgencia||'normal']-URG_ORDEN[b.urgencia||'normal'] ||
+    (a.creado||'').localeCompare(b.creado||''));
+}
+function pendienteHTML(p, color){
+  const urg = p.urgencia || 'normal';
+  return `<div class="pend ${p.hecho?'hecho':''}" style="border-left-color:${p.hecho?'var(--border)':color}">
+    <button class="status-btn ${p.hecho?'hecho':''}" data-action="togglePend" data-pid="${p.id}"></button>
+    <div class="txt" data-action="editPend" data-pid="${p.id}">${esc(p.titulo)}</div>
+    <button class="urg" data-nivel="${urg}" data-action="cicloUrg" data-pid="${p.id}" title="Tocar para cambiar la urgencia">${urg}</button>
+  </div>`;
+}
+
+function renderListas(){
+  asegurarListas();
+  document.getElementById('listaChips').innerHTML =
+    DATA.listas.map(l=>`<div class="chip ${l.id===listaActiva?'active':''}" data-action="activarLista" data-lista="${l.id}" style="${chipColor(l.color)}">${esc(l.nombre)}</div>`).join('') +
+    `<div class="chip" data-action="nuevaLista">+ Lista</div>`;
+
+  document.getElementById('listasBody').innerHTML = DATA.listas.map(l=>{
+    const items = pendientesDe(l.id);
+    const faltan = items.filter(p=>!p.hecho).length;
+    const hechas = items.length - faltan;
+    return `<div class="lista-head">
+        <span class="nombre"><span class="punto" style="background:${l.color}"></span>${esc(l.nombre)}<span style="color:var(--text-dim); font-weight:500;">· ${faltan}</span></span>
+        <span class="acciones">
+          ${hechas ? `<button class="small-btn" data-action="limpiarLista" data-lista="${l.id}">Limpiar ${hechas} hecha${hechas>1?'s':''}</button>` : ''}
+          <button class="small-btn" data-action="editarLista" data-lista="${l.id}">✎</button>
+        </span>
+      </div>` +
+      (items.length ? items.map(p=>pendienteHTML(p, l.color)).join('')
+                    : `<div class="empty-card" style="padding:14px;">Nada acá. Escribí arriba para agregar.</div>`);
+  }).join('');
+
+  bindPendClicks();
+}
+
+function bindPendClicks(){
+  document.querySelectorAll('[data-action="activarLista"]').forEach(c=>{
+    c.onclick = ()=>{ listaActiva = c.dataset.lista; renderListas(); document.getElementById('pendienteInput').focus(); };
+  });
+  document.querySelectorAll('[data-action="nuevaLista"]').forEach(c=>{ c.onclick = ()=>openListaModal(null); });
+  document.querySelectorAll('[data-action="editarLista"]').forEach(b=>{
+    b.onclick = ()=>openListaModal(DATA.listas.find(l=>l.id===b.dataset.lista));
+  });
+  document.querySelectorAll('[data-action="limpiarLista"]').forEach(b=>{
+    b.onclick = ()=>{
+      DATA.pendientes = DATA.pendientes.filter(p=>!(p.listaId===b.dataset.lista && p.hecho));
+      saveData(); renderAll();
+    };
+  });
+  document.querySelectorAll('[data-action="togglePend"]').forEach(b=>{
+    b.onclick = ()=>{
+      const p = DATA.pendientes.find(x=>x.id===b.dataset.pid);
+      if(!p) return;
+      p.hecho = !p.hecho;
+      saveData(); renderAll();
+    };
+  });
+  document.querySelectorAll('[data-action="cicloUrg"]').forEach(b=>{
+    b.onclick = ()=>{
+      const p = DATA.pendientes.find(x=>x.id===b.dataset.pid);
+      if(!p) return;
+      p.urgencia = URGENCIAS[(URGENCIAS.indexOf(p.urgencia||'normal') + 1) % URGENCIAS.length];
+      saveData(); renderAll();
+    };
+  });
+  document.querySelectorAll('[data-action="editPend"]').forEach(t=>{
+    t.onclick = ()=>{
+      const p = DATA.pendientes.find(x=>x.id===t.dataset.pid);
+      if(p) openPendienteModal(p);
+    };
+  });
+}
+
+function agregarPendiente(){
+  asegurarListas();
+  const inp = document.getElementById('pendienteInput');
   const val = inp.value.trim();
   if(!val) return;
-  DATA.events.push({ id:uid(), cat:'personal', title:val, date:todayStr(), start:'', end:'', status:'pendiente', estMin:null, actualMin:null, notes:'' });
-  inp.value=''; saveData(); renderAll();
-};
-document.getElementById('reminderInput').addEventListener('keydown', (e)=>{ if(e.key==='Enter') document.getElementById('addReminderBtn').click(); });
+  DATA.pendientes.push({ id:uid(), listaId:listaActiva, titulo:val, urgencia:'normal', hecho:false, creado:new Date().toISOString() });
+  inp.value = '';
+  saveData(); renderAll();
+}
+document.getElementById('addPendienteBtn').onclick = agregarPendiente;
+document.getElementById('pendienteInput').addEventListener('keydown', (e)=>{ if(e.key==='Enter') agregarPendiente(); });
+
+/* Editar un pendiente: texto, lista, urgencia, o pasarlo a un día de la agenda. */
+function openPendienteModal(p){
+  openSheet(`<h3>Pendiente</h3>
+    <div class="field"><label>¿Qué hay que hacer?</label><input type="text" id="f_ptitulo" value="${esc(p.titulo)}"></div>
+    <div class="field"><label>Lista</label><div class="chiprow" id="chipsListaP">
+      ${DATA.listas.map(l=>`<div class="chip ${l.id===p.listaId?'active':''}" data-lista="${l.id}" style="${chipColor(l.color)}">${esc(l.nombre)}</div>`).join('')}
+    </div></div>
+    <div class="field"><label>Urgencia</label><div class="chiprow" id="chipsUrg">
+      ${URGENCIAS.map(u=>`<div class="chip ${u===(p.urgencia||'normal')?'active':''}" data-urg="${u}" style="${chipColor(URG_COLOR[u])}">${u}</div>`).join('')}
+    </div></div>
+    <div class="field"><label>Pasarlo a un día (opcional)</label><input type="date" id="f_pfecha"></div>
+    <div class="helptext">Si le ponés fecha sale de la lista y queda agendado en Hoy y en el calendario.</div>
+    <div class="sheet-actions"><button class="btn btn-danger" id="delPend">Eliminar</button><button class="btn btn-primary" id="savePend">Guardar</button></div>`);
+  let plista = p.listaId, purg = p.urgencia || 'normal';
+  document.querySelectorAll('#chipsListaP .chip').forEach(c=>{
+    c.onclick = ()=>{ document.querySelectorAll('#chipsListaP .chip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); plista = c.dataset.lista; };
+  });
+  document.querySelectorAll('#chipsUrg .chip').forEach(c=>{
+    c.onclick = ()=>{ document.querySelectorAll('#chipsUrg .chip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); purg = c.dataset.urg; };
+  });
+  document.getElementById('delPend').onclick = ()=>{
+    DATA.pendientes = DATA.pendientes.filter(x=>x.id!==p.id);
+    saveData(); closeSheet(); renderAll();
+  };
+  document.getElementById('savePend').onclick = ()=>{
+    const titulo = document.getElementById('f_ptitulo').value.trim();
+    if(!titulo){ alert('Escribe qué hay que hacer'); return; }
+    const fecha = document.getElementById('f_pfecha').value;
+    if(fecha){
+      /* Pasa a la agenda: deja de ser un pendiente suelto y se vuelve un evento. */
+      DATA.events.push({ id:uid(), cat:'personal', title:titulo, date:fecha, start:'', end:'', status:'pendiente', estMin:null, actualMin:null, notes:'' });
+      DATA.pendientes = DATA.pendientes.filter(x=>x.id!==p.id);
+    }else{
+      p.titulo = titulo; p.listaId = plista; p.urgencia = purg;
+    }
+    saveData(); closeSheet(); renderAll();
+  };
+}
+
+/* Crear, renombrar o borrar una lista. */
+function openListaModal(lista){
+  const esNueva = !lista;
+  const actual = lista || { nombre:'', color:COLORES_LISTA[DATA.listas.length % COLORES_LISTA.length] };
+  openSheet(`<h3>${esNueva?'Nueva lista':'Editar lista'}</h3>
+    <div class="field"><label>Nombre</label><input type="text" id="f_lnombre" value="${esc(actual.nombre)}" placeholder="Ej: Compras, Aseo, U de mañana"></div>
+    <div class="field"><label>Color</label><div class="chiprow" id="chipsColor">
+      ${COLORES_LISTA.map(c=>`<div class="chip ${c===actual.color?'active':''}" data-color="${c}" style="${chipColor(c)}"><span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:${c}; vertical-align:-1px;"></span></div>`).join('')}
+    </div></div>
+    <div class="sheet-actions">
+      ${esNueva?'':`<button class="btn btn-danger" id="delLista">Eliminar lista</button>`}
+      <button class="btn btn-primary" id="saveLista">Guardar</button>
+    </div>`);
+  let lcolor = actual.color;
+  document.querySelectorAll('#chipsColor .chip').forEach(c=>{
+    c.onclick = ()=>{ document.querySelectorAll('#chipsColor .chip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); lcolor = c.dataset.color; };
+  });
+  const btnDel = document.getElementById('delLista');
+  if(btnDel) btnDel.onclick = ()=>{
+    const cuantos = DATA.pendientes.filter(x=>x.listaId===lista.id).length;
+    if(cuantos && !confirm(`La lista tiene ${cuantos} cosa${cuantos>1?'s':''} adentro. ¿Borrar la lista y todo lo que tiene?`)) return;
+    DATA.pendientes = DATA.pendientes.filter(x=>x.listaId!==lista.id);
+    DATA.listas = DATA.listas.filter(x=>x.id!==lista.id);
+    if(listaActiva===lista.id) listaActiva = null;
+    saveData(); closeSheet(); renderAll();
+  };
+  document.getElementById('saveLista').onclick = ()=>{
+    const nombre = document.getElementById('f_lnombre').value.trim();
+    if(!nombre){ alert('Ponele un nombre a la lista'); return; }
+    if(esNueva){
+      const nueva = { id:uid(), nombre, color:lcolor };
+      DATA.listas.push(nueva);
+      listaActiva = nueva.id;
+    }else{
+      lista.nombre = nombre; lista.color = lcolor;
+    }
+    saveData(); closeSheet(); renderAll();
+  };
+}
 document.getElementById('markDoneBtn').onclick = ()=>openDoneModal();
 
 /* ============================================================
@@ -1499,6 +1729,7 @@ function openSubjectModal(){
    RENDER ALL
 ============================================================ */
 function renderAll(){
+  asegurarListas();
   renderHeader();
   const active = views.find(v=>document.getElementById('view-'+v).classList.contains('active'));
   if(active==='hoy') renderHoy();
