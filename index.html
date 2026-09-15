@@ -183,6 +183,26 @@ button{font-family:inherit;}
 .suelto .que{flex:1; min-width:0; font-size:14.5px; font-weight:500;}
 .suelto .de{flex:none; font-size:12px; color:var(--text-dim);}
 
+/* ---------- la mañana y el cierre ---------- */
+.manana{margin-bottom:6px;}
+.manana .saludo{font-size:15px; font-weight:600; margin-bottom:12px;}
+.manana .par{display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap;}
+.manana .dato{flex:1; min-width:120px; text-align:left; background:none; border:none; padding:0; cursor:pointer;}
+.manana .dato.animo{cursor:default; flex:2;}
+.manana .et{display:block; font-size:11.5px; color:var(--text-muted); margin-bottom:5px;}
+.manana .val{font-size:19px; font-weight:600; color:var(--text);}
+.manana .chiprow{gap:5px;}
+.manana .chip{font-size:12px; padding:6px 10px;}
+
+.cierre{margin-top:22px; border-left:3px solid var(--accent);}
+.cierre .titulo{font-size:15px; font-weight:600; line-height:1.35;}
+.cierre-fila{padding:12px 0; border-bottom:1px solid var(--border);}
+.cierre-fila:last-of-type{border-bottom:none;}
+.cierre-fila .que{font-size:14.5px; font-weight:600;}
+.cierre-fila .por{font-size:12px; color:var(--text-muted); margin-top:2px;}
+.cierre-fila.insiste .por{color:var(--ambar); font-weight:600;}
+.cierre-fila .opciones{display:flex; gap:7px; margin-top:9px; flex-wrap:wrap;}
+
 /* ---------- seleccionar para borrar ---------- */
 [data-sel-id]{ -webkit-touch-callout:none; }
 .seleccionable{position:relative;}
@@ -429,10 +449,12 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 
   <!-- ===== HOY ===== -->
   <div class="view active" id="view-hoy">
+    <div id="hoyManana"></div>
     <div id="hoyUrgent"></div>
     <div id="hoyClasses"></div>
     <div id="hoyList"></div>
     <div id="hoyUpcoming"></div>
+    <div id="hoyCierre"></div>
     <div id="hoyUrgentListas"></div>
   </div>
 
@@ -565,6 +587,7 @@ let DATA = {
   plata: { saldo:null, saldoFecha:'', tasaUSD:null, tasaFecha:'', topes:{} },
   uni: { pasaCon:3.0, maxFallas:8, historial:[] },   // historial: {periodo, materias:[{name,nota}]}
   marca: { ideas:[], publicaciones:[] },             // marca personal (D73)
+  diario: {},                                        // {fecha:{sueno:[],animo,cerrado}}
   suscripciones: [],   // {id,nombre,monto,moneda,dia,nota} — vuelven cada mes
   deudas: [],          // {id,nombre,sentido,monto,fecha,fechaHasta,aprox,nota,movs:[]}
   compromisosSembrados: false,
@@ -993,6 +1016,8 @@ function renderHoy(){
 
   document.getElementById('hoyUrgentListas').innerHTML = '';
 
+  renderManana();
+  renderCierre();
   bindItemClicks();
   bindPendClicks();
 }
@@ -3613,6 +3638,183 @@ function openMovModal(deuda){
       fecha:document.getElementById('f_mfecha').value || todayStr(), nota:document.getElementById('f_mnota').value.trim() });
     saveData(); closeSheet(); renderPlata();
   };
+}
+
+/* ============================================================
+   LA MAÑANA Y EL CIERRE DEL DIA
+   Los dos unicos momentos en que Bitacora pregunta algo: al despertar pide
+   sueño y animo (D104, D43, D44), y a las 9:30 pm pregunta una sola vez por
+   lo que quedo (D18, D86). Nada mas le insiste (D94).
+============================================================ */
+const CIERRE_HORA = 21 * 60 + 30;        // 9:30 pm, antes del silencio (D86)
+const MANANA_HASTA = 12 * 60;            // el modulo de la mañana no pasa del mediodia
+const ANIMOS = ['Mal', 'Regular', 'Bien', 'Genial'];
+
+function diaDe(fecha){
+  DATA.diario = DATA.diario || {};
+  DATA.diario[fecha] = DATA.diario[fecha] || { sueno:[], animo:'', cerrado:false };
+  return DATA.diario[fecha];
+}
+function minutosDormidos(fecha){
+  return (diaDe(fecha).sueno || []).reduce((a,b)=>{
+    const d = minutosDe(b.desde), h = finEnMinutos(b.desde, b.hasta);
+    return a + (d!==null && h!==null ? h - d : 0);
+  }, 0);
+}
+function ahoraEnMinutos(){
+  const n = new Date();
+  return n.getHours()*60 + n.getMinutes();
+}
+
+/* ---------- 1 · buenos dias ---------- */
+function renderManana(){
+  const caja = document.getElementById('hoyManana');
+  if(!caja) return;
+  const hoy = todayStr();
+  const d = diaDe(hoy);
+  const listo = (d.sueno && d.sueno.length) && d.animo;
+  /* se va en cuanto lo llena, y no vuelve hasta mañana (D104) */
+  if(listo || ahoraEnMinutos() > MANANA_HASTA){ caja.innerHTML = ''; return; }
+
+  caja.innerHTML = `
+    <div class="card manana">
+      <div class="saludo">¿Cómo amaneciste, Sharon?</div>
+      <div class="par">
+        <button class="dato" id="mSueno">
+          <span class="et">Dormiste</span>
+          <span class="val mono">${d.sueno.length ? duracionLarga(minutosDormidos(hoy)) : '—'}</span>
+        </button>
+        <div class="dato animo">
+          <span class="et">Ánimo</span>
+          <div class="chiprow">${ANIMOS.map(a=>`<button class="chip ${d.animo===a?'active':''}" data-animo="${a}">${a}</button>`).join('')}</div>
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById('mSueno').onclick = openSuenoModal;
+  caja.querySelectorAll('[data-animo]').forEach(b=>b.onclick = ()=>{
+    d.animo = b.dataset.animo;
+    saveData(); renderHoy();
+  });
+}
+
+function openSuenoModal(){
+  const hoy = todayStr();
+  const d = diaDe(hoy);
+  if(!d.sueno.length) d.sueno = [{ desde:'', hasta:'' }];
+  const pintar = ()=>{
+    openSheet(`<h3>¿Cómo dormiste?</h3>
+      <div class="helptext" style="margin:-4px 0 12px;">Si dormiste partido, agrega los bloques que hagan falta.</div>
+      ${d.sueno.map((b,i)=>`
+        <div class="field-row sueno-fila" data-i="${i}" style="align-items:flex-end;">
+          <div class="field"><label>Me dormí</label><input type="time" data-campo="desde" value="${esc(b.desde)}"></div>
+          <div class="field"><label>Me levanté</label><input type="time" data-campo="hasta" value="${esc(b.hasta)}"></div>
+          ${d.sueno.length>1 ? `<button class="small-btn" data-quitar="${i}" style="margin-bottom:14px;">✕</button>` : ''}
+        </div>`).join('')}
+      <button class="small-btn" id="masSueno">+ Otro bloque</button>
+      <div class="sheet-actions"><button class="btn btn-primary" id="guardarSueno">Guardar</button></div>`);
+
+    const leer = ()=> [...sheet.querySelectorAll('.sueno-fila')].map(f=>({
+      desde: f.querySelector('[data-campo="desde"]').value,
+      hasta: f.querySelector('[data-campo="hasta"]').value
+    }));
+    document.getElementById('masSueno').onclick = ()=>{ d.sueno = leer(); d.sueno.push({desde:'',hasta:''}); pintar(); };
+    sheet.querySelectorAll('[data-quitar]').forEach(b=>b.onclick = ()=>{
+      const s = leer(); s.splice(Number(b.dataset.quitar),1); d.sueno = s; pintar();
+    });
+    document.getElementById('guardarSueno').onclick = ()=>{
+      d.sueno = leer().filter(b=>b.desde && b.hasta);
+      saveData(); closeSheet(); renderHoy();
+    };
+  };
+  pintar();
+}
+
+/* ---------- 2 · el cierre del dia ---------- */
+/* Solo pregunta por lo que tiene fecha limite encima (D18). */
+function pendientesDelCierre(){
+  const hoy = todayStr();
+  const manana = fmtDate(addDays(new Date(),1));
+  const out = [];
+  DATA.events.filter(e=>e.status!=='hecho' && e.date<=hoy && !e.linkedType).forEach(e=>{
+    out.push({ tipo:'evento', id:e.id, titulo:e.title, nota:e.date<hoy?'Se pasó de fecha':'Era para hoy', arrastres:e.arrastres||0 });
+  });
+  (DATA.academicTasks||[]).filter(a=>!a.done && a.date && a.date<=manana).forEach(a=>{
+    out.push({ tipo:'entrega', id:a.id, titulo:a.name,
+      nota: a.date<hoy ? 'Ya se pasó' : a.date===hoy ? 'Era hoy' : 'Vence mañana', arrastres:a.arrastres||0 });
+  });
+  (DATA.pendientes||[]).filter(p=>!p.hecho && (p.arrastres||0) >= 3).forEach(p=>{
+    out.push({ tipo:'pendiente', id:p.id, titulo:p.titulo,
+      nota:`Llevas ${p.arrastres} días arrastrándola`, arrastres:p.arrastres||0, insistente:true });
+  });
+  return out;
+}
+
+function renderCierre(){
+  const caja = document.getElementById('hoyCierre');
+  if(!caja) return;
+  const hoy = todayStr();
+  const d = diaDe(hoy);
+  /* una sola vez, y solo despues de las 9:30 (D18, D86) */
+  if(d.cerrado || ahoraEnMinutos() < CIERRE_HORA){ caja.innerHTML=''; return; }
+
+  const quedaron = pendientesDelCierre();
+  if(!quedaron.length){
+    caja.innerHTML = `<div class="card cierre">
+      <div class="titulo">Cerraste el día limpio, Sharon 🎉</div>
+      <div class="helptext" style="margin:6px 0 0;">No quedó nada con fecha encima.</div>
+      <div class="sheet-actions" style="margin-top:12px;"><button class="btn btn-primary" id="cerrarDia">Listo</button></div>
+    </div>`;
+    document.getElementById('cerrarDia').onclick = ()=>{ d.cerrado = true; saveData(); renderHoy(); };
+    return;
+  }
+
+  const n = quedaron.length;
+  caja.innerHTML = `<div class="card cierre">
+    <div class="titulo">${n===1 ? 'Quedó una cosa sin hacer. ¿Qué hacemos con ella?' : `Quedaron ${n} cosas sin hacer. ¿Qué hacemos con ellas?`}</div>
+    ${quedaron.map(q=>`
+      <div class="cierre-fila ${q.insistente?'insiste':''}" data-tipo="${q.tipo}" data-id="${q.id}">
+        <div class="que">${esc(q.titulo)}</div>
+        <div class="por">${esc(q.nota)}</div>
+        <div class="opciones">
+          <button class="small-btn" data-hacer="hecha">Ya la hice</button>
+          <button class="small-btn" data-hacer="manana">A mañana</button>
+          <button class="small-btn" data-hacer="otro">Otro día</button>
+        </div>
+      </div>`).join('')}
+    <button class="btn btn-ghost" style="width:100%; margin-top:10px;" id="cerrarDia">Dejarlo así</button>
+  </div>`;
+
+  caja.querySelectorAll('[data-hacer]').forEach(b=>b.onclick = ()=>{
+    const fila = b.closest('.cierre-fila');
+    resolverCierre(fila.dataset.tipo, fila.dataset.id, b.dataset.hacer);
+  });
+  document.getElementById('cerrarDia').onclick = ()=>{ d.cerrado = true; saveData(); renderHoy(); };
+}
+
+function resolverCierre(tipo, id, accion){
+  const manana = fmtDate(addDays(new Date(),1));
+  const sumaArrastre = obj => { obj.arrastres = (obj.arrastres||0) + 1; };
+
+  if(tipo==='evento'){
+    const e = DATA.events.find(x=>x.id===id); if(!e) return;
+    if(accion==='hecha'){ e.status='hecho'; syncSourceFromEvent(e); }
+    else if(accion==='manana'){ e.date = manana; sumaArrastre(e); }
+    else { e.date = ''; e.start=''; e.end=''; sumaArrastre(e); }   // sin fecha: vuelve a pendientes
+  }
+  if(tipo==='entrega'){
+    const a = (DATA.academicTasks||[]).find(x=>x.id===id); if(!a) return;
+    if(accion==='hecha'){ a.done = true; setLinkedEventStatus('academicTask', a.id, 'hecho'); }
+    else if(accion==='manana'){ a.date = manana; sumaArrastre(a); }
+    else { a.date = ''; sumaArrastre(a); }
+  }
+  if(tipo==='pendiente'){
+    const p = (DATA.pendientes||[]).find(x=>x.id===id); if(!p) return;
+    if(accion==='hecha') p.hecho = true;
+    else if(accion==='manana'){ p.urgencia='urgente'; sumaArrastre(p); }
+    else { p.arrastres = 0; }        // lo suelta: deja de insistirle
+  }
+  saveData(); renderHoy();
 }
 
 /* ============================================================
