@@ -134,7 +134,8 @@ button{font-family:inherit;}
 .view.active{display:block;}
 @keyframes fade{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);}}
 
-.section-title{font-size:12px; text-transform:uppercase; letter-spacing:.09em; color:var(--text-muted); font-weight:700; margin:22px 0 10px; display:flex; align-items:center; justify-content:space-between; gap:8px;}
+/* mismo tono que .rotulo: sin mayusculas ni espaciado, que era ruido */
+.section-title{font-size:13px; color:var(--text-muted); font-weight:600; margin:24px 0 10px; display:flex; align-items:center; justify-content:space-between; gap:8px;}
 .section-title:first-child{margin-top:4px;}
 .section-title .count{color:var(--accent); font-weight:700;}
 
@@ -171,7 +172,8 @@ button{font-family:inherit;}
 .bloque .status-btn{width:24px; height:24px; margin:0;}
 
 /* el hueco es espacio, no un renglon mas (D108) */
-.hueco{margin:0; padding:6px 0 6px 57px; font-size:12px; color:var(--text-dim); display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-height:26px;}
+.hueco{margin:0; padding:7px 0 7px 2px; font-size:12px; color:var(--text-dim); display:flex; align-items:center; gap:9px; flex-wrap:wrap; min-height:26px;}
+.hueco .rango{flex:none; width:96px; font-size:11.5px; color:var(--text-muted); font-weight:500;}
 .cabe{color:var(--accent); font-weight:600;}
 
 /* lo que no tiene hora, en el mismo idioma que lo demas */
@@ -952,54 +954,16 @@ function renderHoy(){
         </div>`).join('')}
     </div>` : '';
 
-  /* ---- 2 · tu día: todo lo que tiene hora, junto y en orden ---- */
-  const bloques = [];
-  weekdayItems(dow).forEach(c=>{
-    if(!c.start) return;
-    bloques.push({ titulo:c.name, start:c.start, end:c.end, color:c.color, lugar:(c.ref&&c.ref.notes)||'' });
-  });
-  DATA.events.filter(e=>e.date===t && e.start).forEach(e=>{
-    bloques.push({ titulo:e.title, start:e.start, end:e.end,
-      color:CATS[e.cat]?CATS[e.cat].color:'var(--text-dim)', lugar:e.lugar||'', ev:e });
-  });
-  bloques.sort(porHora);
-
-  /* los huecos se ven como espacio entre bloques, no como un texto aparte (D108) */
-  let totalLibre = 0;
-  const filas = [];
-  bloques.forEach((b,i)=>{
-    filas.push({ tipo:'bloque', b });
-    const sig = bloques[i+1];
-    if(!sig) return;
-    const fin = finEnMinutos(b.start, b.end||b.start);
-    const ini2 = minutosDe(sig.start);
-    const hueco = ini2 - fin;
-    if(hueco >= 30){ totalLibre += hueco; filas.push({ tipo:'hueco', min:hueco, hasta:sig.start }); }
-  });
-
-  const cabe = (DATA.pendientes||[]).filter(p=>!p.hecho).sort((a,b)=> (a.urgencia==='urgente'?0:1)-(b.urgencia==='urgente'?0:1))[0];
-  let mayor = -1, mejor = 0;
-  filas.forEach((f,i)=>{ if(f.tipo==='hueco' && f.min>mejor){ mejor=f.min; mayor=i; } });
+  /* ---- 2 · tu día: la misma tira que usa el calendario ---- */
+  const resumen = resumenDelDia(t);
   const lista = document.getElementById('hoyList');
-  lista.innerHTML = bloques.length ? filas.map(f=>{
-    if(f.tipo==='hueco') return `<div class="hueco">${libres(f.min)} · hasta ${esc(f.hasta)}${filas.indexOf(f)===mayor && f.min>=60 && cabe ? `<span class="cabe">cabe: ${esc(cabe.titulo)}</span>` : ''}</div>`;
-    const b = f.b;
-    /* nombre, hora y lugar, y el circulo para marcarlo. Nada mas (D105, D107) */
-    const hecho = b.ev && b.ev.status==='hecho';
-    const progreso = b.ev && b.ev.status==='progreso';
-    return `<div class="bloque${hecho?' hecho':''}" ${b.ev?`data-id="${b.ev.id}" data-sel-tipo="evento" data-sel-id="${b.ev.id}"`:''}>
-      <div class="hora mono">${esc(b.start)}${b.end?`<span class="hasta">${esc(b.end)}</span>`:''}</div>
-      <div class="raya" style="background:${b.color};"></div>
-      <div class="cuerpo">
-        <div class="nombre">${esc(b.titulo)}</div>
-        ${b.lugar && b.lugar.trim() !== b.titulo.trim() ? `<div class="sitio">${esc(b.lugar)}</div>` : ''}
-      </div>
-      ${b.ev ? `<button class="status-btn ${hecho?'hecho':progreso?'progreso':''}" data-action="cyclestatus" data-id="${b.ev.id}"></button>` : ''}
-    </div>`;
-  }).join('') : `<div class="empty-card">Hoy no tienes nada con hora. Toca + para agregar algo.</div>`;
+  lista.innerHTML = resumen.bloques.length
+    ? tiraDelDia(t, { sugerir:true })
+    : `<div class="empty-card">Hoy no tienes nada con hora. Toca + para agregar algo.</div>`;
+  engancharTira(lista);
 
-  document.getElementById('hoyClasses').innerHTML = bloques.length
-    ? `<div class="rotulo"><span>Tu día</span><span>${totalLibre ? libres(totalLibre) : bloques.length+' bloques'}</span></div>`
+  document.getElementById('hoyClasses').innerHTML = resumen.bloques.length
+    ? `<div class="rotulo"><span>Tu día</span><span>${duracionLarga(resumen.ocupado)} ocupadas · ${libres(resumen.libre)}</span></div>`
     : `<div class="rotulo"><span>Tu día</span></div>`;
 
   /* ---- 3 · lo flexible de hoy: sin hora ---- */
@@ -1067,28 +1031,18 @@ function renderCalDayList(){
   const box = document.getElementById('calDayList');
   if(!calSelected){ box.innerHTML=''; return; }
   const ds = calSelected;
-  const dayEvents = DATA.events.filter(e=>e.date===ds).sort((a,b)=>(a.start||'99').localeCompare(b.start||'99'));
-  const d = parseDate(ds);
-  const wdItems = weekdayItems(d.getDay());
-  box.innerHTML = `<div class="rotulo"><span>${niceDate(ds)}</span></div>` +
-    (wdItems.map(it=>{
-      /* una rutina o una clase se toca y se edita donde vive, no es adorno */
-      const ref = it.ref ? `data-rutina="${it.ref.id}"` : (it.materia ? `data-materia="${it.materia.id}"` : '');
-      const sel = it.ref ? `data-sel-tipo="rutina" data-sel-id="${it.ref.id}"` : (it.materia ? `data-sel-tipo="materia" data-sel-id="${it.materia.id}"` : '');
-      return `<div class="item repetido" ${ref} ${sel} style="border-left-color:${it.color}; ${ref?'':'cursor:default;'}">
-        <div class="body"><div class="title">${esc(it.name)}</div>
-        <div class="meta"><span>${esc(it.start||'')}${it.end?'–'+esc(it.end):''} · se repite cada semana</span></div></div>
-      </div>`;
-    }).join('')) +
-    (dayEvents.length ? dayEvents.map(itemHTML).join('') : (wdItems.length?'':'<div class="empty-card">Sin nada este día.</div>'));
+  const { bloques, ocupado, libre } = resumenDelDia(ds);
+  const sinHora = DATA.events.filter(e=>e.date===ds && !e.start);
 
-  box.querySelectorAll('[data-rutina]').forEach(el=>{
-    el.onclick = ()=> openRoutineModal(DATA.routines.find(r=>r.id===el.dataset.rutina));
-  });
-  box.querySelectorAll('[data-materia]').forEach(el=>{
-    el.onclick = ()=> openMateriaModal(DATA.subjects.find(m=>m.id===el.dataset.materia));
-  });
-  bindItemClicks();
+  box.innerHTML =
+    `<div class="rotulo"><span>${niceDate(ds)}</span>${
+      bloques.length ? `<span>${duracionLarga(ocupado)} ocupadas · ${libres(libre)}</span>` : ''}</div>` +
+    (bloques.length ? tiraDelDia(ds, { sugerir:true })
+      : `<div class="empty-card">Este día lo tienes libre entero.</div>`) +
+    (sinHora.length ? `<div class="rotulo" style="margin-top:20px;"><span>Sin hora</span></div>` +
+      sinHora.map(itemHTML).join('') : '');
+
+  engancharTira(box);
 }
 document.getElementById('calPrev').onclick = ()=>{ calDate.setMonth(calDate.getMonth()-1); renderCalendar(); };
 document.getElementById('calNext').onclick = ()=>{ calDate.setMonth(calDate.getMonth()+1); renderCalendar(); };
@@ -3654,6 +3608,131 @@ function openMovModal(deuda){
       fecha:document.getElementById('f_mfecha').value || todayStr(), nota:document.getElementById('f_mnota').value.trim() });
     saveData(); closeSheet(); renderPlata();
   };
+}
+
+/* ============================================================
+   EL DIA: LO OCUPADO Y LO LIBRE
+   Los huecos entre bloques son tiempo utilizable, no "ocupada todo el dia"
+   (D26), y se ven como espacio entre los bloques (D108). Sirve igual para
+   Hoy y para cualquier dia que toque en el calendario.
+============================================================ */
+const DIA_DESDE = 6 * 60;    // 6 de la mañana
+const DIA_HASTA = 23 * 60;   // 11 de la noche, donde arranca su silencio
+
+/* Todo lo que ocupa ese dia, junto y en orden. */
+function bloquesDeFecha(fecha){
+  const d = parseDate(fecha), dow = d.getDay();
+  const out = [];
+  weekdayItems(dow).forEach(c=>{
+    if(!c.start) return;
+    out.push({ titulo:c.name, start:c.start, end:c.end, color:c.color,
+      lugar:(c.ref && c.ref.notes) || '', rutina:c.ref, materia:c.materia });
+  });
+  DATA.events.filter(e=>e.date===fecha && e.start).forEach(e=>{
+    out.push({ titulo:e.title, start:e.start, end:e.end,
+      color:CATS[e.cat]?CATS[e.cat].color:'var(--text-dim)', lugar:e.lugar||'', ev:e });
+  });
+  return out.sort(porHora);
+}
+
+/* Dos bloques encimados no ocupan el doble: se unen antes de contar. */
+function ocupadoDelDia(bloques){
+  const tramos = bloques
+    .map(b=>({ desde: minutosDe(b.start), hasta: finEnMinutos(b.start, b.end || b.start) }))
+    .filter(t=>t.desde !== null && t.hasta !== null && t.hasta > t.desde)
+    .sort((a,b)=>a.desde - b.desde);
+  const unidos = [];
+  tramos.forEach(t=>{
+    const ultimo = unidos[unidos.length-1];
+    if(ultimo && t.desde <= ultimo.hasta) ultimo.hasta = Math.max(ultimo.hasta, t.hasta);
+    else unidos.push({ ...t });
+  });
+  return unidos;
+}
+
+/* Lo que queda libre dentro del dia despierto. */
+function huecosDelDia(bloques){
+  const ocupado = ocupadoDelDia(bloques);
+  const huecos = [];
+  let cursor = DIA_DESDE;
+  ocupado.forEach(t=>{
+    const desde = Math.max(cursor, DIA_DESDE);
+    const hasta = Math.min(t.desde, DIA_HASTA);
+    if(hasta - desde >= 30) huecos.push({ desde, hasta });
+    cursor = Math.max(cursor, t.hasta);
+  });
+  if(DIA_HASTA - Math.max(cursor, DIA_DESDE) >= 30){
+    huecos.push({ desde: Math.max(cursor, DIA_DESDE), hasta: DIA_HASTA });
+  }
+  return huecos;
+}
+
+function resumenDelDia(fecha){
+  const bloques = bloquesDeFecha(fecha);
+  const ocupado = ocupadoDelDia(bloques).reduce((a,t)=>
+    a + Math.max(0, Math.min(t.hasta, DIA_HASTA) - Math.max(t.desde, DIA_DESDE)), 0);
+  const huecos = huecosDelDia(bloques);
+  const libre = huecos.reduce((a,h)=>a + (h.hasta - h.desde), 0);
+  return { bloques, huecos, ocupado, libre };
+}
+
+/* La tira del dia: los bloques con los huecos entre ellos. */
+function tiraDelDia(fecha, opciones){
+  const o = opciones || {};
+  const { bloques, huecos } = resumenDelDia(fecha);
+  if(!bloques.length && !huecos.length) return '';
+
+  /* el hueco mas grande es donde tiene sentido sugerir algo (D19) */
+  let mejor = null;
+  huecos.forEach(h=>{ if(!mejor || (h.hasta-h.desde) > (mejor.hasta-mejor.desde)) mejor = h; });
+  const cabe = o.sugerir
+    ? (DATA.pendientes||[]).filter(p=>!p.hecho)
+        .sort((a,b)=>(a.urgencia==='urgente'?0:1)-(b.urgencia==='urgente'?0:1))[0]
+    : null;
+
+  /* se intercalan por hora para que se lea como el dia de verdad */
+  const filas = [
+    ...bloques.map(b=>({ orden: minutosDe(b.start), tipo:'bloque', b })),
+    ...huecos.map(h=>({ orden: h.desde, tipo:'hueco', h }))
+  ].sort((x,y)=> x.orden - y.orden);
+
+  return filas.map(f=>{
+    if(f.tipo === 'hueco'){
+      const min = f.h.hasta - f.h.desde;
+      const esElMejor = mejor && f.h.desde === mejor.desde;
+      return `<div class="hueco">
+        <span class="rango mono">${hhmm(f.h.desde)}–${hhmm(f.h.hasta)}</span>
+        <span>${libres(min)}</span>
+        ${esElMejor && cabe && min >= 60 ? `<span class="cabe">cabe: ${esc(cabe.titulo)}</span>` : ''}
+      </div>`;
+    }
+    const b = f.b;
+    const hecho = b.ev && b.ev.status==='hecho';
+    const progreso = b.ev && b.ev.status==='progreso';
+    const marca = b.ev ? `data-id="${b.ev.id}" data-sel-tipo="evento" data-sel-id="${b.ev.id}"`
+      : b.rutina ? `data-rutina="${b.rutina.id}" data-sel-tipo="rutina" data-sel-id="${b.rutina.id}"`
+      : b.materia ? `data-materia="${b.materia.id}" data-sel-tipo="materia" data-sel-id="${b.materia.id}"` : '';
+    return `<div class="bloque${hecho?' hecho':''}" ${marca}>
+      <div class="hora mono">${esc(b.start)}${b.end?`<span class="hasta">${esc(b.end)}</span>`:''}</div>
+      <div class="raya" style="background:${b.color};"></div>
+      <div class="cuerpo">
+        <div class="nombre">${esc(b.titulo)}</div>
+        ${b.lugar && b.lugar.trim() !== b.titulo.trim() ? `<div class="sitio">${esc(b.lugar)}</div>` : ''}
+      </div>
+      ${b.ev ? `<button class="status-btn ${hecho?'hecho':progreso?'progreso':''}" data-action="cyclestatus" data-id="${b.ev.id}"></button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+/* Los bloques y huecos de un dia se tocan igual en todos lados. */
+function engancharTira(caja){
+  caja.querySelectorAll('[data-rutina]').forEach(el=>{
+    el.onclick = ()=> openRoutineModal(DATA.routines.find(r=>r.id===el.dataset.rutina));
+  });
+  caja.querySelectorAll('[data-materia]').forEach(el=>{
+    el.onclick = ()=> openMateriaModal(DATA.subjects.find(m=>m.id===el.dataset.materia));
+  });
+  bindItemClicks();
 }
 
 /* ============================================================
