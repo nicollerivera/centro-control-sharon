@@ -492,6 +492,11 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 .kitem.hecho .ktxt{text-decoration:line-through; color:var(--text-dim);}
 .kinput{flex:1; min-width:0; font:inherit; font-size:15px; line-height:1.35; padding:8px 0; border:none; border-bottom:1px solid var(--accent); background:transparent; color:var(--text); outline:none; border-radius:0;}
 .kbtn{flex:none; width:34px; height:38px; border:none; background:none; color:var(--text-muted); font-size:17px; padding:0;}
+.kcuando{display:block; font-size:12px; color:var(--text-muted); margin-top:2px; text-decoration:none;}
+.kcuando.hoy{color:var(--accent); font-weight:600;} .kcuando.tarde{color:var(--urgent); font-weight:600;}
+.huecos-sug{display:flex; flex-wrap:wrap; gap:6px; margin:-6px 0 14px;}
+.huecos-sug .chip{font-size:12px; padding:5px 10px;}
+.suelto .cuando{flex:none; font-size:12px; color:var(--text-muted);}
 .kurg{flex:none; align-self:center; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.04em;}
 .kadd{display:flex; align-items:center; gap:12px; padding:0 12px 0 32px; min-height:42px; color:var(--text-muted); font-size:15px; cursor:text;}
 .kadd .mas{font-size:20px; font-weight:300; width:14px; text-align:center;}
@@ -1053,6 +1058,13 @@ function renderHoy(){
     vencen.push({ titulo:a.name, cuando:a.date<t?'Atrasada':a.date===t?'Hoy':'Mañana',
       sub:a.subject||'Universidad', color:'var(--c-uni)', tarde:a.date<t });
   });
+  /* pendientes de las listas con dia: los atrasados, y los de hoy o mañana sin hora */
+  (DATA.pendientes||[]).forEach(p=>{
+    if(p.hecho || !p.fecha || p.fecha > manana) return;
+    if(p.fecha===t) return;                       // los de hoy van en Tu día o en Sin hora
+    vencen.push({ titulo:p.titulo, cuando:p.fecha<t?'Atrasado':p.fecha===t?'Hoy':'Mañana',
+      sub:'', color:colorDeLista(p), tarde:p.fecha<t });
+  });
   (DATA.suscripciones||[]).forEach(x=>{
     const prox = proximoCobro(x);
     if(prox && (prox===t || prox===manana)) vencen.push({ titulo:x.nombre, cuando:prox===t?'Hoy':'Mañana',
@@ -1087,10 +1099,12 @@ function renderHoy(){
 
   /* ---- 3 · lo flexible de hoy: sin hora ---- */
   const sueltos = DATA.events.filter(e=>e.date===t && !e.start && e.status!=='hecho');
-  const urgentes = (DATA.pendientes||[]).filter(p=>!p.hecho && p.urgencia==='urgente');
+  const pendHoy = pendientesConFecha(t).filter(p=>!p.hora);
+  const urgentes = (DATA.pendientes||[]).filter(p=>!p.hecho && p.urgencia==='urgente' && !(p.fecha===t));
   const flexBox = document.getElementById('hoyUpcoming');
-  flexBox.innerHTML = (sueltos.length || urgentes.length) ? `
+  flexBox.innerHTML = (sueltos.length || urgentes.length || pendHoy.length) ? `
     <div class="rotulo" style="margin-top:22px;"><span>Sin hora</span></div>
+    ${pendHoy.map(sueltoPendiente).join('')}
     ${sueltos.map(e=>`
       <div class="suelto" data-id="${e.id}" data-sel-tipo="evento" data-sel-id="${e.id}">
         <span class="punto" style="background:${CATS[e.cat]?CATS[e.cat].color:'var(--text-dim)'};"></span>
@@ -1111,6 +1125,7 @@ function renderHoy(){
   renderCierre();
   bindItemClicks();
   bindPendClicks();
+  engancharTira(flexBox);
 }
 
 /* ============================================================
@@ -1132,7 +1147,7 @@ function renderCalendar(){
     const ds = fmtDate(d);
     const dayEvents = DATA.events.filter(e=>e.date===ds);
     const wdItems = weekdayItems(d.getDay());
-    let dotColors = [...new Set(dayEvents.map(e=>CATS[e.cat].color))];
+    let dotColors = [...new Set([...dayEvents.map(e=>CATS[e.cat].color), ...pendientesConFecha(ds).map(colorDeLista)])];
     wdItems.forEach(it=>{ if(!dotColors.includes(it.color)) dotColors.push(it.color); });
     dotColors = dotColors.slice(0,3);
     const isCycleLog = DATA.cycle.starts.some(s=>{ const diff = daysBetween(s, ds); return diff>=0 && diff < DATA.cycle.periodLen; });
@@ -1154,16 +1169,26 @@ function renderCalDayList(){
   const ds = calSelected;
   const { bloques, ocupado, libre } = resumenDelDia(ds);
   const sinHora = DATA.events.filter(e=>e.date===ds && !e.start);
+  const pendSinHora = pendientesConFecha(ds).filter(p=>!p.hora);
 
   box.innerHTML =
     `<div class="rotulo"><span>${niceDate(ds)}</span>${
       bloques.length ? `<span>${duracionLarga(ocupado)} ocupadas · ${libres(libre)}</span>` : ''}</div>` +
     (bloques.length ? tiraDelDia(ds, { sugerir:true })
       : `<div class="empty-card">Este día lo tienes libre entero.</div>`) +
-    (sinHora.length ? `<div class="rotulo" style="margin-top:20px;"><span>Sin hora</span></div>` +
-      sinHora.map(itemHTML).join('') : '');
+    ((sinHora.length || pendSinHora.length) ? `<div class="rotulo" style="margin-top:20px;"><span>Sin hora</span></div>` +
+      pendSinHora.map(sueltoPendiente).join('') + sinHora.map(itemHTML).join('') : '');
 
   engancharTira(box);
+}
+/* Un pendiente con dia pero sin hora: se ve con su ventana, y se marca o se abre. */
+function sueltoPendiente(p){
+  const l = (DATA.listas||[]).find(x=>x.id===p.listaId);
+  return `<div class="suelto" data-pend="${p.id}" data-sel-tipo="pendiente" data-sel-id="${p.id}" style="cursor:pointer;">
+    <button class="status-btn chico" data-action="hechoPend" data-pid="${p.id}" aria-label="Marcar hecho"></button>
+    <span class="que">${esc(p.titulo)}${ventanaTexto(p) ? `<span class="kcuando">${esc(ventanaTexto(p))}</span>` : ''}</span>
+    ${l ? `<span class="de">${esc(l.nombre)}</span>` : ''}
+  </div>`;
 }
 document.getElementById('calPrev').onclick = ()=>{ calDate.setMonth(calDate.getMonth()-1); renderCalendar(); };
 document.getElementById('calNext').onclick = ()=>{ calDate.setMonth(calDate.getMonth()+1); renderCalendar(); };
@@ -1258,12 +1283,29 @@ function ordenarViejos(){
       .forEach(p=>{ p.orden = base++; });
   });
 }
+/* Un pendiente puede tener dia, la ventana en que se puede hacer (un quiz
+   abierto de 8 a 8) y la hora en que ella decide hacerlo. Solo esa hora
+   ocupa el dia: la ventana no. */
+function colorDeLista(p){ const l = (DATA.listas||[]).find(x=>x.id===p.listaId); return l ? l.color : 'var(--accent)'; }
+function finDePendiente(p){ return p.horaFin || hhmm(minutosDe(p.hora) + (Number(p.duracion)||30)); }
+function ventanaTexto(p){ return p.desde && p.hasta ? `de ${p.desde} a ${p.hasta}` : p.desde ? `desde ${p.desde}` : p.hasta ? `hasta ${p.hasta}` : ''; }
+function cuandoPendiente(p){
+  if(!p.fecha) return null;
+  const t = todayStr(), dias = daysBetween(t, p.fecha);
+  const dia = dias===0 ? 'Hoy' : dias===1 ? 'Mañana' : dias===-1 ? 'Ayer' : niceDateShort(p.fecha);
+  const partes = [dia];
+  if(p.hora) partes.push(`lo haces ${p.hora}–${finDePendiente(p)}`);
+  else if(ventanaTexto(p)) partes.push(ventanaTexto(p));
+  return { texto: partes.join(' · '), clase: p.hecho ? '' : dias<0 ? 'tarde' : dias===0 ? 'hoy' : '' };
+}
+function pendientesConFecha(fecha){ return (DATA.pendientes||[]).filter(p=>!p.hecho && p.fecha===fecha); }
+
 function pendienteHTML(p){
   const urg = p.urgencia || 'normal';
   return `<div class="kitem ${p.hecho?'hecho':''}" data-sel-tipo="pendiente" data-sel-id="${p.id}" data-pid="${p.id}">
     ${p.hecho ? '<span class="kdrag" style="visibility:hidden"></span>' : '<span class="kdrag" aria-label="Arrastrar para ordenar">⠿</span>'}
     <button class="kcheck ${p.hecho?'hecho':''}" data-action="togglePend" data-pid="${p.id}" aria-label="${p.hecho?'Desmarcar':'Marcar hecho'}"></button>
-    <div class="ktxt" data-action="editPend" data-pid="${p.id}">${esc(p.titulo)}</div>
+    <div class="ktxt" data-action="editPend" data-pid="${p.id}">${esc(p.titulo)}${(c=>c?`<span class="kcuando ${c.clase}">📅 ${esc(c.texto)}</span>`:'')(cuandoPendiente(p))}</div>
     ${urg!=='normal' && !p.hecho ? `<span class="kurg" style="color:${URG_COLOR[urg]}">${urg}</span>` : ''}
   </div>`;
 }
@@ -1339,7 +1381,7 @@ function editarEnSitio(txt){
   const inp = document.createElement('input');
   inp.className = 'kinput'; inp.value = p.titulo; inp.enterKeyHint = 'next';
   txt.replaceWith(inp);
-  const mas = document.createElement('button'); mas.className = 'kbtn'; mas.textContent = '⋯'; mas.setAttribute('aria-label','Más opciones');
+  const mas = document.createElement('button'); mas.className = 'kbtn'; mas.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>'; mas.setAttribute('aria-label','Fecha, hora y más');
   const x = document.createElement('button'); x.className = 'kbtn'; x.textContent = '✕'; x.setAttribute('aria-label','Eliminar');
   fila.querySelector('.kurg')?.remove();
   fila.append(mas, x);
@@ -1456,39 +1498,77 @@ function engancharArrastre(handle){
 function openPendienteModal(p){
   openSheet(`<h3>Pendiente</h3>
     <div class="field"><label>¿Qué hay que hacer?</label><input type="text" id="f_ptitulo" value="${esc(p.titulo)}"></div>
+    <div class="field"><label>Día</label><input type="date" id="f_pfecha" value="${esc(p.fecha||'')}"></div>
+    <div id="f_pconfecha" ${p.fecha?'':'hidden'}>
+      <div class="field-row">
+        <div class="field"><label>Se puede desde</label><input type="time" id="f_pdesde" value="${esc(p.desde||'')}"></div>
+        <div class="field"><label>Hasta</label><input type="time" id="f_phasta" value="${esc(p.hasta||'')}"></div>
+      </div>
+      <div class="helptext" style="margin:-8px 0 14px;">Opcional. Ej: un quiz abierto de 8:00 a 20:00. No te ocupa el día.</div>
+      <div class="field-row">
+        <div class="field"><label>Lo hago a las</label><input type="time" id="f_phora" value="${esc(p.hora||'')}"></div>
+        <div class="field"><label>Me toma</label><select id="f_pdur">
+          ${[[15,'15 min'],[30,'30 min'],[45,'45 min'],[60,'1 hora'],[90,'1 h 30'],[120,'2 horas'],[180,'3 horas']].map(([v,l])=>`<option value="${v}" ${Number(p.duracion||30)===v?'selected':''}>${l}</option>`).join('')}
+        </select></div>
+      </div>
+      <div id="f_phuecos"></div>
+    </div>
     <div class="field"><label>Lista</label><div class="chiprow" id="chipsListaP">
       ${DATA.listas.map(l=>`<div class="chip ${l.id===p.listaId?'active':''}" data-lista="${l.id}" style="${chipColor(l.color)}">${esc(l.nombre)}</div>`).join('')}
     </div></div>
     <div class="field"><label>Urgencia</label><div class="chiprow" id="chipsUrg">
       ${URGENCIAS.map(u=>`<div class="chip ${u===(p.urgencia||'normal')?'active':''}" data-urg="${u}" style="${chipColor(URG_COLOR[u])}">${u}</div>`).join('')}
     </div></div>
-    <div class="field"><label>Pasarlo a un día (opcional)</label><input type="date" id="f_pfecha"></div>
-    <div class="helptext">Si le ponés fecha sale de la lista y queda agendado en Hoy y en el calendario.</div>
     <div class="sheet-actions"><button class="btn btn-danger" id="delPend">Eliminar</button><button class="btn btn-primary" id="savePend">Guardar</button></div>`);
+  const g = id => document.getElementById(id);
   let plista = p.listaId, purg = p.urgencia || 'normal';
+
+  /* al elegir dia le muestra sus horas libres, sin contar este mismo pendiente,
+     y respetando la ventana si la puso */
+  const pintarHuecos = ()=>{
+    const fecha = g('f_pfecha').value;
+    g('f_pconfecha').hidden = !fecha;
+    const caja = g('f_phuecos');
+    if(!fecha){ caja.innerHTML = ''; return; }
+    const bloques = bloquesDeFecha(fecha).filter(b=>!(b.pend && b.pend.id===p.id));
+    const dur = Number(g('f_pdur').value)||30;
+    const vDesde = minutosDe(g('f_pdesde').value), vHasta = minutosDe(g('f_phasta').value);
+    const huecos = huecosDelDia(bloques).map(h=>({ desde:Math.max(h.desde, vDesde ?? h.desde), hasta:Math.min(h.hasta, vHasta ?? h.hasta) }))
+      .filter(h=>h.hasta - h.desde >= dur);
+    caja.innerHTML = huecos.length
+      ? `<div class="helptext" style="margin:-6px 0 6px;">Ese día tienes libre${vDesde!==null||vHasta!==null?' dentro de la ventana':''}. Toca uno:</div>
+         <div class="huecos-sug">${huecos.map(h=>`<div class="chip" data-hora="${hhmm(h.desde)}">${hhmm(h.desde)}–${hhmm(h.hasta)}</div>`).join('')}</div>`
+      : `<div class="helptext" style="margin:-6px 0 14px; color:var(--ambar);">Ese día no te queda un hueco de ${dur} min${vDesde!==null||vHasta!==null?' dentro de la ventana':''}.</div>`;
+    caja.querySelectorAll('[data-hora]').forEach(c=>c.onclick=()=>{ g('f_phora').value = c.dataset.hora; });
+  };
+  ['f_pfecha','f_pdesde','f_phasta','f_pdur'].forEach(id=>g(id).addEventListener('change', pintarHuecos));
+  pintarHuecos();
+
   document.querySelectorAll('#chipsListaP .chip').forEach(c=>{
     c.onclick = ()=>{ document.querySelectorAll('#chipsListaP .chip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); plista = c.dataset.lista; };
   });
   document.querySelectorAll('#chipsUrg .chip').forEach(c=>{
     c.onclick = ()=>{ document.querySelectorAll('#chipsUrg .chip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); purg = c.dataset.urg; };
   });
-  document.getElementById('delPend').onclick = ()=>{
+  g('delPend').onclick = ()=>{
     DATA.pendientes = DATA.pendientes.filter(x=>x.id!==p.id);
-    saveData(); closeSheet(); renderAll();
+    saveData(); closeSheet(); renderAll(); refrescarDiaCalendario();
   };
-  document.getElementById('savePend').onclick = ()=>{
-    const titulo = document.getElementById('f_ptitulo').value.trim();
+  g('savePend').onclick = ()=>{
+    const titulo = g('f_ptitulo').value.trim();
     if(!titulo){ alert('Escribe qué hay que hacer'); return; }
-    const fecha = document.getElementById('f_pfecha').value;
-    if(fecha){
-      /* Pasa a la agenda: deja de ser un pendiente suelto y se vuelve un evento. */
-      DATA.events.push({ id:uid(), cat:'personal', title:titulo, date:fecha, start:'', end:'', status:'pendiente', estMin:null, actualMin:null, notes:'' });
-      DATA.pendientes = DATA.pendientes.filter(x=>x.id!==p.id);
-    }else{
-      p.titulo = titulo; p.listaId = plista; p.urgencia = purg;
-    }
-    saveData(); closeSheet(); renderAll();
+    const fecha = g('f_pfecha').value;
+    /* se queda en su lista: la fecha solo la pone ademas en el dia y el calendario */
+    Object.assign(p, { titulo, listaId:plista, urgencia:purg, fecha,
+      desde: fecha ? g('f_pdesde').value : '', hasta: fecha ? g('f_phasta').value : '',
+      hora: fecha ? g('f_phora').value : '', duracion: fecha && g('f_phora').value ? Number(g('f_pdur').value) : null, horaFin:'' });
+    if(p.hora && p.desde && p.hora < p.desde && !confirm(`Lo pones a las ${p.hora}, antes de que abra (${p.desde}). ¿Así?`)) return;
+    if(p.hora && p.hasta && finDePendiente(p) > p.hasta && !confirm(`Terminarías a las ${finDePendiente(p)}, después del cierre (${p.hasta}). ¿Así?`)) return;
+    saveData(); closeSheet(); renderAll(); refrescarDiaCalendario();
   };
+}
+function refrescarDiaCalendario(){
+  if(document.getElementById('view-calendario').classList.contains('active')) renderCalDayList();
 }
 
 /* Crear, renombrar o borrar una lista. */
@@ -4347,6 +4427,11 @@ function bloquesDeFecha(fecha){
     out.push({ titulo:e.title, start:e.start, end:e.end,
       color:CATS[e.cat]?CATS[e.cat].color:'var(--text-dim)', lugar:e.lugar||'', ev:e });
   });
+  /* los pendientes que ya decidio a que hora hacer; al marcarlos hechos se van */
+  pendientesConFecha(fecha).filter(p=>p.hora).forEach(p=>{
+    out.push({ titulo:p.titulo, start:p.hora, end:finDePendiente(p), color:colorDeLista(p),
+      lugar: ventanaTexto(p) ? 'Se puede ' + ventanaTexto(p) : '', pend:p });
+  });
   return out.sort(porHora);
 }
 
@@ -4401,7 +4486,7 @@ function tiraDelDia(fecha, opciones){
   let mejor = null;
   huecos.forEach(h=>{ if(!mejor || (h.hasta-h.desde) > (mejor.hasta-mejor.desde)) mejor = h; });
   const cabe = o.sugerir
-    ? (DATA.pendientes||[]).filter(p=>!p.hecho)
+    ? (DATA.pendientes||[]).filter(p=>!p.hecho && !p.hora && (!p.fecha || p.fecha===fecha))
         .sort((a,b)=>(a.urgencia==='urgente'?0:1)-(b.urgencia==='urgente'?0:1))[0]
     : null;
 
@@ -4426,7 +4511,8 @@ function tiraDelDia(fecha, opciones){
     const progreso = b.ev && b.ev.status==='progreso';
     const marca = b.ev ? `data-id="${b.ev.id}" data-sel-tipo="evento" data-sel-id="${b.ev.id}"`
       : b.rutina ? `data-rutina="${b.rutina.id}" data-sel-tipo="rutina" data-sel-id="${b.rutina.id}"`
-      : b.materia ? `data-materia="${b.materia.id}" data-sel-tipo="materia" data-sel-id="${b.materia.id}"` : '';
+      : b.materia ? `data-materia="${b.materia.id}" data-sel-tipo="materia" data-sel-id="${b.materia.id}"`
+      : b.pend ? `data-pend="${b.pend.id}" data-sel-tipo="pendiente" data-sel-id="${b.pend.id}"` : '';
     return `<div class="bloque${hecho?' hecho':''}" ${marca}>
       <div class="hora mono">${esc(b.start)}${b.end?`<span class="hasta">${esc(b.end)}</span>`:''}</div>
       <div class="raya" style="background:${b.color};"></div>
@@ -4435,6 +4521,7 @@ function tiraDelDia(fecha, opciones){
         ${b.lugar && b.lugar.trim() !== b.titulo.trim() ? `<div class="sitio">${esc(b.lugar)}</div>` : ''}
       </div>
       ${b.ev ? `<button class="status-btn ${hecho?'hecho':progreso?'progreso':''}" data-action="cyclestatus" data-id="${b.ev.id}"></button>` : ''}
+      ${b.pend ? `<button class="status-btn" data-action="hechoPend" data-pid="${b.pend.id}" aria-label="Marcar hecho"></button>` : ''}
     </div>`;
   }).join('');
 }
@@ -4446,6 +4533,17 @@ function engancharTira(caja){
   });
   caja.querySelectorAll('[data-materia]').forEach(el=>{
     el.onclick = ()=> openMateriaModal(DATA.subjects.find(m=>m.id===el.dataset.materia));
+  });
+  caja.querySelectorAll('[data-pend]').forEach(el=>{
+    el.onclick = ()=>{ const p = DATA.pendientes.find(x=>x.id===el.dataset.pend); if(p) openPendienteModal(p); };
+  });
+  caja.querySelectorAll('[data-action="hechoPend"]').forEach(b=>{
+    b.onclick = (ev)=>{
+      ev.stopPropagation();
+      const p = DATA.pendientes.find(x=>x.id===b.dataset.pid); if(!p) return;
+      p.hecho = true; p.hechoFecha = todayStr();
+      saveData(); renderAll(); refrescarDiaCalendario();
+    };
   });
   bindItemClicks();
 }
