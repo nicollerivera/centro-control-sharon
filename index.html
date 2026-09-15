@@ -706,7 +706,7 @@ function horasFromRange(start,end){
 function weekdayItems(dayIdx){
   const items=[];
   const hayClases = DATA.subjects.some(s=>s.day===dayIdx);
-  DATA.subjects.filter(s=>s.day===dayIdx).forEach(s=>items.push({name:s.name, start:s.start, end:s.end, color:'var(--c-uni)', tag:'clase'}));
+  DATA.subjects.filter(s=>s.day===dayIdx).forEach(s=>items.push({name:s.name, start:s.start, end:s.end, color:'var(--c-uni)', tag:'clase', materia:s}));
   DATA.routines.filter(r=>r.days.includes(dayIdx)).forEach(r=>{
     /* si ya cargo las materias de ese dia, el bloque generico de Universidad
        sobra: seria la misma cosa dos veces */
@@ -850,6 +850,10 @@ function bindItemClicks(){
     };
   });
   document.querySelectorAll('.item[data-id], .bloque[data-id]').forEach(it=>{
+    /* bindItemClicks corre en cada render y recorre todo el documento: sin esto,
+       un item de otra seccion terminaba con el mismo clic colgado dos veces */
+    if(it.dataset.enganchado) return;
+    it.dataset.enganchado = '1';
     it.addEventListener('click', (ev)=>{
       if(ev.target.closest('[data-action="cyclestatus"]')) return;
       const e = DATA.events.find(x=>x.id===it.dataset.id);
@@ -869,7 +873,12 @@ function goToSubtab(sub){
   if(tab) tab.click();
 }
 function openLinkedSource(type, id){
-  goToSubtab(LINKED_SUBTAB[type] || 'materias');
+  if(type==='turno'){
+    const t = DATA.turnos.find(x=>x.id===id);
+    if(t){ openTurnoModal(t); return; }
+  }
+  if(!LINKED_SUBTAB[type]) return;      // sin ruta conocida, mejor no llevarla a otro lado
+  goToSubtab(LINKED_SUBTAB[type]);
   if(type==='personalItem'){
     const it = DATA.personalItems.find(x=>x.id===id);
     if(it) openPersonalModal(it);
@@ -1039,9 +1048,23 @@ function renderCalDayList(){
   const dayEvents = DATA.events.filter(e=>e.date===ds).sort((a,b)=>(a.start||'99').localeCompare(b.start||'99'));
   const d = parseDate(ds);
   const wdItems = weekdayItems(d.getDay());
-  box.innerHTML = `<div class="section-title">${niceDate(ds)}</div>` +
-    (wdItems.map(it=>`<div class="item" style="border-left-color:${it.color}; cursor:default;"><div class="body"><div class="title">${esc(it.name)}</div><div class="meta"><span>${esc(it.start||'')}${it.end?'–'+esc(it.end):''} · ${esc(it.tag)}</span></div></div></div>`).join('')) +
+  box.innerHTML = `<div class="rotulo"><span>${niceDate(ds)}</span></div>` +
+    (wdItems.map(it=>{
+      /* una rutina o una clase se toca y se edita donde vive, no es adorno */
+      const ref = it.ref ? `data-rutina="${it.ref.id}"` : (it.materia ? `data-materia="${it.materia.id}"` : '');
+      return `<div class="item repetido" ${ref} style="border-left-color:${it.color}; ${ref?'':'cursor:default;'}">
+        <div class="body"><div class="title">${esc(it.name)}</div>
+        <div class="meta"><span>${esc(it.start||'')}${it.end?'–'+esc(it.end):''} · se repite cada semana</span></div></div>
+      </div>`;
+    }).join('')) +
     (dayEvents.length ? dayEvents.map(itemHTML).join('') : (wdItems.length?'':'<div class="empty-card">Sin nada este día.</div>'));
+
+  box.querySelectorAll('[data-rutina]').forEach(el=>{
+    el.onclick = ()=> openRoutineModal(DATA.routines.find(r=>r.id===el.dataset.rutina));
+  });
+  box.querySelectorAll('[data-materia]').forEach(el=>{
+    el.onclick = ()=> openMateriaModal(DATA.subjects.find(m=>m.id===el.dataset.materia));
+  });
   bindItemClicks();
 }
 document.getElementById('calPrev').onclick = ()=>{ calDate.setMonth(calDate.getMonth()-1); renderCalendar(); };
@@ -1338,7 +1361,17 @@ function openRoutineModal(existente){
       </div>
       <div class="helptext" id="flexNota">${FLEX[flexDe(r)].nota}</div>
     </div>
-    <div class="sheet-actions"><button class="btn btn-primary" id="saveRoutine">Guardar</button></div>`);
+    <div class="sheet-actions">
+      ${existente?`<button class="btn btn-ghost" id="delRoutine">Borrar</button>`:''}
+      <button class="btn btn-primary" id="saveRoutine">Guardar</button>
+    </div>`);
+
+  const borrarR = document.getElementById('delRoutine');
+  if(borrarR) borrarR.onclick = ()=>{
+    if(!confirm(`¿Borrar "${existente.title}"? Deja de aparecer todas las semanas.`)) return;
+    DATA.routines = DATA.routines.filter(x=>x.id!==existente.id);
+    saveData(); closeSheet(); renderAll(); renderCalDayList();
+  };
 
   let rcat=r.cat, rdays=[...r.days], rflex=flexDe(r);
   document.querySelectorAll('#catChipsR .chip').forEach(c=>{ c.onclick=()=>{ document.querySelectorAll('#catChipsR .chip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); rcat=c.dataset.cat; }; });
@@ -1352,7 +1385,7 @@ function openRoutineModal(existente){
     const datos = { cat:rcat, title, days:[...rdays].sort(), start:document.getElementById('f_rstart').value, end:document.getElementById('f_rend').value, flex:rflex };
     if(existente) Object.assign(existente, datos);
     else DATA.routines.push(Object.assign({ id:uid(), notes:'' }, datos));
-    saveData(); closeSheet(); renderAll();
+    saveData(); closeSheet(); renderAll(); renderCalDayList();
   };
 }
 
@@ -1759,7 +1792,8 @@ function openMateriaModal(s){
     b.onclick = ()=>{ const i=Number(b.dataset.quitar); const c=leerCortes(); c.splice(i,1); s.cortes=c; openMateriaModal(s); };
   });
   document.getElementById('delMateria').onclick = ()=>{
-    DATA.subjects = DATA.subjects.filter(x=>x.id!==s.id); saveData(); closeSheet(); renderAll();
+    if(!confirm(`¿Borrar ${s.name}? Se van sus notas y sus cortes.`)) return;
+    DATA.subjects = DATA.subjects.filter(x=>x.id!==s.id); saveData(); closeSheet(); renderAll(); renderCalDayList();
   };
   document.getElementById('saveMateria').onclick = ()=>{
     s.cortes = leerCortes();
@@ -1769,7 +1803,7 @@ function openMateriaModal(s){
     s.day = Number(document.getElementById('f_mday').value);
     s.start = document.getElementById('f_mstart').value;
     s.end = document.getElementById('f_mend').value;
-    saveData(); closeSheet(); renderAll();
+    saveData(); closeSheet(); renderAll(); renderCalDayList();
   };
 }
 
