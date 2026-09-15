@@ -396,13 +396,20 @@ body.con-barra .elegido .urg, body.con-barra .elegido .tag{visibility:hidden;}
 .pleg-lista .card .small-btn{margin-top:6px !important;}
 .pleg-lista .progress-track{height:4px; margin-top:6px;}
 /* una fila de plata: nombre, cuando y monto en una sola linea */
-.fila-p{display:flex; align-items:center; gap:10px; padding:10px 2px; border-top:1px solid var(--border); cursor:pointer;}
+.fila-p{display:grid; grid-template-columns:minmax(0,1fr) auto auto; column-gap:10px; row-gap:1px; align-items:center; padding:12px 2px; border-top:1px solid var(--border); cursor:pointer;}
+.fila-p .nom{grid-column:1; grid-row:1;}
+.fila-p .cu{grid-column:1; grid-row:2;}
+.fila-p .small-btn{grid-column:2; grid-row:1 / 3;}
+.fila-p .mo{grid-column:3; grid-row:1 / 3;}
+/* los montos se escriben: sin flechitas para subir y bajar */
+input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none; margin:0;}
+input[type=number]{-moz-appearance:textfield; appearance:textfield;}
 .pleg-body > .fila-p:first-child{border-top:none;}
-.fila-p .nom{flex:1; min-width:0; font-size:14.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-.fila-p .cu{flex:none; font-size:12px; color:var(--text-dim);}
+.fila-p .nom{min-width:0; font-size:15px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.fila-p .cu{font-size:12.5px; color:var(--text-dim);}
 .fila-p .cu.ojo{color:var(--ambar); font-weight:600;} .fila-p .cu.ok{color:var(--done);}
-.fila-p .mo{flex:none; font-family:'Space Grotesk',sans-serif; font-size:14px; font-weight:600; min-width:64px; text-align:right;}
-.fila-p .small-btn{flex:none; padding:3px 8px; font-size:11.5px;}
+.fila-p .mo{font-family:'Space Grotesk',sans-serif; font-size:15.5px; font-weight:600; text-align:right;}
+.fila-p .small-btn{padding:4px 9px; font-size:11.5px;}
 .pleg-acciones{display:flex; justify-content:flex-end; gap:8px; margin:2px 0 8px;}
 
 /* ---------- turnos y choques ---------- */
