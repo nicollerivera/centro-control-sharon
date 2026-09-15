@@ -494,6 +494,13 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 .kbtn{flex:none; width:34px; height:38px; border:none; background:none; color:var(--text-muted); font-size:17px; padding:0;}
 .kcuando{display:block; font-size:12px; color:var(--text-muted); margin-top:2px; text-decoration:none;}
 .kcuando.hoy{color:var(--accent); font-weight:600;} .kcuando.tarde{color:var(--urgent); font-weight:600;}
+.plan-box{background:var(--surface-2); border-radius:var(--radius); padding:12px 14px; margin:0 0 14px;}
+.plan-box .qd{font-size:14.5px; line-height:1.4;}
+.plan-box .qd b{font-family:'Space Grotesk',sans-serif;}
+.plan-box .acc{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;}
+.plan-box.ojo{background:var(--ambar-soft);}
+.bloque.auto .raya{background:repeating-linear-gradient(to bottom, var(--raya) 0 5px, transparent 5px 9px) !important;}
+.bloque.auto .nombre::after{content:' · sugerido'; font-weight:500; font-size:12px; color:var(--text-dim);}
 .huecos-sug{display:flex; flex-wrap:wrap; gap:6px; margin:-6px 0 14px;}
 .huecos-sug .chip{font-size:12px; padding:5px 10px;}
 .suelto .cuando{flex:none; font-size:12px; color:var(--text-muted);}
@@ -1099,7 +1106,8 @@ function renderHoy(){
 
   /* ---- 3 · lo flexible de hoy: sin hora ---- */
   const sueltos = DATA.events.filter(e=>e.date===t && !e.start && e.status!=='hecho');
-  const pendHoy = pendientesConFecha(t).filter(p=>!p.hora);
+  const lugarHoy = acomodarDia(t).lugar;
+  const pendHoy = pendientesConFecha(t).filter(p=>!p.hora && !lugarHoy[p.id]);
   const urgentes = (DATA.pendientes||[]).filter(p=>!p.hecho && p.urgencia==='urgente' && !(p.fecha===t));
   const flexBox = document.getElementById('hoyUpcoming');
   flexBox.innerHTML = (sueltos.length || urgentes.length || pendHoy.length) ? `
@@ -1169,7 +1177,8 @@ function renderCalDayList(){
   const ds = calSelected;
   const { bloques, ocupado, libre } = resumenDelDia(ds);
   const sinHora = DATA.events.filter(e=>e.date===ds && !e.start);
-  const pendSinHora = pendientesConFecha(ds).filter(p=>!p.hora);
+  const lugarDia = acomodarDia(ds).lugar;
+  const pendSinHora = pendientesConFecha(ds).filter(p=>!p.hora && !lugarDia[p.id]);
 
   box.innerHTML =
     `<div class="rotulo"><span>${niceDate(ds)}</span>${
@@ -1186,7 +1195,7 @@ function sueltoPendiente(p){
   const l = (DATA.listas||[]).find(x=>x.id===p.listaId);
   return `<div class="suelto" data-pend="${p.id}" data-sel-tipo="pendiente" data-sel-id="${p.id}" style="cursor:pointer;">
     <button class="status-btn chico" data-action="hechoPend" data-pid="${p.id}" aria-label="Marcar hecho"></button>
-    <span class="que">${esc(p.titulo)}${ventanaTexto(p) ? `<span class="kcuando">${esc(ventanaTexto(p))}</span>` : ''}</span>
+    <span class="que">${esc(p.titulo)}<span class="kcuando" style="color:var(--ambar);">${esc((ventanaTexto(p) ? ventanaTexto(p) + ' · ' : '') + 'no te cabe en el día')}</span></span>
     ${l ? `<span class="de">${esc(l.nombre)}</span>` : ''}
   </div>`;
 }
@@ -1294,11 +1303,46 @@ function cuandoPendiente(p){
   const t = todayStr(), dias = daysBetween(t, p.fecha);
   const dia = dias===0 ? 'Hoy' : dias===1 ? 'Mañana' : dias===-1 ? 'Ayer' : niceDateShort(p.fecha);
   const partes = [dia];
-  if(p.hora) partes.push(`lo haces ${p.hora}–${finDePendiente(p)}`);
-  else if(ventanaTexto(p)) partes.push(ventanaTexto(p));
+  const auto = !p.hecho && !p.hora ? horaAuto(p) : null;
+  if(p.hora) partes.push(`${p.hora}–${finDePendiente(p)}`);
+  else if(auto) partes.push(`sugerido ${auto.start}–${auto.end}`);
+  else if(!p.hecho) partes.push(ventanaTexto(p) ? `${ventanaTexto(p)} · no te cabe` : 'no te cabe');
   return { texto: partes.join(' · '), clase: p.hecho ? '' : dias<0 ? 'tarde' : dias===0 ? 'hoy' : '' };
 }
 function pendientesConFecha(fecha){ return (DATA.pendientes||[]).filter(p=>!p.hecho && p.fecha===fecha); }
+
+/* Lo que tiene dia pero no hora fija lo acomoda Bitacora sola: en el primer
+   hueco libre donde quepa lo que le toma, dentro de su ventana y, si es hoy,
+   no antes de ahora. Se recalcula en cada pintada, asi que si le aparece
+   algo nuevo en el dia, se corre sola. Cuando ella dice "ahi lo hago" o
+   elige otra hora, queda fija. `cambio` deja probar un pendiente editado
+   sin guardarlo (lo usa la ficha). */
+function acomodarDia(fecha, cambio){
+  const fijos = bloquesFijos(fecha, cambio);
+  const lista = (DATA.pendientes||[]).map(p=>cambio && p.id===cambio.id ? cambio : p)
+    .filter(p=>!p.hecho && p.fecha===fecha && !p.hora)
+    .sort((a,b)=> URG_ORDEN[a.urgencia||'normal']-URG_ORDEN[b.urgencia||'normal'] || (a.orden??1e9)-(b.orden??1e9));
+  if(cambio && !cambio.hecho && cambio.fecha===fecha && !cambio.hora && !lista.includes(cambio)) lista.push(cambio);
+  const ahora = new Date();
+  const minAhora = fecha===todayStr() ? Math.ceil((ahora.getHours()*60 + ahora.getMinutes())/15)*15 : null;
+  const puestos = [], lugar = {};
+  lista.forEach(p=>{
+    const dur = Number(p.duracion)||30;
+    const lo = Math.max(DIA_DESDE, minutosDe(p.desde) ?? 0, minAhora ?? 0);
+    const hi = Math.min(DIA_HASTA, minutosDe(p.hasta) ?? 1440);
+    const h = huecosDelDia([...fijos, ...puestos]).map(h=>({ desde:Math.ceil(Math.max(h.desde, lo)/15)*15, hasta:Math.min(h.hasta, hi) }))
+      .find(h=>h.hasta - h.desde >= dur);
+    if(!h){ lugar[p.id] = null; return; }
+    const b = { titulo:p.titulo, start:hhmm(h.desde), end:hhmm(h.desde+dur), color:colorDeLista(p),
+      lugar: ventanaTexto(p) ? 'Se puede ' + ventanaTexto(p) : '', pend:p, auto:true };
+    puestos.push(b); lugar[p.id] = b;
+  });
+  return { fijos, puestos, lugar };
+}
+function horaAuto(p, cambio){
+  if(!p.fecha || p.hora || p.hecho) return null;
+  return acomodarDia(p.fecha, cambio).lugar[p.id] || null;
+}
 
 function pendienteHTML(p){
   const urg = p.urgencia || 'normal';
@@ -1496,22 +1540,20 @@ function engancharArrastre(handle){
 
 /* Editar un pendiente: texto, lista, urgencia, o pasarlo a un día de la agenda. */
 function openPendienteModal(p){
+  const DUR = [[15,'15 min'],[30,'30 min'],[45,'45 min'],[60,'1 hora'],[90,'1 h 30'],[120,'2 horas'],[180,'3 horas']];
   openSheet(`<h3>Pendiente</h3>
     <div class="field"><label>¿Qué hay que hacer?</label><input type="text" id="f_ptitulo" value="${esc(p.titulo)}"></div>
-    <div class="field"><label>Día</label><input type="date" id="f_pfecha" value="${esc(p.fecha||'')}"></div>
+    <div class="field-row">
+      <div class="field"><label>Día</label><input type="date" id="f_pfecha" value="${esc(p.fecha||'')}"></div>
+      <div class="field"><label>Me toma</label><select id="f_pdur">${DUR.map(([v,l])=>`<option value="${v}" ${Number(p.duracion||30)===v?'selected':''}>${l}</option>`).join('')}</select></div>
+    </div>
     <div id="f_pconfecha" ${p.fecha?'':'hidden'}>
       <div class="field-row">
         <div class="field"><label>Se puede desde</label><input type="time" id="f_pdesde" value="${esc(p.desde||'')}"></div>
         <div class="field"><label>Hasta</label><input type="time" id="f_phasta" value="${esc(p.hasta||'')}"></div>
       </div>
-      <div class="helptext" style="margin:-8px 0 14px;">Opcional. Ej: un quiz abierto de 8:00 a 20:00. No te ocupa el día.</div>
-      <div class="field-row">
-        <div class="field"><label>Lo hago a las</label><input type="time" id="f_phora" value="${esc(p.hora||'')}"></div>
-        <div class="field"><label>Me toma</label><select id="f_pdur">
-          ${[[15,'15 min'],[30,'30 min'],[45,'45 min'],[60,'1 hora'],[90,'1 h 30'],[120,'2 horas'],[180,'3 horas']].map(([v,l])=>`<option value="${v}" ${Number(p.duracion||30)===v?'selected':''}>${l}</option>`).join('')}
-        </select></div>
-      </div>
-      <div id="f_phuecos"></div>
+      <div class="helptext" style="margin:-8px 0 14px;">Opcional. Ej: un quiz abierto de 8:00 a 20:00.</div>
+      <div id="f_pplan"></div>
     </div>
     <div class="field"><label>Lista</label><div class="chiprow" id="chipsListaP">
       ${DATA.listas.map(l=>`<div class="chip ${l.id===p.listaId?'active':''}" data-lista="${l.id}" style="${chipColor(l.color)}">${esc(l.nombre)}</div>`).join('')}
@@ -1522,33 +1564,55 @@ function openPendienteModal(p){
     <div class="sheet-actions"><button class="btn btn-danger" id="delPend">Eliminar</button><button class="btn btn-primary" id="savePend">Guardar</button></div>`);
   const g = id => document.getElementById(id);
   let plista = p.listaId, purg = p.urgencia || 'normal';
+  let horaFija = p.hora || '';          // vacio = que Bitacora lo acomode
+  let eligiendo = false;
 
-  /* al elegir dia le muestra sus horas libres, sin contar este mismo pendiente,
-     y respetando la ventana si la puso */
-  const pintarHuecos = ()=>{
-    const fecha = g('f_pfecha').value;
-    g('f_pconfecha').hidden = !fecha;
-    const caja = g('f_phuecos');
-    if(!fecha){ caja.innerHTML = ''; return; }
-    const bloques = bloquesDeFecha(fecha).filter(b=>!(b.pend && b.pend.id===p.id));
-    const dur = Number(g('f_pdur').value)||30;
-    const vDesde = minutosDe(g('f_pdesde').value), vHasta = minutosDe(g('f_phasta').value);
-    const huecos = huecosDelDia(bloques).map(h=>({ desde:Math.max(h.desde, vDesde ?? h.desde), hasta:Math.min(h.hasta, vHasta ?? h.hasta) }))
-      .filter(h=>h.hasta - h.desde >= dur);
-    caja.innerHTML = huecos.length
-      ? `<div class="helptext" style="margin:-6px 0 6px;">Ese día tienes libre${vDesde!==null||vHasta!==null?' dentro de la ventana':''}. Toca uno:</div>
-         <div class="huecos-sug">${huecos.map(h=>`<div class="chip" data-hora="${hhmm(h.desde)}">${hhmm(h.desde)}–${hhmm(h.hasta)}</div>`).join('')}</div>`
-      : `<div class="helptext" style="margin:-6px 0 14px; color:var(--ambar);">Ese día no te queda un hueco de ${dur} min${vDesde!==null||vHasta!==null?' dentro de la ventana':''}.</div>`;
-    caja.querySelectorAll('[data-hora]').forEach(c=>c.onclick=()=>{ g('f_phora').value = c.dataset.hora; });
+  const borrador = ()=>Object.assign({}, p, { fecha:g('f_pfecha').value, desde:g('f_pdesde').value, hasta:g('f_phasta').value,
+    duracion:Number(g('f_pdur').value)||30, hora:horaFija, urgencia:purg, horaFin:'' });
+
+  const pintarPlan = ()=>{
+    const d = borrador();
+    g('f_pconfecha').hidden = !d.fecha;
+    const caja = g('f_pplan');
+    if(!d.fecha){ caja.innerHTML = ''; return; }
+    const ventana = minutosDe(d.desde)!==null || minutosDe(d.hasta)!==null;
+
+    if(horaFija && !eligiendo){
+      caja.innerHTML = `<div class="plan-box"><div class="qd">Lo haces a las <b>${horaFija}–${finDePendiente(d)}</b>. Lo fijaste tú.</div>
+        <div class="acc"><button class="small-btn" id="pl_otra">Cambiar hora</button><button class="small-btn" id="pl_auto">Que Bitácora lo acomode</button></div></div>`;
+    } else if(!eligiendo){
+      const auto = acomodarDia(d.fecha, Object.assign(d, { hora:'' })).lugar[p.id];
+      caja.innerHTML = auto
+        ? `<div class="plan-box"><div class="qd">Bitácora te lo acomoda a las <b>${auto.start}–${auto.end}</b>, en tu primer hueco libre${ventana?' dentro de la ventana':''}.</div>
+            <div class="helptext" style="margin:4px 0 0;">Si se te llena ese rato, se corre sola.</div>
+            <div class="acc"><button class="small-btn" id="pl_si" data-hora="${auto.start}">Sí, ahí lo hago</button><button class="small-btn" id="pl_otra">Otra hora</button></div></div>`
+        : `<div class="plan-box ojo"><div class="qd">Ese día no te queda un hueco de ${d.duracion} min${ventana?' dentro de la ventana':''}.</div>
+            <div class="acc"><button class="small-btn" id="pl_otra">Ponerle hora igual</button></div></div>`;
+    } else {
+      const bloques = bloquesDeFecha(d.fecha).filter(b=>!(b.pend && b.pend.id===p.id));
+      const vD = minutosDe(d.desde), vH = minutosDe(d.hasta);
+      const huecos = huecosDelDia(bloques).map(h=>({ desde:Math.max(h.desde, vD ?? h.desde), hasta:Math.min(h.hasta, vH ?? h.hasta) }))
+        .filter(h=>h.hasta - h.desde >= d.duracion);
+      caja.innerHTML = `<div class="plan-box">
+          <div class="field" style="margin-bottom:8px;"><label>Lo hago a las</label><input type="time" id="pl_hora" value="${esc(horaFija)}"></div>
+          ${huecos.length ? `<div class="helptext" style="margin:0 0 6px;">Libres ese día:</div><div class="huecos-sug" style="margin:0;">${huecos.map(h=>`<div class="chip" data-hora="${hhmm(h.desde)}">${hhmm(h.desde)}–${hhmm(h.hasta)}</div>`).join('')}</div>` : ''}
+          <div class="acc"><button class="small-btn" id="pl_auto">Mejor que lo acomode Bitácora</button></div></div>`;
+      g('pl_hora').onchange = ()=>{ horaFija = g('pl_hora').value; };
+      caja.querySelectorAll('.huecos-sug [data-hora]').forEach(c=>c.onclick=()=>{ horaFija = c.dataset.hora; eligiendo = false; pintarPlan(); });
+    }
+    const on = (id, fn)=>{ const el = g(id); if(el) el.onclick = fn; };
+    on('pl_si', ()=>{ horaFija = g('pl_si').dataset.hora; eligiendo = false; pintarPlan(); });
+    on('pl_otra', ()=>{ eligiendo = true; pintarPlan(); });
+    on('pl_auto', ()=>{ horaFija = ''; eligiendo = false; pintarPlan(); });
   };
-  ['f_pfecha','f_pdesde','f_phasta','f_pdur'].forEach(id=>g(id).addEventListener('change', pintarHuecos));
-  pintarHuecos();
+  ['f_pfecha','f_pdesde','f_phasta','f_pdur'].forEach(id=>g(id).addEventListener('change', pintarPlan));
+  pintarPlan();
 
   document.querySelectorAll('#chipsListaP .chip').forEach(c=>{
     c.onclick = ()=>{ document.querySelectorAll('#chipsListaP .chip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); plista = c.dataset.lista; };
   });
   document.querySelectorAll('#chipsUrg .chip').forEach(c=>{
-    c.onclick = ()=>{ document.querySelectorAll('#chipsUrg .chip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); purg = c.dataset.urg; };
+    c.onclick = ()=>{ document.querySelectorAll('#chipsUrg .chip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); purg = c.dataset.urg; pintarPlan(); };
   });
   g('delPend').onclick = ()=>{
     DATA.pendientes = DATA.pendientes.filter(x=>x.id!==p.id);
@@ -1557,13 +1621,13 @@ function openPendienteModal(p){
   g('savePend').onclick = ()=>{
     const titulo = g('f_ptitulo').value.trim();
     if(!titulo){ alert('Escribe qué hay que hacer'); return; }
+    if(eligiendo && g('pl_hora')) horaFija = g('pl_hora').value;
     const fecha = g('f_pfecha').value;
-    /* se queda en su lista: la fecha solo la pone ademas en el dia y el calendario */
+    const d = Object.assign(borrador(), { titulo, listaId:plista, hora: fecha ? horaFija : '' });
+    if(d.hora && d.desde && d.hora < d.desde && !confirm(`Lo pones a las ${d.hora}, antes de que abra (${d.desde}). ¿Así?`)) return;
+    if(d.hora && d.hasta && finDePendiente(d) > d.hasta && !confirm(`Terminarías a las ${finDePendiente(d)}, después del cierre (${d.hasta}). ¿Así?`)) return;
     Object.assign(p, { titulo, listaId:plista, urgencia:purg, fecha,
-      desde: fecha ? g('f_pdesde').value : '', hasta: fecha ? g('f_phasta').value : '',
-      hora: fecha ? g('f_phora').value : '', duracion: fecha && g('f_phora').value ? Number(g('f_pdur').value) : null, horaFin:'' });
-    if(p.hora && p.desde && p.hora < p.desde && !confirm(`Lo pones a las ${p.hora}, antes de que abra (${p.desde}). ¿Así?`)) return;
-    if(p.hora && p.hasta && finDePendiente(p) > p.hasta && !confirm(`Terminarías a las ${finDePendiente(p)}, después del cierre (${p.hasta}). ¿Así?`)) return;
+      desde: fecha ? d.desde : '', hasta: fecha ? d.hasta : '', hora: d.hora, duracion: d.duracion, horaFin:'' });
     saveData(); closeSheet(); renderAll(); refrescarDiaCalendario();
   };
 }
@@ -4416,6 +4480,11 @@ const DIA_HASTA = 23 * 60;   // 11 de la noche, donde arranca su silencio
 
 /* Todo lo que ocupa ese dia, junto y en orden. */
 function bloquesDeFecha(fecha){
+  const { fijos, puestos } = acomodarDia(fecha);
+  return [...fijos, ...puestos].sort(porHora);
+}
+/* Lo que ocupa el dia sin contar lo que Bitacora acomoda sola. */
+function bloquesFijos(fecha, cambio){
   const d = parseDate(fecha), dow = d.getDay();
   const out = [];
   weekdayItems(dow).forEach(c=>{
@@ -4428,7 +4497,8 @@ function bloquesDeFecha(fecha){
       color:CATS[e.cat]?CATS[e.cat].color:'var(--text-dim)', lugar:e.lugar||'', ev:e });
   });
   /* los pendientes que ya decidio a que hora hacer; al marcarlos hechos se van */
-  pendientesConFecha(fecha).filter(p=>p.hora).forEach(p=>{
+  (DATA.pendientes||[]).map(p=>cambio && p.id===cambio.id ? cambio : p)
+    .filter(p=>!p.hecho && p.fecha===fecha && p.hora).forEach(p=>{
     out.push({ titulo:p.titulo, start:p.hora, end:finDePendiente(p), color:colorDeLista(p),
       lugar: ventanaTexto(p) ? 'Se puede ' + ventanaTexto(p) : '', pend:p });
   });
@@ -4486,7 +4556,7 @@ function tiraDelDia(fecha, opciones){
   let mejor = null;
   huecos.forEach(h=>{ if(!mejor || (h.hasta-h.desde) > (mejor.hasta-mejor.desde)) mejor = h; });
   const cabe = o.sugerir
-    ? (DATA.pendientes||[]).filter(p=>!p.hecho && !p.hora && (!p.fecha || p.fecha===fecha))
+    ? (DATA.pendientes||[]).filter(p=>!p.hecho && !p.fecha)
         .sort((a,b)=>(a.urgencia==='urgente'?0:1)-(b.urgencia==='urgente'?0:1))[0]
     : null;
 
@@ -4513,7 +4583,7 @@ function tiraDelDia(fecha, opciones){
       : b.rutina ? `data-rutina="${b.rutina.id}" data-sel-tipo="rutina" data-sel-id="${b.rutina.id}"`
       : b.materia ? `data-materia="${b.materia.id}" data-sel-tipo="materia" data-sel-id="${b.materia.id}"`
       : b.pend ? `data-pend="${b.pend.id}" data-sel-tipo="pendiente" data-sel-id="${b.pend.id}"` : '';
-    return `<div class="bloque${hecho?' hecho':''}" ${marca}>
+    return `<div class="bloque${hecho?' hecho':''}${b.auto?' auto':''}" ${marca} ${b.auto?`style="--raya:${b.color}"`:''}>
       <div class="hora mono">${esc(b.start)}${b.end?`<span class="hasta">${esc(b.end)}</span>`:''}</div>
       <div class="raya" style="background:${b.color};"></div>
       <div class="cuerpo">
