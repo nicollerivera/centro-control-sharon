@@ -395,6 +395,14 @@ body.con-barra .elegido .urg, body.con-barra .elegido .tag{visibility:hidden;}
 .pleg-lista .card .helptext{font-size:12px; margin-top:2px !important;}
 .pleg-lista .card .small-btn{margin-top:6px !important;}
 .pleg-lista .progress-track{height:4px; margin-top:6px;}
+/* una fila de plata: nombre, cuando y monto en una sola linea */
+.fila-p{display:flex; align-items:center; gap:10px; padding:10px 2px; border-top:1px solid var(--border); cursor:pointer;}
+.pleg-body > .fila-p:first-child{border-top:none;}
+.fila-p .nom{flex:1; min-width:0; font-size:14.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.fila-p .cu{flex:none; font-size:12px; color:var(--text-dim);}
+.fila-p .cu.ojo{color:var(--ambar); font-weight:600;} .fila-p .cu.ok{color:var(--done);}
+.fila-p .mo{flex:none; font-family:'Space Grotesk',sans-serif; font-size:14px; font-weight:600; min-width:64px; text-align:right;}
+.fila-p .small-btn{flex:none; padding:3px 8px; font-size:11.5px;}
 .pleg-acciones{display:flex; justify-content:flex-end; gap:8px; margin:2px 0 8px;}
 
 /* ---------- turnos y choques ---------- */
@@ -4150,6 +4158,12 @@ function cuentaQuedaria(){
   return { total, recibir, cobros, pagos, debes, cuotas, teDeben };
 }
 
+/* hoy · mañana · en 3 días · 19 sep */
+function cuandoCorto(fecha){
+  if(!fecha) return '';
+  const d = daysBetween(todayStr(), fecha);
+  return d===0 ? 'hoy' : d===1 ? 'mañana' : d===-1 ? 'ayer' : d>1 && d<7 ? `en ${d} días` : niceDateShort(fecha);
+}
 function renderPlata(){
   const box = document.getElementById('sub-finanzas');
   const P = DATA.plata;
@@ -4181,16 +4195,12 @@ function renderPlata(){
   const movsHtml = movs.length ? movs.map(m=>{
     const entra = m.type==='ingreso' || m.type==='prestamo_recibido';
     const pendiente = m.type==='pago' && m.status!=='hecho';
-    return `<div class="card mov-card" data-id="${m.id}" data-sel-tipo="movimiento" data-sel-id="${m.id}" style="cursor:pointer; border-left:3px solid ${pendiente?'var(--ambar)':entra?'var(--c-dinero)':'var(--urgent)'};">
-      <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
-        <div style="font-weight:600;">${esc(m.title)}</div>
-        <div class="mono" style="font-weight:700; color:${pendiente?'var(--ambar)':entra?'var(--c-dinero)':'var(--urgent)'};">${entra?'+':'−'}${money(m.amount)}</div>
-      </div>
-      <div class="helptext" style="margin:3px 0 0;">${esc(TIPOS_MOV[m.type]||'Movimiento')}${m.categoria?' · '+esc(m.categoria):''}${m.persona?' · '+esc(m.persona):''} · ${esc(niceDateShort(m.date))}${m.montoOriginal?' · US$'+m.montoOriginal:''}</div>
-      ${pendiente ? `<button class="small-btn" data-pagado="${m.id}" style="margin-top:9px;">Ya lo pagué</button>` : ''}
-      ${m.type==='pago' && m.status==='hecho' ? `<div class="helptext" style="margin:5px 0 0; color:var(--done); font-weight:600;">✓ Pagado</div>` : ''}
+    return `<div class="fila-p mov-card" data-id="${m.id}" data-sel-tipo="movimiento" data-sel-id="${m.id}">
+      <span class="nom">${esc(m.title)}</span>
+      ${pendiente ? `<button class="small-btn" data-pagado="${m.id}">Pagué</button>` : `<span class="cu">${esc(cuandoCorto(m.date))}</span>`}
+      <span class="mo" style="color:${pendiente?'var(--ambar)':entra?'var(--done)':'inherit'}">${entra?'+':'−'}${m.montoOriginal?'US$'+m.montoOriginal:money(m.amount)}</span>
     </div>`;
-  }).join('') : '<div class="helptext">Todavía nada este mes. Anota un gasto o un ingreso con el +.</div>';
+  }).join('') : '<div class="helptext" style="margin:0;">Nada todavía este mes.</div>';
 
   html += plegable('mes', 'Este mes',
     `<span style="color:var(--done)">+${money(ingresos)}</span> · <span style="color:var(--urgent)">−${money(gastos)}</span>`,
@@ -4200,16 +4210,14 @@ function renderPlata(){
   if(recibir.length){
     const totalRecibir = recibir.reduce((a,x)=>a+x.monto,0);
     const recHtml = recibir.map(x=>`
-    <div class="card" style="border-left:3px solid var(--c-trabajo);">
-      <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
-        <div style="font-weight:600;">${esc(turnoTitulo(x.turno))} <span class="tentativo">est.</span></div>
-        <div class="mono" style="font-weight:700;">${money(x.monto)}</div>
-      </div>
-      <div class="helptext" style="margin:3px 0 0;">${x.fecha ? 'Te pagan el ' + esc(niceDate(x.fecha)) : 'Sin fecha de pago definida'} · turno del ${esc(niceDateShort(x.turno.fecha))}</div>
-      <button class="small-btn" data-cobrar="${x.turno.id}" style="margin-top:9px;">Ya me pagaron</button>
+    <div class="fila-p">
+      <span class="nom">${esc(turnoTitulo(x.turno))}</span>
+      <button class="small-btn" data-cobrar="${x.turno.id}">Me pagaron</button>
+      <span class="cu">${esc(x.fecha ? cuandoCorto(x.fecha) : 'sin fecha')}</span>
+      <span class="mo">${money(x.monto)}</span>
     </div>`).join('');
     html += plegable('recibir', 'Por recibir', money(totalRecibir),
-      recHtml + `<div class="helptext">Son estimados tuyos. Cuando te paguen los corriges y Bitácora ajusta.</div>`);
+      recHtml);
   }
 
   const gastado = gastosDelMes();
@@ -4236,22 +4244,17 @@ function renderPlata(){
   if(DATA.suscripciones.length){
     const porVencer = DATA.suscripciones.filter(x=>{ const pr=proximoCobro(x); return x.dia && pr && !pagadoEsteMes(x) && daysBetween(todayStr(), pr)<=3; });
     const susHtml = DATA.suscripciones.map(x=>{
-    const prox = proximoCobro(x);
-    const faltan = prox ? daysBetween(todayStr(), prox) : null;
-    const pronto = faltan!==null && faltan<=3;
-    return `<div class="card sus-card" data-id="${x.id}" data-sel-tipo="suscripcion" data-sel-id="${x.id}" style="cursor:pointer; border-left:3px solid var(--c-dinero);">
-      <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
-        <div style="font-weight:600;">${esc(x.nombre)}</div>
-        <div class="mono" style="font-weight:700;">${montoConMoneda(x.monto, x.moneda, x.montoCOP)}</div>
-      </div>
-      <div class="helptext" style="margin:3px 0 0; ${pronto?'color:var(--ambar); font-weight:600;':''}">
-        ${x.dia ? 'El ' + x.dia + ' de cada mes' + (prox ? ' · el próximo, ' + esc(niceDate(prox)) : '') : '⚠ falta el día del mes'}${x.nota ? ' · ' + esc(x.nota) : ''}
-      </div>
-      ${tasaImplicita(x) ? `<div class="helptext" style="margin:4px 0 0;">Te lo descontaron a ${money(tasaImplicita(x))} el dólar${tasaImplicita(x)!==tasaUSD() ? ` · <button class="small-btn" data-usar-tasa="${x.id}">usar esta tasa</button>` : ''}</div>` : ''}
-      ${x.dia && pagadoEsteMes(x) ? `<div class="helptext" style="margin:6px 0 0; color:var(--done); font-weight:600;">✓ Pagado este mes</div>` : ''}
-      ${x.dia && !pagadoEsteMes(x) && pronto ? `<button class="small-btn" data-pagar-sus="${x.id}" style="margin-top:9px;">Ya lo pagué</button>` : ''}
-    </div>`;
-  }).join('');;
+      const prox = proximoCobro(x);
+      const faltan = prox ? daysBetween(todayStr(), prox) : null;
+      const pagado = x.dia && pagadoEsteMes(x);
+      const pronto = !pagado && faltan!==null && faltan<=3;
+      return `<div class="fila-p sus-card" data-id="${x.id}" data-sel-tipo="suscripcion" data-sel-id="${x.id}">
+        <span class="nom">${esc(x.nombre)}</span>
+        ${pronto ? `<button class="small-btn" data-pagar-sus="${x.id}">Pagué</button>` : ''}
+        <span class="cu ${pagado?'ok':pronto?'ojo':''}">${pagado ? '✓ pagado' : !x.dia ? 'sin día' : esc(cuandoCorto(prox))}</span>
+        <span class="mo">${x.moneda==='USD' ? 'US$'+x.monto : money(x.monto)}</span>
+      </div>`;
+    }).join('');
     html += plegable('cadames', 'Cada mes',
       porVencer.length ? esc(porVencer.map(x=>x.nombre).join(', ')) + ' vence pronto' : DATA.suscripciones.length + (DATA.suscripciones.length>1?' cobros':' cobro'),
       susHtml, porVencer.length>0);
@@ -4266,45 +4269,35 @@ function renderPlata(){
     if(debes) partes.push('debes ' + money(debes));
     if(teDeben) partes.push('te deben ' + money(teDeben));
     const deuHtml = deudasOrden.map(d=>{
-    const saldo = saldoDeuda(d);
-    const debo = d.sentido!=='meDeben';
-    const cuando = d.fecha ? (d.fechaHasta ? niceDateShort(d.fecha) + ' al ' + niceDateShort(d.fechaHasta) : niceDate(d.fecha)) + (d.aprox ? ' (estimado)' : '') : 'Sin fecha';
-    const color = d.saldada ? 'var(--done)' : debo ? 'var(--urgent)' : 'var(--c-dinero)';
-    return `<div class="card deuda-card ${d.saldada?'saldada':''}" data-id="${d.id}" data-sel-tipo="deuda" data-sel-id="${d.id}" style="cursor:pointer; border-left:3px solid ${color};">
-      <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
-        <div style="font-weight:600;">${d.saldada?'✓ ':''}${esc(d.nombre)}</div>
-        <div class="mono" style="font-weight:700; color:${color};">${d.saldada ? 'saldada' : money(saldo)}</div>
-      </div>
-      <div class="helptext" style="margin:3px 0 0;">${d.saldada ? 'Saldada el ' + esc(niceDate(d.saldadaFecha||todayStr())) : (debo?'Le debes':'Te debe') + ' · ' + esc(cuando) + (d.nota ? ' · ' + esc(d.nota) : '') + ((d.movs||[]).length ? ' · ' + d.movs.length + ' movimiento' + (d.movs.length>1?'s':'') : '')}</div>
-    </div>`;
-  }).join('');;
+      const saldo = saldoDeuda(d);
+      const debo = d.sentido!=='meDeben';
+      return `<div class="fila-p deuda-card ${d.saldada?'saldada':''}" data-id="${d.id}" data-sel-tipo="deuda" data-sel-id="${d.id}">
+        <span class="nom">${esc(d.nombre)}</span>
+        <span class="cu ${d.saldada?'ok':''}">${d.saldada ? '✓ saldada' : (debo?'debes':'te debe') + (d.fecha ? ' · ' + esc(cuandoCorto(d.fecha)) : '')}</span>
+        <span class="mo" style="color:${d.saldada?'var(--text-dim)':debo?'inherit':'var(--done)'}">${money(saldo)}</span>
+      </div>`;
+    }).join('');
     html += plegable('deudas', 'Debo y me deben', partes.join(' · ') || 'todo saldado', deuHtml);
   }
 
   if(DATA.installments.length){
     const cuoHtml = DATA.installments.map(inst=>{
       const paid = inst.payments.reduce((a,p)=>a+Number(p.amount),0);
-      const pct = Math.min(100, Math.round((paid/Number(inst.total))*100));
-      return `<div class="card installment-card" data-id="${inst.id}">
-        <div style="display:flex; justify-content:space-between; align-items:baseline;">
-          <div style="font-weight:700; font-size:14.5px;">${esc(inst.name)}</div>
-          <div style="font-size:12px; color:var(--text-dim);">${inst.payments.length}/${esc(inst.cuotas)} cuotas</div>
-        </div>
-        <div style="font-size:12.5px; color:var(--text-muted); margin-top:3px;">${money(paid)} pagado de ${money(inst.total)}</div>
-        <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
-        <button class="small-btn" data-action="payInstallment" data-id="${inst.id}" style="margin-top:10px;">Registrar pago</button>
+      return `<div class="fila-p installment-card" data-id="${inst.id}">
+        <span class="nom">${esc(inst.name)}</span>
+        <button class="small-btn" data-action="payInstallment" data-id="${inst.id}">Pagué</button>
+        <span class="cu">${inst.payments.length}/${esc(inst.cuotas)}</span>
+        <span class="mo">${money(Math.max(0, Number(inst.total)-paid))}</span>
       </div>`;
     }).join('');
     html += plegable('cuotas', 'Compras a cuotas', DATA.installments.length + (DATA.installments.length>1?' compras':' compra'), cuoHtml);
   }
 
   /* la tasa del dolar: la pones tu a mano y funciona sin internet (D128) */
-  html += plegable('dolar', 'Dólar', tasaUSD() ? money(tasaUSD()) : 'sin poner', `<div class="card tasa-card" id="tasaCard" style="cursor:pointer;">
-      <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
-        <div style="font-weight:600;">1 USD</div>
-        <div class="mono" style="font-weight:700;">${tasaUSD() ? money(tasaUSD()) : 'sin poner'}</div>
-      </div>
-      <div class="helptext" style="margin:3px 0 0;">${DATA.plata.tasaFecha ? 'La pusiste ' + esc(haceCuanto(DATA.plata.tasaFecha)) + '. Tócala para cambiarla.' : 'Tócala para ponerla. La pones tú, así funciona sin internet.'}</div>
+  html += plegable('dolar', 'Dólar', tasaUSD() ? money(tasaUSD()) : 'sin poner', `<div class="fila-p tasa-card" id="tasaCard">
+      <span class="nom">1 dólar</span>
+      <span class="cu">${DATA.plata.tasaFecha ? esc(haceCuanto(DATA.plata.tasaFecha)) : ''}</span>
+      <span class="mo">${tasaUSD() ? money(tasaUSD()) : 'poner'}</span>
     </div>`);
   html += `</div>`;
 
@@ -4423,6 +4416,7 @@ function openSuscripcionModal(existente){
     <div class="field" id="copField" style="display:${x.moneda==='USD'?'block':'none'}"><label>O lo que te descontaron, en pesos</label>
       <input type="number" id="f_scop" inputmode="numeric" value="${x.montoCOP||''}" placeholder="Ej: 64.000">
       <div class="helptext">Si es más fácil escribir cuánto te llegó que andar con la tasa, ponlo acá y manda esto.</div>
+      ${tasaImplicita(x) && tasaImplicita(x)!==tasaUSD() ? `<div class="helptext" style="margin-top:6px;">Te lo descontaron a ${money(tasaImplicita(x))} el dólar. <button class="small-btn" data-usar-tasa="${x.id}" type="button">Usar esta tasa</button></div>` : ''}
     </div>
     <div class="field"><label>Qué día del mes</label><input type="number" id="f_sdia" inputmode="numeric" min="1" max="31" value="${x.dia}" placeholder="1 a 31"></div>
     <div class="field"><label>Nota (opcional)</label><input type="text" id="f_snota" value="${esc(x.nota||'')}" placeholder="Ej: llega el 8, la pago el 15"></div>
@@ -4432,6 +4426,8 @@ function openSuscripcionModal(existente){
     </div>`);
   const del = document.getElementById('delSus');
   if(del) del.onclick = ()=>{ DATA.suscripciones = DATA.suscripciones.filter(s=>s.id!==existente.id); saveData(); closeSheet(); renderPlata(); };
+  const usarTasa = document.querySelector('.sheet [data-usar-tasa]');
+  if(usarTasa) usarTasa.onclick = ()=>{ DATA.plata.tasaUSD = tasaImplicita(x); DATA.plata.tasaFecha = todayStr(); saveData(); renderPlata(); usarTasa.textContent = '✓ Tasa puesta'; usarTasa.disabled = true; };
   document.getElementById('f_smoneda').onchange = (ev)=>{ document.getElementById('copField').style.display = ev.target.value==='USD' ? 'block' : 'none'; };
   document.getElementById('saveSus').onclick = ()=>{
     const datos = {
