@@ -43,7 +43,8 @@
   --radius-sm:10px;
 }
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-html,body{height:100%;}
+html{height:100%;}
+body{min-height:100%;}
 body{
   margin:0; background:var(--bg); color:var(--text);
   font-family:'Inter',system-ui,sans-serif;
@@ -672,14 +673,26 @@ function bindItemClicks(){
       if(ev.target.closest('[data-action="cyclestatus"]')) return;
       const e = DATA.events.find(x=>x.id===it.dataset.id);
       if(!e) return;
-      if(e.linkedType){
-        const map={academicTask:'Gestión → Universidad', courseTask:'Gestión → Curso', nexxaEvent:'Gestión → Nexxa', personalItem:'Gestión → Personal'};
-        alert('Esto se edita desde: ' + (map[e.linkedType]||'su sección'));
-        return;
-      }
+      if(e.linkedType){ openLinkedSource(e.linkedType, e.linkedId); return; }
       openEventModal(e);
     });
   });
+}
+
+/* Un evento del calendario que nace de otra sección se edita en su sección:
+   llevamos ahí en vez de avisar dónde queda. */
+const LINKED_SUBTAB = { academicTask:'materias', courseTask:'curso', nexxaEvent:'nexxa', personalItem:'personal' };
+function goToSubtab(sub){
+  showView('gestion');
+  const tab = document.querySelector(`.subtab[data-sub="${sub}"]`);
+  if(tab) tab.click();
+}
+function openLinkedSource(type, id){
+  goToSubtab(LINKED_SUBTAB[type] || 'materias');
+  if(type==='personalItem'){
+    const it = DATA.personalItems.find(x=>x.id===id);
+    if(it) openPersonalModal(it);
+  }
 }
 
 /* ============================================================
@@ -1419,6 +1432,8 @@ function renderFinanzas(){
       <div class="summary-box"><div class="lbl">Gastos registrados (mes)</div><div class="val money" style="color:var(--urgent)">-${money(gastos)}</div></div>
     </div>`;
 
+  html += `<button class="btn btn-primary" style="width:100%; margin:2px 0 4px;" id="addMoneyBtn">+ Agregar ingreso, gasto, pago o préstamo</button>`;
+
   html += `<div class="section-title">Pagos pendientes</div>`;
   html += pendientes.length ? pendientes.map(itemHTML).join('') : '<div class="empty-card" style="margin-bottom:16px;">Sin pagos pendientes registrados.</div>';
 
@@ -1447,6 +1462,7 @@ function renderFinanzas(){
   html += `<button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addInstallmentBtn">+ Agregar compra a cuotas</button>`;
   box.innerHTML = html;
   bindItemClicks();
+  document.getElementById('addMoneyBtn').onclick = ()=>openEventModal(null, {cat:'finanzas'});
   document.getElementById('addInstallmentBtn').onclick = openInstallmentModal;
   box.querySelectorAll('[data-action="payInstallment"]').forEach(b=>b.onclick=()=>openPayModal(b.dataset.id));
   box.querySelectorAll('[data-action="delInstallment"]').forEach(b=>b.onclick=()=>{ DATA.installments = DATA.installments.filter(i=>i.id!==b.dataset.id); saveData(); renderFinanzas(); });
@@ -1493,7 +1509,14 @@ function renderPersonalGestion(){
       </div>`).join('') : '<div class="empty-card">Aún no registras citas, trámites, salidas o cómo usas tu tiempo libre.</div>'}
     <button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addPersonalBtn">+ Agregar</button>
   `;
-  document.getElementById('addPersonalBtn').onclick = openPersonalModal;
+  document.getElementById('addPersonalBtn').onclick = ()=>openPersonalModal();
+  box.querySelectorAll('.personal-row .body').forEach(bd=>{
+    bd.style.cursor = 'pointer';
+    bd.onclick = ()=>{
+      const it = DATA.personalItems.find(x=>x.id===bd.closest('.personal-row').dataset.id2);
+      if(it) openPersonalModal(it);
+    };
+  });
   box.querySelectorAll('[data-action="togglePersonal"]').forEach(b=>{
     b.onclick = ()=>{ const it = DATA.personalItems.find(x=>x.id===b.dataset.id); it.status = it.status==='hecho'?'pendiente':'hecho'; setLinkedEventStatus('personalItem', it.id, it.status); saveData(); renderPersonalGestion(); };
   });
@@ -1501,20 +1524,26 @@ function renderPersonalGestion(){
     b.onclick = ()=>{ DATA.personalItems = DATA.personalItems.filter(x=>x.id!==b.dataset.id); removeLinkedEvent('personalItem', b.dataset.id); saveData(); renderPersonalGestion(); };
   });
 }
-function openPersonalModal(){
-  openSheet(`<h3>Agregar personal</h3>
-    <div class="field"><label>¿Qué es?</label><input type="text" id="f_ptitle" placeholder="Ej: Cita con dermatólogo / Vi tv"></div>
+const PERSONAL_TYPES = ['Cita médica','Trámite','Salida','Hábito / tiempo libre','Otro'];
+function openPersonalModal(existing){
+  const isEdit = !!existing;
+  const it = existing || { type:'Cita médica', date:todayStr(), start:'', end:'', horas:null, title:'' };
+  openSheet(`<h3>${isEdit?'Editar':'Agregar'} personal</h3>
+    <div class="field"><label>¿Qué es?</label><input type="text" id="f_ptitle" value="${esc(it.title)}" placeholder="Ej: Cita con dermatólogo / Vi tv"></div>
     <div class="field-row">
-      <div class="field"><label>Tipo</label><select id="f_ptype2"><option value="Cita médica">Cita médica</option><option value="Trámite">Trámite</option><option value="Salida">Salida</option><option value="Hábito / tiempo libre">Hábito / tiempo libre</option><option value="Otro">Otro</option></select></div>
-      <div class="field"><label>Fecha</label><input type="date" id="f_pdate2" value="${todayStr()}"></div>
+      <div class="field"><label>Tipo</label><select id="f_ptype2">${PERSONAL_TYPES.map(t=>`<option value="${esc(t)}" ${it.type===t?'selected':''}>${esc(t)}</option>`).join('')}</select></div>
+      <div class="field"><label>Fecha</label><input type="date" id="f_pdate2" value="${esc(it.date||todayStr())}"></div>
     </div>
     <div class="field-row">
-      <div class="field"><label>Franja: inicio</label><input type="time" id="f_pstart"></div>
-      <div class="field"><label>Franja: fin</label><input type="time" id="f_pend"></div>
+      <div class="field"><label>Franja: inicio</label><input type="time" id="f_pstart" value="${esc(it.start)}"></div>
+      <div class="field"><label>Franja: fin</label><input type="time" id="f_pend" value="${esc(it.end)}"></div>
     </div>
-    <div class="field"><label>¿Ya pasó? Horas dedicadas (opcional)</label><input type="number" id="f_photas" step="0.25" placeholder="Ej: 5"></div>
+    <div class="field"><label>¿Ya pasó? Horas dedicadas (opcional)</label><input type="number" id="f_photas" step="0.25" value="${esc(it.horas)}" placeholder="Ej: 5"></div>
     <div class="helptext">Si pones horas, se registra como algo que ya hiciste y cuenta en tu resumen de tiempo (pestaña Yo).</div>
-    <div class="sheet-actions"><button class="btn btn-primary" id="savePersonal">Guardar</button></div>`);
+    <div class="sheet-actions">
+      ${isEdit ? '<button class="btn btn-danger" id="delPersonalModal">Eliminar</button>' : ''}
+      <button class="btn btn-primary" id="savePersonal">Guardar</button>
+    </div>`);
   document.getElementById('savePersonal').onclick = ()=>{
     const title = document.getElementById('f_ptitle').value.trim();
     if(!title){ alert('Escribe qué es'); return; }
@@ -1523,12 +1552,31 @@ function openPersonalModal(){
     const start = document.getElementById('f_pstart').value;
     const end = document.getElementById('f_pend').value;
     const isLog = !!horas;
-    const obj = { id:uid(), title, type:document.getElementById('f_ptype2').value, date, start, end, horas: horas||null, status: isLog?'hecho':'pendiente' };
-    DATA.personalItems.push(obj);
-    const ev = addLinkedEvent('personal', title, date, start, end, 'personalItem', obj.id);
-    if(ev && isLog){ ev.status='hecho'; ev.actualMin = Math.round(Number(horas)*60); }
-    saveData(); closeSheet(); renderPersonalGestion();
+    const type = document.getElementById('f_ptype2').value;
+
+    const obj = isEdit ? existing : { id:uid() };
+    Object.assign(obj, { title, type, date, start, end, horas: horas||null });
+    if(!isEdit || isLog) obj.status = isLog ? 'hecho' : (obj.status || 'pendiente');
+    if(!isEdit) DATA.personalItems.push(obj);
+
+    /* El evento del calendario que cuelga de este ítem tiene que seguirlo. */
+    let ev = findLinkedEvent('personalItem', obj.id);
+    if(!ev){ ev = addLinkedEvent('personal', title, date, start, end, 'personalItem', obj.id); }
+    else if(!date){ removeLinkedEvent('personalItem', obj.id); ev = null; }
+    else { Object.assign(ev, { title, date, start, end }); }
+    if(ev){
+      ev.status = obj.status==='hecho' ? 'hecho' : 'pendiente';
+      ev.actualMin = isLog ? Math.round(Number(horas)*60) : null;
+    }
+    saveData(); closeSheet(); renderAll(); renderPersonalGestion();
   };
+  if(isEdit){
+    document.getElementById('delPersonalModal').onclick = ()=>{
+      DATA.personalItems = DATA.personalItems.filter(x=>x.id!==existing.id);
+      removeLinkedEvent('personalItem', existing.id);
+      saveData(); closeSheet(); renderAll(); renderPersonalGestion();
+    };
+  }
 }
 
 /* ============================================================
@@ -1607,9 +1655,11 @@ document.addEventListener('click', (e)=>{ if(e.target.id==='closeSheet') closeSh
 
 document.getElementById('fabAdd').onclick = ()=> openEventModal();
 
-function openEventModal(existing){
+function openEventModal(existing, preset){
   const isEdit = !!existing;
-  const e = existing || {cat:'personal', date: calSelected && document.getElementById('view-mes').classList.contains('active') ? calSelected : todayStr(), status:'pendiente'};
+  const e = existing || Object.assign(
+    {cat:'personal', date: calSelected && document.getElementById('view-mes').classList.contains('active') ? calSelected : todayStr(), status:'pendiente'},
+    preset||{});
   openSheet(`
     <h3>${isEdit ? 'Editar' : 'Agregar'}</h3>
     <div class="field"><label>Categoría</label><div class="chiprow" id="catChips">
