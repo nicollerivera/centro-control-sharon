@@ -479,6 +479,27 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 .lista-head .nombre{display:flex; align-items:center; gap:8px; font-size:14px; font-weight:700;}
 .lista-head .punto{width:9px; height:9px; border-radius:50%; flex:none;}
 .lista-head .acciones{display:flex; gap:6px; flex:none;}
+/* listas como notas de Keep: casilla, texto que se edita ahi mismo, arrastrar
+   para ordenar y lo completado tachado y plegado abajo */
+.keep{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:4px 0; margin-bottom:6px;}
+.kitem{display:flex; align-items:flex-start; gap:6px; padding:2px 10px 2px 2px; min-height:40px; background:var(--surface);}
+.kitem.arrastrando{opacity:.85; box-shadow:0 4px 14px rgba(0,0,0,.14); position:relative; z-index:2; border-radius:8px;}
+.kdrag{flex:none; width:24px; height:38px; display:flex; align-items:center; justify-content:center; color:var(--text-dim); touch-action:none; cursor:grab; opacity:.55; font-size:15px; letter-spacing:-2px;}
+.kcheck{flex:none; width:20px; height:20px; margin:10px 6px 0 0; border:2px solid var(--text-dim); border-radius:4px; background:transparent; padding:0; display:flex; align-items:center; justify-content:center; color:#fff;}
+.kcheck.hecho{background:var(--text-dim); border-color:var(--text-dim);}
+.kcheck.hecho::after{content:''; width:10px; height:5px; border:2px solid var(--surface); border-top:0; border-right:0; transform:rotate(-45deg) translate(1px,-1px);}
+.ktxt{flex:1; min-width:0; font-size:15px; line-height:1.35; padding:9px 0; cursor:text; word-break:break-word;}
+.kitem.hecho .ktxt{text-decoration:line-through; color:var(--text-dim);}
+.kinput{flex:1; min-width:0; font:inherit; font-size:15px; line-height:1.35; padding:8px 0; border:none; border-bottom:1px solid var(--accent); background:transparent; color:var(--text); outline:none; border-radius:0;}
+.kbtn{flex:none; width:34px; height:38px; border:none; background:none; color:var(--text-muted); font-size:17px; padding:0;}
+.kurg{flex:none; align-self:center; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.04em;}
+.kadd{display:flex; align-items:center; gap:12px; padding:0 12px 0 32px; min-height:42px; color:var(--text-muted); font-size:15px; cursor:text;}
+.kadd .mas{font-size:20px; font-weight:300; width:14px; text-align:center;}
+.khechos{display:flex; align-items:center; gap:8px; width:100%; border:none; border-top:1px solid var(--border); background:none; color:var(--text-muted); font:inherit; font-size:14px; padding:12px 14px 8px; margin-top:4px; text-align:left;}
+.khechos .chev{transition:transform .15s; display:inline-block;}
+.khechos.abierto .chev{transform:rotate(90deg);}
+.kpie{display:flex; justify-content:flex-end; gap:8px; padding:4px 0 8px;}
+.klink{border:none; background:none; color:var(--text-muted); font:inherit; font-size:13px; font-weight:600; padding:6px 4px;}
 .pend{display:flex; align-items:center; gap:10px; background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--accent); border-radius:var(--radius-sm); padding:11px 12px; margin-bottom:7px;}
 .pend.hecho{opacity:.5;}
 .pend.hecho .txt{text-decoration:line-through;}
@@ -542,11 +563,6 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
       </div>
     </div>
     <div id="sub-listas">
-      <div class="addbar">
-        <input type="text" id="pendienteInput" placeholder="¿Qué hay que hacer?">
-        <button id="addPendienteBtn">Añadir</button>
-      </div>
-      <div class="chiprow" id="listaChips" style="margin:10px 0 18px;"></div>
       <div id="listasBody"></div>
       <div id="checklistBody"></div>
     </div>
@@ -1226,56 +1242,65 @@ function asegurarListas(){
 }
 function chipColor(color){ return `--chip-color:${color}; --chip-color-soft:color-mix(in srgb, ${color} 16%, transparent);`; }
 function pendientesDe(listaId){
+  /* el orden lo pone ella arrastrando, como en Keep */
   return DATA.pendientes.filter(p=>p.listaId===listaId).sort((a,b)=>
     (a.hecho?1:0)-(b.hecho?1:0) ||
-    URG_ORDEN[a.urgencia||'normal']-URG_ORDEN[b.urgencia||'normal'] ||
+    (a.orden??1e9)-(b.orden??1e9) ||
     (a.creado||'').localeCompare(b.creado||''));
 }
-function pendienteHTML(p, color){
+/* Lo que ya existia sin orden queda como estaba: urgentes primero. */
+function ordenarViejos(){
+  DATA.listas.forEach(l=>{
+    const sin = DATA.pendientes.filter(p=>p.listaId===l.id && p.orden==null);
+    if(!sin.length) return;
+    let base = Math.max(0, ...DATA.pendientes.filter(p=>p.listaId===l.id && p.orden!=null).map(p=>p.orden+1));
+    sin.sort((a,b)=> URG_ORDEN[a.urgencia||'normal']-URG_ORDEN[b.urgencia||'normal'] || (a.creado||'').localeCompare(b.creado||''))
+      .forEach(p=>{ p.orden = base++; });
+  });
+}
+function pendienteHTML(p){
   const urg = p.urgencia || 'normal';
-  return `<div class="pend ${p.hecho?'hecho':''}" data-sel-tipo="pendiente" data-sel-id="${p.id}" style="border-left-color:${p.hecho?'var(--border)':color}">
-    <button class="status-btn ${p.hecho?'hecho':''}" data-action="togglePend" data-pid="${p.id}"></button>
-    <div class="txt" data-action="editPend" data-pid="${p.id}">${esc(p.titulo)}</div>
-    <button class="urg" data-nivel="${urg}" data-action="cicloUrg" data-pid="${p.id}" title="Tocar para cambiar la urgencia">${urg}</button>
+  return `<div class="kitem ${p.hecho?'hecho':''}" data-sel-tipo="pendiente" data-sel-id="${p.id}" data-pid="${p.id}">
+    ${p.hecho ? '<span class="kdrag" style="visibility:hidden"></span>' : '<span class="kdrag" aria-label="Arrastrar para ordenar">⠿</span>'}
+    <button class="kcheck ${p.hecho?'hecho':''}" data-action="togglePend" data-pid="${p.id}" aria-label="${p.hecho?'Desmarcar':'Marcar hecho'}"></button>
+    <div class="ktxt" data-action="editPend" data-pid="${p.id}">${esc(p.titulo)}</div>
+    ${urg!=='normal' && !p.hecho ? `<span class="kurg" style="color:${URG_COLOR[urg]}">${urg}</span>` : ''}
   </div>`;
 }
 
 function renderListas(){
   asegurarListas();
-  document.getElementById('listaChips').innerHTML =
-    DATA.listas.map(l=>`<div class="chip ${l.id===listaActiva?'active':''}" data-action="activarLista" data-lista="${l.id}" style="${chipColor(l.color)}">${esc(l.nombre)}</div>`).join('') +
-    `<div class="chip" data-action="nuevaLista">+ Lista</div>`;
-  const activa = DATA.listas.find(l=>l.id===listaActiva);
-  document.getElementById('pendienteInput').placeholder = 'Agregar a ' + (activa ? activa.nombre : 'la lista') + '…';
-
+  ordenarViejos();
   document.getElementById('listasBody').innerHTML = DATA.listas.map(l=>{
     const items = pendientesDe(l.id);
-    const faltan = items.filter(p=>!p.hecho).length;
-    const hechas = items.length - faltan;
-    const urgentes = items.filter(p=>!p.hecho && p.urgencia==='urgente').length;
-    const resumen = urgentes ? urgentes + ' urgente' + (urgentes>1?'s':'') + ' · ' + faltan : faltan ? String(faltan) : 'vacía';
-    const acciones = `<div class="pleg-acciones">
-        ${hechas ? `<button class="small-btn" data-action="limpiarLista" data-lista="${l.id}">Limpiar ${hechas} hecha${hechas>1?'s':''}</button>` : ''}
-        <button class="small-btn" data-action="editarLista" data-lista="${l.id}">Editar lista</button>
+    const faltan = items.filter(p=>!p.hecho), hechas = items.filter(p=>p.hecho);
+    const urgentes = faltan.filter(p=>p.urgencia==='urgente').length;
+    const resumen = urgentes ? urgentes + ' urgente' + (urgentes>1?'s':'') + ' · ' + faltan.length : faltan.length ? String(faltan.length) : 'vacía';
+    const verHechas = PLEG_ABIERTAS.has('hechas:'+l.id);
+    const nota = `<div class="keep" data-lista="${l.id}">
+        <div class="kpendientes">${faltan.map(pendienteHTML).join('')}</div>
+        <div class="kadd" data-action="nuevoItem" data-lista="${l.id}"><span class="mas">+</span><span>Elemento de la lista</span></div>
+        ${hechas.length ? `<button class="khechos ${verHechas?'abierto':''}" data-action="verHechas" data-lista="${l.id}"><span class="chev">›</span>${hechas.length} elemento${hechas.length>1?'s':''} completado${hechas.length>1?'s':''}</button>
+          <div ${verHechas?'':'hidden'}>${hechas.map(pendienteHTML).join('')}</div>` : ''}
+      </div>
+      <div class="kpie">
+        ${hechas.length ? `<button class="klink" data-action="limpiarLista" data-lista="${l.id}">Borrar completados</button>` : ''}
+        <button class="klink" data-action="editarLista" data-lista="${l.id}">Editar lista</button>
       </div>`;
-    return plegable('lista:'+l.id, `<span class="punto" style="background:${l.color}"></span>${esc(l.nombre)}`, resumen,
-      (items.length ? items.map(p=>pendienteHTML(p, l.color)).join('') : `<div class="helptext" style="margin:0 0 6px;">Nada acá todavía.</div>`) + acciones,
-      urgentes>0);
+    return plegable('lista:'+l.id, `<span class="punto" style="background:${l.color}"></span>${esc(l.nombre)}`, resumen, nota, urgentes>0);
   }).join('');
 
   bindPendClicks();
 }
 
 function bindPendClicks(){
-  document.querySelectorAll('[data-action="activarLista"]').forEach(c=>{
-    c.onclick = ()=>{ listaActiva = c.dataset.lista; abrirPlegable('lista:'+listaActiva); renderListas(); document.getElementById('pendienteInput').focus(); };
-  });
-  document.querySelectorAll('[data-action="nuevaLista"]').forEach(c=>{ c.onclick = ()=>openListaModal(null); });
   document.querySelectorAll('[data-action="editarLista"]').forEach(b=>{
     b.onclick = ()=>openListaModal(DATA.listas.find(l=>l.id===b.dataset.lista));
   });
   document.querySelectorAll('[data-action="limpiarLista"]').forEach(b=>{
     b.onclick = ()=>{
+      const n = DATA.pendientes.filter(p=>p.listaId===b.dataset.lista && p.hecho).length;
+      if(!confirm(`¿Borrar ${n} completado${n>1?'s':''}?`)) return;
       DATA.pendientes = DATA.pendientes.filter(p=>!(p.listaId===b.dataset.lista && p.hecho));
       saveData(); renderAll();
     };
@@ -1285,37 +1310,147 @@ function bindPendClicks(){
       const p = DATA.pendientes.find(x=>x.id===b.dataset.pid);
       if(!p) return;
       p.hecho = !p.hecho;
+      /* al desmarcarlo vuelve al final de lo pendiente, como en Keep */
+      if(!p.hecho) p.orden = Math.max(0, ...DATA.pendientes.filter(x=>x.listaId===p.listaId && !x.hecho && x!==p).map(x=>(x.orden??0)+1));
       saveData(); renderAll();
     };
   });
-  document.querySelectorAll('[data-action="cicloUrg"]').forEach(b=>{
+  document.querySelectorAll('[data-action="verHechas"]').forEach(b=>{
     b.onclick = ()=>{
-      const p = DATA.pendientes.find(x=>x.id===b.dataset.pid);
-      if(!p) return;
-      p.urgencia = URGENCIAS[(URGENCIAS.indexOf(p.urgencia||'normal') + 1) % URGENCIAS.length];
-      saveData(); renderAll();
+      const key = 'hechas:'+b.dataset.lista, abrir = !b.classList.contains('abierto');
+      b.classList.toggle('abierto', abrir);
+      b.nextElementSibling.hidden = !abrir;
+      abrir ? PLEG_ABIERTAS.add(key) : PLEG_ABIERTAS.delete(key);
+      try{ localStorage.setItem('plataAbiertas', JSON.stringify([...PLEG_ABIERTAS])); }catch(e){}
     };
   });
-  document.querySelectorAll('[data-action="editPend"]').forEach(t=>{
-    t.onclick = ()=>{
-      const p = DATA.pendientes.find(x=>x.id===t.dataset.pid);
-      if(p) openPendienteModal(p);
-    };
-  });
+  document.querySelectorAll('#listasBody [data-action="editPend"]').forEach(t=>{ t.onclick = ()=>editarEnSitio(t); });
+  document.querySelectorAll('[data-action="nuevoItem"]').forEach(a=>{ a.onclick = ()=>escribirNuevo(a.dataset.lista); });
+  document.querySelectorAll('#listasBody .kdrag').forEach(h=>engancharArrastre(h));
 }
 
-function agregarPendiente(){
-  asegurarListas();
-  const inp = document.getElementById('pendienteInput');
-  const val = inp.value.trim();
-  if(!val) return;
-  abrirPlegable('lista:'+listaActiva);
-  DATA.pendientes.push({ id:uid(), listaId:listaActiva, titulo:val, urgencia:'normal', hecho:false, creado:new Date().toISOString() });
-  inp.value = '';
-  saveData(); renderAll();
+/* Tocar el texto lo vuelve editable ahi mismo. Enter guarda y abre el
+   siguiente; si queda vacio, se borra. La equis lo borra y los tres puntos
+   abren lo demas (urgencia, lista, fecha). */
+function editarEnSitio(txt){
+  if(seleccionando()) return;
+  const p = DATA.pendientes.find(x=>x.id===txt.dataset.pid); if(!p) return;
+  const fila = txt.closest('.kitem');
+  const inp = document.createElement('input');
+  inp.className = 'kinput'; inp.value = p.titulo; inp.enterKeyHint = 'next';
+  txt.replaceWith(inp);
+  const mas = document.createElement('button'); mas.className = 'kbtn'; mas.textContent = '⋯'; mas.setAttribute('aria-label','Más opciones');
+  const x = document.createElement('button'); x.className = 'kbtn'; x.textContent = '✕'; x.setAttribute('aria-label','Eliminar');
+  fila.querySelector('.kurg')?.remove();
+  fila.append(mas, x);
+  inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length);
+  let hecho = false;
+  const terminar = (siguiente)=>{
+    if(hecho) return; hecho = true;
+    const val = inp.value.trim();
+    if(!val) DATA.pendientes = DATA.pendientes.filter(q=>q.id!==p.id);
+    else p.titulo = val;
+    saveData();
+    if(siguiente){ renderAll(); escribirNuevo(p.listaId); return; }
+    /* al salir tocando otra cosa no se repinta todo: si no, ese toque se pierde */
+    if(!val){ fila.remove(); return; }
+    const nueva = document.createElement('div');
+    nueva.innerHTML = pendienteHTML(p);
+    const el = nueva.firstElementChild;
+    fila.replaceWith(el);
+    engancharFila(el);
+  };
+  /* pointerdown en vez de click: si no, el blur del campo llega primero */
+  x.onpointerdown = (ev)=>{ ev.preventDefault(); hecho = true; DATA.pendientes = DATA.pendientes.filter(q=>q.id!==p.id); saveData(); renderAll(); };
+  mas.onpointerdown = (ev)=>{ ev.preventDefault(); const val = inp.value.trim(); if(val) p.titulo = val; hecho = true; saveData(); renderAll(); openPendienteModal(p); };
+  inp.onkeydown = (ev)=>{ if(ev.key==='Enter'){ ev.preventDefault(); terminar(true); } else if(ev.key==='Escape'){ inp.value = p.titulo; terminar(false); } };
+  inp.onblur = ()=>terminar(false);
 }
-document.getElementById('addPendienteBtn').onclick = agregarPendiente;
-document.getElementById('pendienteInput').addEventListener('keydown', (e)=>{ if(e.key==='Enter') agregarPendiente(); });
+
+function escribirNuevo(listaId){
+  abrirPlegable('lista:'+listaId);
+  const cont = document.querySelector(`#listasBody .kadd[data-lista="${listaId}"]`);
+  if(!cont) return;
+  const pleg = cont.closest('.pleg');
+  if(pleg && !pleg.classList.contains('abierta')){ pleg.classList.add('abierta'); pleg.querySelector('.pleg-body').hidden = false; }
+  cont.innerHTML = '<span class="mas">+</span>';
+  const inp = document.createElement('input');
+  inp.className = 'kinput'; inp.placeholder = 'Elemento de la lista'; inp.enterKeyHint = 'next';
+  cont.appendChild(inp); cont.onclick = null;
+  inp.focus();
+  const guardar = ()=>{
+    const val = inp.value.trim(); if(!val) return false;
+    const orden = Math.max(0, ...DATA.pendientes.filter(x=>x.listaId===listaId && !x.hecho).map(x=>(x.orden??0)+1));
+    DATA.pendientes.push({ id:uid(), listaId, titulo:val, urgencia:'normal', hecho:false, creado:new Date().toISOString(), orden });
+    return true;
+  };
+  let listo = false;
+  inp.onkeydown = (ev)=>{
+    if(ev.key==='Enter'){ ev.preventDefault(); listo = true; if(guardar()){ saveData(); renderAll(); escribirNuevo(listaId); } else { renderListas(); } }
+    else if(ev.key==='Escape'){ listo = true; renderListas(); }
+  };
+  inp.onblur = ()=>{
+    if(listo) return; listo = true;
+    const guardo = guardar();
+    if(guardo){
+      saveData();
+      const tmp = document.createElement('div');
+      tmp.innerHTML = pendienteHTML(DATA.pendientes[DATA.pendientes.length-1]);
+      const el = tmp.firstElementChild;
+      cont.closest('.keep').querySelector('.kpendientes').appendChild(el);
+      engancharFila(el);
+    }
+    cont.innerHTML = '<span class="mas">+</span><span>Elemento de la lista</span>';
+    cont.onclick = ()=>escribirNuevo(listaId);
+  };
+}
+function engancharFila(el){
+  el.querySelector('[data-action="editPend"]').onclick = (ev)=>editarEnSitio(ev.currentTarget);
+  el.querySelector('[data-action="togglePend"]').onclick = ()=>{
+    const p = DATA.pendientes.find(x=>x.id===el.dataset.pid); if(!p) return;
+    p.hecho = !p.hecho; saveData(); renderAll();
+  };
+  const h = el.querySelector('.kdrag'); if(h && h.textContent) engancharArrastre(h);
+}
+
+/* Arrastrar desde los puntitos para cambiar el orden. */
+function engancharArrastre(handle){
+  handle.onpointerdown = (ev)=>{
+    ev.preventDefault();
+    const fila = handle.closest('.kitem'), cont = fila.parentElement;
+    fila.classList.add('arrastrando');
+    let y0 = ev.clientY, movio = false;
+    /* se escucha en la ventana: al mover la fila en el DOM el navegador suelta
+       la captura del puntero y el soltar no llegaria */
+    const mover = (e)=>{
+      e.preventDefault();
+      if(Math.abs(e.clientY - ev.clientY) > 3) movio = true;
+      fila.style.transform = `translateY(${e.clientY - y0}px)`;
+      const centro = fila.getBoundingClientRect().top + fila.offsetHeight/2;
+      const hermanos = [...cont.children].filter(c=>c!==fila);
+      const ref = hermanos.find(c=>{ const r = c.getBoundingClientRect(); return centro < r.top + r.height/2; }) || null;
+      if(ref !== fila.nextElementSibling && !(ref===null && cont.lastElementChild===fila)){
+        fila.style.transform = '';
+        const topAntes = fila.getBoundingClientRect().top;
+        cont.insertBefore(fila, ref);
+        y0 += fila.getBoundingClientRect().top - topAntes;
+        fila.style.transform = `translateY(${e.clientY - y0}px)`;
+      }
+    };
+    const soltar = ()=>{
+      removeEventListener('pointermove', mover);
+      removeEventListener('pointerup', soltar);
+      removeEventListener('pointercancel', soltar);
+      fila.classList.remove('arrastrando'); fila.style.transform = '';
+      if(!movio) return;
+      [...cont.querySelectorAll('.kitem')].forEach((c,i)=>{ const q = DATA.pendientes.find(x=>x.id===c.dataset.pid); if(q) q.orden = i; });
+      saveData(); renderAll();
+    };
+    addEventListener('pointermove', mover, { passive:false });
+    addEventListener('pointerup', soltar);
+    addEventListener('pointercancel', soltar);
+  };
+}
 
 /* Editar un pendiente: texto, lista, urgencia, o pasarlo a un día de la agenda. */
 function openPendienteModal(p){
@@ -1388,6 +1523,7 @@ function openListaModal(lista){
     if(esNueva){
       const nueva = { id:uid(), nombre, color:lcolor };
       DATA.listas.push(nueva);
+      abrirPlegable('lista:'+nueva.id);
       listaActiva = nueva.id;
     }else{
       lista.nombre = nombre; lista.color = lcolor;
@@ -2739,7 +2875,8 @@ function opcionesDeAgregar(){
     if(sub==='nexxa') return [{ que:'Un evento de Nexxa', nota:'', hacer:()=>openNexxaModal() }];
     if(sub==='trabajo') return [{ que:'Un cliente o empresa', nota:'', hacer:()=>openClientModal() }];
     return [
-      { que:'Algo con fecha', nota:'lo sin fecha se escribe arriba', hacer:()=>openEventModal() },
+      { que:'Una lista nueva', nota:'como una nota de Keep', hacer:()=>openListaModal(null) },
+      { que:'Algo con fecha', nota:'lo sin fecha va en su lista', hacer:()=>openEventModal() },
       { que:'Algo que ya hiciste', nota:'para que quede registrado', hacer:()=>openDoneModal() }
     ];
   }
@@ -4444,7 +4581,7 @@ function borrarSeleccionados(){
        prendida: se comeria el toque siguiente */
     sinClic = false;
     const el = ev.target.closest('[data-sel-id]');
-    if(!el) return;
+    if(!el || ev.target.closest('.kdrag, .kinput, .kbtn')) return;
     /* si ya esta seleccionando otra cosa, el mantenido no aplica */
     if(seleccionando() && el.dataset.selTipo !== SELECCION.tipo) return;
     desde = { x: ev.clientX, y: ev.clientY };
