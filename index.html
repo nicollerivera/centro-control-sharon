@@ -252,13 +252,13 @@ body.con-barra .elegido .urg, body.con-barra .elegido .tag{visibility:hidden;}
 .navbtn .badge{position:absolute; top:0; right:12px; background:var(--urgent); color:#fff; font-size:9px; font-weight:800; min-width:15px; height:15px; border-radius:8px; display:flex; align-items:center; justify-content:center; padding:0 3px;}
 
 /* ---------- FAB ---------- */
-.fab{position:fixed; right:20px; bottom:calc(82px + env(safe-area-inset-bottom)); z-index:25; width:54px; height:54px; border-radius:50%; border:none; background:var(--accent); color:#fff; font-size:26px; line-height:1; box-shadow:0 8px 22px rgba(139,108,249,.4); display:flex; align-items:center; justify-content:center;}
+.fab{position:fixed; right:20px; bottom:calc(82px + env(safe-area-inset-bottom)); z-index:25; width:46px; height:46px; border-radius:50%; border:none; background:var(--accent); color:#fff; font-size:22px; line-height:1; box-shadow:0 4px 12px rgba(139,108,249,.28); display:flex; align-items:center; justify-content:center;}
 .fab:active{transform:scale(.94);}
 
 /* ---------- chips ---------- */
 .chiprow{display:flex; gap:8px; overflow-x:auto; padding-bottom:2px; margin-bottom:2px; scrollbar-width:none;}
 .chiprow::-webkit-scrollbar{display:none;}
-.chip{flex-shrink:0; padding:7px 14px; border-radius:20px; border:1.5px solid var(--border); background:var(--surface); color:var(--text-muted); font-size:13px; font-weight:600;}
+.chip{flex-shrink:0; padding:5px 11px; border-radius:20px; border:1px solid var(--border); background:var(--surface); color:var(--text-muted); font-size:12.5px; font-weight:600;}
 .chip.active{border-color:var(--chip-color, var(--accent)); background:var(--chip-color-soft, var(--accent-soft)); color:var(--text);}
 
 /* ---------- subtabs ---------- */
@@ -311,27 +311,28 @@ body.con-barra .elegido .urg, body.con-barra .elegido .tag{visibility:hidden;}
 .client-card .stats{display:flex; gap:16px; margin-top:10px; flex-wrap:wrap;}
 .client-card .stat b{display:block; font-size:16px; font-family:'Space Grotesk',sans-serif;}
 .client-card .stat span{font-size:11px; color:var(--text-dim);}
-.small-btn{background:var(--surface-3); border:1px solid var(--border); color:var(--text); font-size:12.5px; font-weight:600; padding:7px 12px; border-radius:9px;}
+.small-btn{background:var(--surface-2); border:none; color:var(--text-muted); font-size:12px; font-weight:600; padding:5px 10px; border-radius:8px;}
 
 /* ---------- plata ---------- */
 .saldo-card .lbl{font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; font-weight:700; display:flex; align-items:baseline; gap:8px;}
 .saldo-edad{text-transform:none; letter-spacing:0; font-weight:600; color:var(--text-muted); font-size:11.5px;}
-.saldo-num{font-size:30px; font-weight:600; margin-top:3px; letter-spacing:-.02em;}
-.saldo-card{cursor:pointer;}
+.saldo-num{font-size:32px; font-weight:600; margin-top:2px; letter-spacing:-.02em;}
+.saldo-card{cursor:pointer; border:none !important; background:none; padding:6px 2px 4px; margin-bottom:6px;}
 .lista-avisos{margin:0 0 10px; padding-left:20px; font-size:13.5px; color:var(--text); line-height:1.5;}
 .lista-avisos li{margin:3px 0;}
 .deuda-card.saldada{opacity:.62;}
 /* la linea para anotar plata */
-.linea-plata{display:flex; align-items:center; gap:8px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:4px 4px 4px 14px; margin:0 0 4px;}
+.linea-plata{display:flex; align-items:center; gap:8px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:3px 5px 3px 13px; margin:0 0 4px;}
 .linea-plata:focus-within{border-color:var(--accent);}
 .linea-plata input{flex:1; min-width:0; border:none; background:none; color:var(--text); font:inherit; font-size:15px; padding:10px 0; outline:none;}
-.linea-plata button{flex:none; width:40px; height:40px; border:none; border-radius:10px; background:var(--accent); color:#fff; font-size:18px; display:flex; align-items:center; justify-content:center;}
+.linea-plata button{flex:none; width:32px; height:32px; border:none; border-radius:8px; background:var(--accent); color:#fff; font-size:18px; display:flex; align-items:center; justify-content:center;}
 .linea-plata button:disabled{background:var(--surface-3); color:var(--text-dim);}
-.linea-lee{font-size:12.5px; color:var(--text-muted); min-height:18px; margin:0 4px 16px;}
+.linea-lee{font-size:12px; color:var(--text-dim); min-height:17px; margin:0 4px 18px;}
 .linea-lee b{font-family:'Space Grotesk',sans-serif;}
-.quedaria{margin-top:12px; padding-top:11px; border-top:1px solid var(--border);}
+.quedaria{margin-top:6px; cursor:pointer;}
+.quedaria .det[hidden]{display:none;}
 .quedaria .fila{display:flex; justify-content:space-between; gap:10px; align-items:baseline;}
-.quedaria .n{font-size:19px; font-weight:600;}
+.quedaria .n{font-size:14px; font-weight:600;}
 .quedaria .det{font-size:12.5px; color:var(--text-muted); margin-top:5px; line-height:1.5;}
 .toast{position:fixed; left:50%; bottom:calc(84px + env(safe-area-inset-bottom,0px)); transform:translate(-50%, 20px); background:var(--text); color:var(--surface); font-size:14px; font-weight:600; padding:11px 16px; border-radius:12px; opacity:0; transition:opacity .2s, transform .2s; z-index:200; max-width:calc(100% - 32px); text-align:center; pointer-events:none;}
 .toast.ver{opacity:1; transform:translate(-50%, 0);}
@@ -380,6 +381,11 @@ body.con-barra .elegido .urg, body.con-barra .elegido .tag{visibility:hidden;}
 .tabla-mini th{text-align:left; font-size:11px; color:var(--text-dim); font-weight:600; padding:4px 6px;}
 .tabla-mini td{padding:7px 6px; border-top:1px solid var(--border);}
 .tabla-mini td.num, .tabla-mini th.num{text-align:right; font-family:'Space Grotesk',sans-serif;}
+/* en Plata las secciones son una lista con lineas finas, no cajas (D118) */
+.pleg-lista{border-top:1px solid var(--border);}
+.pleg-lista .pleg{margin:0; border-bottom:1px solid var(--border);}
+.pleg-lista .pleg-head{background:none; border:none; border-radius:0; padding:14px 2px;}
+.pleg-lista .pleg-body{padding:0 0 12px;}
 .pleg-acciones{display:flex; justify-content:flex-end; gap:8px; margin:2px 0 8px;}
 
 /* ---------- turnos y choques ---------- */
@@ -478,11 +484,11 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 .field-check{display:flex; align-items:center; gap:9px; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:11px 12px; margin-bottom:14px;}
 .field-check input{width:18px; height:18px;}
 .field-check label{margin:0; font-size:13.5px; font-weight:600; color:var(--text); text-transform:none;}
-.sheet-actions{display:flex; gap:10px; margin-top:6px;}
-.btn{flex:1; border:none; padding:13px; border-radius:12px; font-weight:700; font-size:14.5px;}
+.sheet-actions{display:flex; gap:8px; margin-top:10px; justify-content:flex-end; align-items:center;}
+.btn{border:none; padding:9px 16px; border-radius:10px; font-weight:600; font-size:13.5px;}
 .btn-primary{background:var(--accent); color:#fff;}
-.btn-ghost{background:var(--surface-2); color:var(--text-muted);}
-.btn-danger{background:var(--urgent-soft); color:var(--urgent);}
+.btn-ghost{background:none; color:var(--text-muted);}
+.btn-danger{background:none; color:var(--urgent); margin-right:auto; padding-left:4px;}
 .close-x{position:absolute; top:16px; right:16px; background:var(--surface-2); border:none; color:var(--text-muted); width:30px; height:30px; border-radius:50%; font-size:15px;}
 .helptext{font-size:12px; color:var(--text-muted); margin:-8px 0 14px; line-height:1.45;}
 
@@ -2663,7 +2669,7 @@ function renderCurso(){
         <div class="info"><div class="name">${esc(s.name)}</div><div class="time">${DOW[s.day]} · ${esc(s.start||'--')}${s.end?'–'+esc(s.end):''}</div></div>
         <button class="small-btn" data-action="delSched" data-id="${s.id}">Eliminar</button>
       </div>`).join('') : '<div class="empty-card">Aún no agregas tus clases/horarios del curso.</div>'}
-    <button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addSchedBtn">+ Agregar horario de clase</button>
+    <button class="btn btn-primary" style="margin-top:6px;" id="addSchedBtn">+ Agregar horario de clase</button>
 
     <div class="section-title" style="margin-top:24px;">Tareas que dejó la clase</div>
     ${ctasks.length ? ctasks.map(t=>`
@@ -2672,7 +2678,7 @@ function renderCurso(){
         <div style="flex:1; min-width:0;"><div class="mname">${esc(t.name)}</div><div class="meta" style="margin-top:2px;">${t.assignedDate?'Asignada '+niceDateShort(t.assignedDate)+' · ':''}Entrega ${niceDateShort(t.dueDate)}</div></div>
         <button class="small-btn" data-action="delCTask" data-id="${t.id}">✕</button>
       </div>`).join('') : '<div class="empty-card">Sin tareas asignadas por ahora.</div>'}
-    <button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addCTaskBtn">+ Agregar tarea de clase</button>
+    <button class="btn btn-primary" style="margin-top:6px;" id="addCTaskBtn">+ Agregar tarea de clase</button>
 
     <div class="section-title" style="margin-top:24px;">Módulos del curso</div>
     <div class="card">
@@ -2688,11 +2694,11 @@ function renderCurso(){
         <div class="mname">${esc(m.name)}</div>
         <button class="small-btn" data-action="delModule" data-id="${m.id}">✕</button>
       </div>`).join('') : ''}
-    <button class="btn btn-primary" style="width:100%; margin:6px 0 18px;" id="addModuleBtn">+ Agregar módulo/lección</button>
+    <button class="btn btn-primary" style="margin:6px 0 18px;" id="addModuleBtn">+ Agregar módulo/lección</button>
 
     <div class="section-title">Notas del curso</div>
     <div class="field"><textarea id="f_courseNotes" placeholder="Ideas, tareas de Leslie, cosas por aplicar...">${esc(DATA.courseNotes)}</textarea></div>
-    <button class="btn btn-ghost" style="width:100%;" id="saveNotesBtn">Guardar notas</button>
+    <button class="btn btn-ghost" id="saveNotesBtn">Guardar notas</button>
   `;
   document.getElementById('addSchedBtn').onclick = openCourseSchedModal;
   document.getElementById('addCTaskBtn').onclick = openCourseTaskModal;
@@ -3749,7 +3755,7 @@ async function renderAvisos(){
               <button class="small-btn" id="avisosQuitar" style="color:var(--urgent);">Desactivar</button>`;
   } else {
     estado = `<div class="helptext">Apagados. No te llega nada.</div>`;
-    accion = `<button class="btn btn-primary" style="width:100%; margin-top:4px;" id="avisosPrender">Activar los avisos</button>`;
+    accion = `<button class="btn btn-primary" style="margin-top:4px;" id="avisosPrender">Activar los avisos</button>`;
   }
 
   caja.innerHTML = `<div class="card">${explicacion}<div style="margin-top:12px;">${estado}</div>
@@ -4142,19 +4148,19 @@ function renderPlata(){
 
   /* 1 · cuanto tienes ahora — lo declaras tu y nunca miente en silencio (D99, D122) */
   html += `<div class="card saldo-card" id="saldoCard">
-    <div class="lbl">Tengo ahora <span class="saldo-edad">${P.saldoFecha ? esc(haceCuanto(P.saldoFecha)) : 'sin declarar'}</span></div>
+    <div class="lbl">Tengo ahora <span class="saldo-edad">${P.saldoFecha ? esc(haceCuanto(P.saldoFecha)) : 'toca para ponerlo'}</span></div>
     <div class="saldo-num mono">${P.saldo===null||P.saldo==='' ? '—' : money(P.saldo)}</div>
-    <div class="helptext" style="margin:4px 0 0;">${P.saldoFecha ? 'Tú lo declaraste el ' + esc(niceDate(P.saldoFecha)) + '. Tócalo para ajustarlo.' : 'Tócalo para decir cuánto tienes. Bitácora no lo calcula sola.'}</div>
     ${(q=>q && (q.recibir||q.cobros||q.pagos||q.debes||q.cuotas) ? `<div class="quedaria">
-      <div class="fila"><span style="font-size:13px; font-weight:600;">Te quedaría <span class="tentativo">est.</span></span><span class="n mono" style="color:${q.total<0?'var(--urgent)':'inherit'}">${q.total<0?'−':''}${money(Math.abs(q.total))}</span></div>
-      <div class="det">${[q.recibir&&`+ ${money(q.recibir)} por recibir`, q.cobros&&`− ${money(q.cobros)} cobros del mes`, q.pagos&&`− ${money(q.pagos)} pagos pendientes`, q.debes&&`− ${money(q.debes)} que debes`, q.cuotas&&`− ${money(q.cuotas)} en cuotas`].filter(Boolean).join('<br>')}${q.teDeben?`<br><span style="color:var(--text-dim)">Sin contar ${money(q.teDeben)} que te deben.</span>`:''}</div>
+      <div class="fila" style="justify-content:flex-start; gap:6px;"><span style="font-size:13px; color:var(--text-muted);">Te quedaría aprox.</span><span class="n mono" style="color:${q.total<0?'var(--urgent)':'inherit'}">${q.total<0?'−':''}${money(Math.abs(q.total))}</span><span style="font-size:12px; color:var(--text-dim);">›</span></div>
+      <div class="det" hidden>${[q.recibir&&`+ ${money(q.recibir)} por recibir`, q.cobros&&`− ${money(q.cobros)} cobros del mes`, q.pagos&&`− ${money(q.pagos)} pagos pendientes`, q.debes&&`− ${money(q.debes)} que debes`, q.cuotas&&`− ${money(q.cuotas)} en cuotas`].filter(Boolean).join('<br>')}${q.teDeben?`<br><span style="color:var(--text-dim)">Sin contar ${money(q.teDeben)} que te deben.</span>`:''}</div>
     </div>` : '')(cuentaQuedaria())}
   </div>
   <div class="linea-plata">
     <input id="lineaPlata" type="text" enterkeyhint="done" autocomplete="off" placeholder="almuerzo 15000 · +80000 Infinity">
     <button id="lineaPlataOk" aria-label="Anotar" disabled>↵</button>
   </div>
-  <div class="linea-lee" id="lineaLee">Gasto: escribe en qué y cuánto. Si te entró, empieza con +.</div>`;
+  <div class="linea-lee" id="lineaLee">Si te entró, empieza con +</div>
+  <div class="pleg-lista">`;
 
   /* 2 · lo demas va plegado: cerrado se ve el nombre y un resumen, y se abre
      tocandolo. Lo vacio no aparece. */
@@ -4291,15 +4297,20 @@ function renderPlata(){
       </div>
       <div class="helptext" style="margin:3px 0 0;">${DATA.plata.tasaFecha ? 'La pusiste ' + esc(haceCuanto(DATA.plata.tasaFecha)) + '. Tócala para cambiarla.' : 'Tócala para ponerla. La pones tú, así funciona sin internet.'}</div>
     </div>`);
+  html += `</div>`;
 
   box.innerHTML = html;
   bindItemClicks();
-  document.getElementById('saldoCard').onclick = openSaldoModal;
+  document.getElementById('saldoCard').onclick = (ev)=>{
+    const q = ev.target.closest('.quedaria');
+    if(q){ const d = q.querySelector('.det'); d.hidden = !d.hidden; return; }
+    openSaldoModal();
+  };
   const linea = document.getElementById('lineaPlata'), lee = document.getElementById('lineaLee'), ok = document.getElementById('lineaPlataOk');
   linea.oninput = ()=>{
     const r = leerLineaDePlata(linea.value);
     ok.disabled = !(r && r.monto);
-    if(!linea.value.trim()){ lee.innerHTML = 'Gasto: escribe en qué y cuánto. Si te entró, empieza con +.'; return; }
+    if(!linea.value.trim()){ lee.innerHTML = 'Si te entró, empieza con +'; return; }
     if(!r || !r.monto){ lee.innerHTML = 'Falta cuánto…'; return; }
     const dia = r.fecha===todayStr() ? 'hoy' : niceDateShort(r.fecha);
     lee.innerHTML = r.tipo==='gasto'
@@ -4711,7 +4722,7 @@ function renderCierre(){
           <button class="small-btn" data-hacer="otro">Otro día</button>
         </div>
       </div>`).join('')}
-    <button class="btn btn-ghost" style="width:100%; margin-top:10px;" id="cerrarDia">Dejarlo así</button>
+    <button class="btn btn-ghost" style="margin-top:10px;" id="cerrarDia">Dejarlo así</button>
   </div>`;
 
   caja.querySelectorAll('[data-hacer]').forEach(b=>b.onclick = ()=>{
