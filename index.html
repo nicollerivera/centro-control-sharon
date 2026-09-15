@@ -225,6 +225,7 @@ button{font-family:inherit;}
 .saldo-edad{text-transform:none; letter-spacing:0; font-weight:600; color:var(--text-muted); font-size:11.5px;}
 .saldo-num{font-size:30px; font-weight:600; margin-top:3px; letter-spacing:-.02em;}
 .saldo-card{cursor:pointer;}
+.deuda-card.saldada{opacity:.62;}
 
 /* ---------- turnos y choques ---------- */
 .lugares{display:grid; gap:8px; margin-top:6px;}
@@ -2555,14 +2556,18 @@ function porRecibir(){
     .sort((a,b)=> (a.fecha||'9999').localeCompare(b.fecha||'9999'));
 }
 
-/* Un cobro que vuelve cada mes: el proximo que viene. */
+/* Un cobro que vuelve cada mes: el proximo que viene. Si ya lo pago este
+   mes, el proximo es el del mes que sigue. */
+function pagadoEsteMes(sus, mes){
+  return (sus.pagados||[]).includes(mes || todayStr().slice(0,7));
+}
 function proximoCobro(sus){
   const hoy = new Date(), dia = Number(sus.dia);
   if(!dia) return null;
-  let f = new Date(hoy.getFullYear(), hoy.getMonth(), Math.min(dia, ultimoDiaDelMes(hoy.getFullYear(), hoy.getMonth())));
-  if(fmtDate(f) < todayStr()){
-    const m = hoy.getMonth()+1;
-    f = new Date(hoy.getFullYear(), m, Math.min(dia, ultimoDiaDelMes(hoy.getFullYear(), m)));
+  const arma = (anio, mes) => new Date(anio, mes, Math.min(dia, ultimoDiaDelMes(anio, mes)));
+  let f = arma(hoy.getFullYear(), hoy.getMonth());
+  if(fmtDate(f) < todayStr() || pagadoEsteMes(sus, fmtDate(f).slice(0,7))){
+    f = arma(hoy.getFullYear(), hoy.getMonth()+1);
   }
   return fmtDate(f);
 }
@@ -2757,21 +2762,26 @@ function renderPlata(){
         ${x.dia ? 'El ' + x.dia + ' de cada mes' + (prox ? ' · el próximo, ' + esc(niceDate(prox)) : '') : '⚠ falta el día del mes'}${x.nota ? ' · ' + esc(x.nota) : ''}
       </div>
       ${tasaImplicita(x) ? `<div class="helptext" style="margin:4px 0 0;">Te lo descontaron a ${money(tasaImplicita(x))} el dólar${tasaImplicita(x)!==tasaUSD() ? ` · <button class="small-btn" data-usar-tasa="${x.id}">usar esta tasa</button>` : ''}</div>` : ''}
+      ${x.dia ? (pagadoEsteMes(x)
+        ? `<div class="helptext" style="margin:6px 0 0; color:var(--done); font-weight:600;">✓ Pagado este mes · <button class="small-btn" data-despagar="${x.id}">deshacer</button></div>`
+        : `<button class="small-btn" data-pagar-sus="${x.id}" style="margin-top:9px;">Ya lo pagué este mes</button>`) : ''}
     </div>`;
   }).join('') : '<div class="empty-card" style="margin-bottom:8px;">Sin cobros mensuales.</div>';
 
   /* 5 · deudas y prestamos, en los dos sentidos (D96, D39) */
   html += `<div class="section-title"><span>Debo y me deben</span><button class="small-btn" id="addDeudaBtn">+ Préstamo</button></div>`;
-  html += DATA.deudas.length ? DATA.deudas.map(d=>{
+  const deudasOrden = [...DATA.deudas].sort((a,b)=> (a.saldada?1:0) - (b.saldada?1:0));
+  html += deudasOrden.length ? deudasOrden.map(d=>{
     const saldo = saldoDeuda(d);
     const debo = d.sentido!=='meDeben';
     const cuando = d.fecha ? (d.fechaHasta ? niceDateShort(d.fecha) + ' al ' + niceDateShort(d.fechaHasta) : niceDate(d.fecha)) + (d.aprox ? ' (estimado)' : '') : 'Sin fecha';
-    return `<div class="card deuda-card" data-id="${d.id}" style="cursor:pointer; border-left:3px solid ${debo?'var(--urgent)':'var(--c-dinero)'};">
+    const color = d.saldada ? 'var(--done)' : debo ? 'var(--urgent)' : 'var(--c-dinero)';
+    return `<div class="card deuda-card ${d.saldada?'saldada':''}" data-id="${d.id}" style="cursor:pointer; border-left:3px solid ${color};">
       <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
-        <div style="font-weight:600;">${esc(d.nombre)}</div>
-        <div class="mono" style="font-weight:700; color:${debo?'var(--urgent)':'var(--c-dinero)'};">${money(saldo)}</div>
+        <div style="font-weight:600;">${d.saldada?'✓ ':''}${esc(d.nombre)}</div>
+        <div class="mono" style="font-weight:700; color:${color};">${d.saldada ? 'saldada' : money(saldo)}</div>
       </div>
-      <div class="helptext" style="margin:3px 0 0;">${debo?'Le debes':'Te debe'} · ${esc(cuando)}${d.nota ? ' · ' + esc(d.nota) : ''}${(d.movs||[]).length ? ' · ' + d.movs.length + ' movimiento' + (d.movs.length>1?'s':'') : ''}</div>
+      <div class="helptext" style="margin:3px 0 0;">${d.saldada ? 'Saldada el ' + esc(niceDate(d.saldadaFecha||todayStr())) : (debo?'Le debes':'Te debe') + ' · ' + esc(cuando) + (d.nota ? ' · ' + esc(d.nota) : '') + ((d.movs||[]).length ? ' · ' + d.movs.length + ' movimiento' + (d.movs.length>1?'s':'') : '')}</div>
     </div>`;
   }).join('') : '<div class="empty-card" style="margin-bottom:8px;">Sin préstamos registrados.</div>';
 
@@ -2798,6 +2808,8 @@ function renderPlata(){
         <div class="mono" style="font-weight:700; color:${pendiente?'var(--ambar)':entra?'var(--c-dinero)':'var(--urgent)'};">${entra?'+':'−'}${money(m.amount)}</div>
       </div>
       <div class="helptext" style="margin:3px 0 0;">${esc(TIPOS_MOV[m.type]||'Movimiento')}${m.categoria?' · '+esc(m.categoria):''}${m.persona?' · '+esc(m.persona):''} · ${esc(niceDateShort(m.date))}${m.montoOriginal?' · US$'+m.montoOriginal:''}</div>
+      ${pendiente ? `<button class="small-btn" data-pagado="${m.id}" style="margin-top:9px;">Ya lo pagué</button>` : ''}
+      ${m.type==='pago' && m.status==='hecho' ? `<div class="helptext" style="margin:5px 0 0; color:var(--done); font-weight:600;">✓ Pagado</div>` : ''}
     </div>`;
   }).join('') : '<div class="empty-card" style="margin-bottom:8px;">Sin movimientos este mes.</div>';
 
@@ -2847,6 +2859,22 @@ function renderPlata(){
   box.querySelectorAll('[data-cobrar]').forEach(b=>b.onclick=(ev)=>{
     ev.stopPropagation();
     openCobroModal(DATA.turnos.find(t=>t.id===b.dataset.cobrar));
+  });
+  box.querySelectorAll('[data-pagar-sus]').forEach(b=>b.onclick=(ev)=>{
+    ev.stopPropagation();
+    openPagarSuscripcion(DATA.suscripciones.find(x=>x.id===b.dataset.pagarSus));
+  });
+  box.querySelectorAll('[data-despagar]').forEach(b=>b.onclick=(ev)=>{
+    ev.stopPropagation();
+    const x = DATA.suscripciones.find(s=>s.id===b.dataset.despagar);
+    x.pagados = (x.pagados||[]).filter(m=>m!==todayStr().slice(0,7));
+    saveData(); renderPlata();
+  });
+  box.querySelectorAll('[data-pagado]').forEach(b=>b.onclick=(ev)=>{
+    ev.stopPropagation();
+    const m = DATA.events.find(x=>x.id===b.dataset.pagado);
+    m.status='hecho'; m.pagadoFecha = todayStr();
+    saveData(); renderPlata();
   });
   document.getElementById('addInstallmentBtn').onclick = openInstallmentModal;
   box.querySelectorAll('.sus-card').forEach(c=>c.onclick=()=>openSuscripcionModal(DATA.suscripciones.find(x=>x.id===c.dataset.id)));
@@ -2944,9 +2972,17 @@ function openDeudaModal(existente){
   const d = existente || { id:null, nombre:'', sentido:'debo', monto:'', fecha:'', fechaHasta:'', aprox:true, nota:'', movs:[] };
   const saldo = existente ? saldoDeuda(d) : 0;
   openSheet(`<h3>${existente?esc(d.nombre):'Préstamo'}</h3>
-    ${existente?`<div class="card" style="margin-bottom:14px;"><div class="lbl">${d.sentido==='meDeben'?'Te debe':'Le debes'} ahora</div><div class="saldo-num mono">${money(saldo)}</div>
+    ${existente?`<div class="card" style="margin-bottom:14px;">
+      <div style="font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; font-weight:700;">${d.saldada ? 'Ya quedó saldada' : (d.sentido==='meDeben'?'Te debe':'Le debes') + ' ahora'}</div>
+      <div class="saldo-num mono" style="${d.saldada?'color:var(--done);':''}">${d.saldada ? '✓' : money(saldo)}</div>
+      ${d.saldada?`<div class="helptext" style="margin:4px 0 0;">El ${esc(niceDate(d.saldadaFecha||todayStr()))}.</div>`:''}
       ${(d.movs||[]).length?`<div class="helptext" style="margin:6px 0 0;">${d.movs.map(m=>`${m.sentido==='abono'?'−':'+'} ${money(m.monto)} · ${esc(niceDateShort(m.fecha))}${m.nota?' · '+esc(m.nota):''}`).join('<br>')}</div>`:''}
-      <button class="small-btn" id="addMov" style="margin-top:10px;">+ Movimiento</button></div>`:''}
+      <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+        ${d.saldada
+          ? `<button class="small-btn" id="reabrirDeuda">Volver a abrirla</button>`
+          : `<button class="small-btn" id="addMov">+ Abono</button>
+             <button class="small-btn" id="saldarDeuda" style="color:var(--done); border-color:var(--done);">Ya quedó paga</button>`}
+      </div></div>`:''}
     <div class="field"><label>¿Con quién o qué es?</label><input type="text" id="f_dname" value="${esc(d.nombre)}" placeholder="Ej: Jerson, cuota del celular"></div>
     <div class="field"><label>Sentido</label><select id="f_dsentido">
       <option value="debo" ${d.sentido!=='meDeben'?'selected':''}>Yo le debo</option>
@@ -2966,6 +3002,15 @@ function openDeudaModal(existente){
     </div>`);
   const mov = document.getElementById('addMov');
   if(mov) mov.onclick = ()=>openMovModal(existente);
+  const saldar = document.getElementById('saldarDeuda');
+  if(saldar) saldar.onclick = ()=>openSaldarModal(existente);
+  const reabrir = document.getElementById('reabrirDeuda');
+  if(reabrir) reabrir.onclick = ()=>{
+    existente.saldada = false; existente.saldadaFecha = '';
+    /* el abono que puse al cerrarla se va con ella: si no, volvia en cero */
+    existente.movs = (existente.movs||[]).filter(m=>!m.cierre);
+    saveData(); closeSheet(); renderPlata();
+  };
   const del = document.getElementById('delDeuda');
   if(del) del.onclick = ()=>{ DATA.deudas = DATA.deudas.filter(x=>x.id!==existente.id); saveData(); closeSheet(); renderPlata(); };
   document.getElementById('saveDeuda').onclick = ()=>{
@@ -2984,6 +3029,65 @@ function openDeudaModal(existente){
     saveData(); closeSheet(); renderPlata();
   };
 }
+/* Cerrar una deuda: se marca saldada y, si quiere, el resto queda anotado
+   como movimiento para que las cuentas del mes cuadren (D96). */
+function openSaldarModal(d){
+  const resta = saldoDeuda(d);
+  const debo = d.sentido!=='meDeben';
+  openSheet(`<h3>¿${esc(d.nombre)} ya quedó paga?</h3>
+    <div class="helptext" style="margin:-4px 0 14px;">${debo?'Le debías':'Te debía'} ${money(resta)}.</div>
+    <div class="field"><label>Cuándo se cerró</label><input type="date" id="s_fecha" value="${todayStr()}"></div>
+    ${resta>0?`<label class="field-check"><input type="checkbox" id="s_anotar" checked>
+      <span>Anotarlo en los movimientos<br><span class="helptext" style="margin:2px 0 0;">Queda ${money(resta)} ${debo?'saliendo':'entrando'} en este mes. Quítale el visto si ya lo registraste aparte.</span></span></label>`:''}
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" id="s_volver">Volver</button>
+      <button class="btn btn-primary" id="s_saldar">Sí, ya quedó paga</button>
+    </div>`);
+  document.getElementById('s_volver').onclick = ()=>openDeudaModal(d);
+  document.getElementById('s_saldar').onclick = ()=>{
+    const fecha = document.getElementById('s_fecha').value || todayStr();
+    const anotar = document.getElementById('s_anotar');
+    if(resta>0 && anotar && anotar.checked){
+      DATA.events.push({ id:uid(), cat:'finanzas', type: debo?'gasto':'ingreso', amount:resta, moneda:'COP',
+        categoria: debo?'Otros':'', persona:d.nombre, title:(debo?'Pago de ':'Me pagó ')+d.nombre,
+        date:fecha, notes:'Cierre del préstamo', start:'', end:'', status:'hecho' });
+    }
+    d.movs = d.movs || [];
+    if(resta !== 0) d.movs.push({ id:uid(), sentido: resta>0?'abono':'suma', monto:Math.abs(resta), fecha, nota:'cierre', cierre:true });
+    d.saldada = true; d.saldadaFecha = fecha;
+    saveData(); closeSheet(); renderPlata();
+  };
+}
+
+/* Marcar el cobro del mes como pagado, y de paso dejarlo en los movimientos. */
+function openPagarSuscripcion(x){
+  const mes = todayStr().slice(0,7);
+  const pesos = x.moneda==='USD' ? (Number(x.montoCOP) || enPesos(x.monto,'USD')) : Number(x.monto);
+  openSheet(`<h3>¿Ya pagaste ${esc(x.nombre)}?</h3>
+    <div class="helptext" style="margin:-4px 0 14px;">El cobro de este mes.</div>
+    <div class="field"><label>Cuánto te descontaron</label><input type="number" id="p_monto" inputmode="numeric" value="${pesos||''}"></div>
+    <div class="field"><label>Cuándo</label><input type="date" id="p_fecha" value="${todayStr()}"></div>
+    <label class="field-check"><input type="checkbox" id="p_anotar" checked>
+      <span>Anotarlo en los movimientos<br><span class="helptext" style="margin:2px 0 0;">Cuenta contra el tope de Datos y celular.</span></span></label>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" id="p_volver">Volver</button>
+      <button class="btn btn-primary" id="p_pagar">Ya lo pagué</button>
+    </div>`);
+  document.getElementById('p_volver').onclick = closeSheet;
+  document.getElementById('p_pagar').onclick = ()=>{
+    const monto = Number(document.getElementById('p_monto').value)||0;
+    const fecha = document.getElementById('p_fecha').value || todayStr();
+    if(document.getElementById('p_anotar').checked && monto){
+      DATA.events.push({ id:uid(), cat:'finanzas', type:'gasto', amount:monto, moneda:'COP',
+        categoria:'Datos y celular', title:x.nombre, date:fecha, notes:'Cobro mensual',
+        start:'', end:'', status:'hecho' });
+    }
+    x.pagados = x.pagados || [];
+    if(!x.pagados.includes(mes)) x.pagados.push(mes);
+    saveData(); closeSheet(); renderPlata();
+  };
+}
+
 function openMovModal(deuda){
   openSheet(`<h3>Movimiento · ${esc(deuda.nombre)}</h3>
     <div class="field"><label>Qué pasó</label><select id="f_msentido">
