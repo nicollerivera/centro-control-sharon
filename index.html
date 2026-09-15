@@ -344,12 +344,17 @@ body.con-barra .elegido .urg, body.con-barra .elegido .tag{visibility:hidden;}
 .cal-dow{text-align:center; font-size:10.5px; color:var(--text-dim); font-weight:700; padding-bottom:4px;}
 .cal-cell{aspect-ratio:1; border-radius:11px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:13px; color:var(--text-muted); position:relative; border:1px solid transparent; background:var(--surface);}
 .cal-cell.blank{visibility:hidden;}
-.cal-cell.today{border-color:var(--accent); color:var(--text); font-weight:700;}
-.cal-cell.selected{background:var(--surface-3); color:var(--text);}
+.cal-cell.today{border-color:var(--accent); border-width:2px; color:var(--text); font-weight:700;}
 .cal-cell .dots{display:flex; gap:2px; margin-top:3px; height:5px;}
 .cal-cell .dots span{width:4.5px; height:4.5px; border-radius:50%;}
 .cal-cell.ciclo-range{background:rgba(214,70,126,.10);}
 .cal-cell.ciclo-log{background:rgba(214,70,126,.28); color:#3A0F26; font-weight:700;}
+/* el dia que toca va de ultimo: si no, el color del ciclo lo tapaba */
+.cal-cell.selected{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:700;}
+.cal-cell.selected .dots span{background:rgba(255,255,255,.92) !important;}
+/* en oscuro el morado es claro: encima va tinta oscura, no blanca */
+html[data-tema="oscuro"] .cal-cell.selected{color:#101218;}
+html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,.8) !important;}
 .cal-daylist{margin-top:18px;}
 
 /* ---------- Yo tab ---------- */
