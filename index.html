@@ -180,6 +180,28 @@ button{font-family:inherit;}
 .suelto .punto{width:7px; height:7px; border-radius:50%; flex:none; margin:0 8px;}
 .suelto .que{flex:1; min-width:0; font-size:14.5px; font-weight:500;}
 .suelto .de{flex:none; font-size:12px; color:var(--text-dim);}
+
+/* ---------- seleccionar para borrar ---------- */
+[data-sel-id]{ -webkit-touch-callout:none; }
+.seleccionable{position:relative;}
+.elegido{background:var(--accent-soft) !important; border-radius:var(--radius-sm);}
+.elegido::after{content:'✓'; position:absolute; top:50%; right:8px; transform:translateY(-50%);
+  width:20px; height:20px; border-radius:50%; background:var(--accent); color:#fff;
+  font-size:12px; line-height:20px; text-align:center; font-weight:700;}
+.barra-sel{position:fixed; left:0; right:0; z-index:60; display:flex; align-items:center; gap:12px;
+  padding:12px 16px calc(12px + env(safe-area-inset-bottom)); background:var(--surface);
+  border-top:1px solid var(--border); box-shadow:0 -6px 20px rgba(0,0,0,.08);
+  bottom:0; max-width:560px; margin:0 auto;}
+.barra-sel .cancelar{border:none; background:none; color:var(--text-muted); font-size:18px; cursor:pointer; padding:4px 6px;}
+.barra-sel .cuantos{flex:1; font-size:14.5px; font-weight:600;}
+.barra-sel .borrar{border:none; background:var(--urgent); color:#fff; font-weight:700; font-size:14px;
+  padding:10px 18px; border-radius:var(--radius-sm); cursor:pointer;}
+/* mientras la barra esta abajo, la de navegacion se esconde */
+body.con-barra .bottomnav{display:none;}
+/* showView le pone el display al + por estilo en linea, asi que hay que ganarle */
+body.con-barra .fab{display:none !important;}
+/* mientras elige, las etiquetas estorban: el visto va donde estaban */
+body.con-barra .elegido .urg, body.con-barra .elegido .tag{visibility:hidden;}
 .status-btn.chico{width:20px; height:20px; margin-left:2px;}
 .cuenta{font-size:11.5px; color:var(--text-muted); font-weight:600; text-transform:none; letter-spacing:0;}
 .item .body{flex:1; min-width:0;}
@@ -822,7 +844,7 @@ function itemHTML(e){
   if(e.date !== todayStr()) metaParts.push(niceDateShort(e.date));
   if(e.cat==='finanzas' && e.amount) metaParts.push((e.type==='ingreso'||e.type==='prestamo_recibido' ?'+':'-') + money(e.amount));
   if(e.persona) metaParts.push('con ' + e.persona);
-  return `<div class="item ${e.status==='hecho'?'done':''}" data-id="${e.id}" style="border-left-color:${cat.color}">
+  return `<div class="item ${e.status==='hecho'?'done':''}" data-id="${e.id}" data-sel-tipo="evento" data-sel-id="${e.id}" style="border-left-color:${cat.color}">
     <button class="status-btn ${e.status==='progreso'?'progreso':e.status==='hecho'?'hecho':''}" data-action="cyclestatus" data-id="${e.id}"></button>
     <div class="body">
       <div class="row1">
@@ -965,7 +987,7 @@ function renderHoy(){
     /* nombre, hora y lugar, y el circulo para marcarlo. Nada mas (D105, D107) */
     const hecho = b.ev && b.ev.status==='hecho';
     const progreso = b.ev && b.ev.status==='progreso';
-    return `<div class="bloque${hecho?' hecho':''}" ${b.ev?`data-id="${b.ev.id}"`:''}>
+    return `<div class="bloque${hecho?' hecho':''}" ${b.ev?`data-id="${b.ev.id}" data-sel-tipo="evento" data-sel-id="${b.ev.id}"`:''}>
       <div class="hora mono">${esc(b.start)}${b.end?`<span class="hasta">${esc(b.end)}</span>`:''}</div>
       <div class="raya" style="background:${b.color};"></div>
       <div class="cuerpo">
@@ -987,13 +1009,13 @@ function renderHoy(){
   flexBox.innerHTML = (sueltos.length || urgentes.length) ? `
     <div class="rotulo" style="margin-top:22px;"><span>Sin hora</span></div>
     ${sueltos.map(e=>`
-      <div class="suelto" data-id="${e.id}">
+      <div class="suelto" data-id="${e.id}" data-sel-tipo="evento" data-sel-id="${e.id}">
         <span class="punto" style="background:${CATS[e.cat]?CATS[e.cat].color:'var(--text-dim)'};"></span>
         <span class="que">${esc(e.title)}</span>
       </div>`).join('')}
     ${urgentes.map(p=>{
       const l = (DATA.listas||[]).find(x=>x.id===p.listaId);
-      return `<div class="suelto">
+      return `<div class="suelto" data-sel-tipo="pendiente" data-sel-id="${p.id}">
         <button class="status-btn chico" data-action="togglePend" data-pid="${p.id}"></button>
         <span class="que">${esc(p.titulo)}</span>
         ${l ? `<span class="de">${esc(l.nombre)}</span>` : ''}
@@ -1052,7 +1074,8 @@ function renderCalDayList(){
     (wdItems.map(it=>{
       /* una rutina o una clase se toca y se edita donde vive, no es adorno */
       const ref = it.ref ? `data-rutina="${it.ref.id}"` : (it.materia ? `data-materia="${it.materia.id}"` : '');
-      return `<div class="item repetido" ${ref} style="border-left-color:${it.color}; ${ref?'':'cursor:default;'}">
+      const sel = it.ref ? `data-sel-tipo="rutina" data-sel-id="${it.ref.id}"` : (it.materia ? `data-sel-tipo="materia" data-sel-id="${it.materia.id}"` : '');
+      return `<div class="item repetido" ${ref} ${sel} style="border-left-color:${it.color}; ${ref?'':'cursor:default;'}">
         <div class="body"><div class="title">${esc(it.name)}</div>
         <div class="meta"><span>${esc(it.start||'')}${it.end?'–'+esc(it.end):''} · se repite cada semana</span></div></div>
       </div>`;
@@ -1149,7 +1172,7 @@ function pendientesDe(listaId){
 }
 function pendienteHTML(p, color){
   const urg = p.urgencia || 'normal';
-  return `<div class="pend ${p.hecho?'hecho':''}" style="border-left-color:${p.hecho?'var(--border)':color}">
+  return `<div class="pend ${p.hecho?'hecho':''}" data-sel-tipo="pendiente" data-sel-id="${p.id}" style="border-left-color:${p.hecho?'var(--border)':color}">
     <button class="status-btn ${p.hecho?'hecho':''}" data-action="togglePend" data-pid="${p.id}"></button>
     <div class="txt" data-action="editPend" data-pid="${p.id}">${esc(p.titulo)}</div>
     <button class="urg" data-nivel="${urg}" data-action="cicloUrg" data-pid="${p.id}" title="Tocar para cambiar la urgencia">${urg}</button>
@@ -1320,7 +1343,7 @@ function renderRutinas(){
   const rs = [...DATA.routines].sort((a,b)=>Math.min(...a.days)-Math.min(...b.days));
   box.innerHTML = `<div class="helptext" style="margin-top:0;">Lo que se repite cada semana: clases, Joel, gym, lo que sea. Tócalo para cambiarle días u horas — si rotas, esto se mueve contigo. Y dile qué tan firme es: de eso depende si un turno encima te sale en rojo o no.</div>
     ${rs.length ? rs.map(r=>`
-      <div class="subject-row rutina-row" data-id="${r.id}" style="border-left-color:${CATS[r.cat].color}; cursor:pointer;">
+      <div class="subject-row rutina-row" data-id="${r.id}" data-sel-tipo="rutina" data-sel-id="${r.id}" style="border-left-color:${CATS[r.cat].color}; cursor:pointer;">
         <div class="info">
           <div class="name">${CATS[r.cat].emoji} ${esc(r.title)} ${flexPill(r)}</div>
           <div class="time">${r.days.map(d=>DOW_SHORT[d]).join(' · ')} ${r.start?'· '+esc(r.start)+(r.end?'–'+esc(r.end):''):''}</div>
@@ -1480,7 +1503,7 @@ function renderMarca(){
   const ideas = M.ideas.filter(i=>i.estado!=='publicada')
     .sort((a,b)=> Object.keys(ESTADOS_IDEA).indexOf(b.estado) - Object.keys(ESTADOS_IDEA).indexOf(a.estado));
   html += ideas.length ? ideas.map(i=>`
-    <div class="pend idea-row" data-id="${i.id}" style="border-left-color:var(--c-marca); cursor:pointer;">
+    <div class="pend idea-row" data-id="${i.id}" data-sel-tipo="idea" data-sel-id="${i.id}" style="border-left-color:var(--c-marca); cursor:pointer;">
       <div class="txt">${esc(i.texto)}</div>
       <span class="urg" data-estado="${i.estado}" data-cambiar="${i.id}">${esc(ESTADOS_IDEA[i.estado]||'Idea')}</span>
     </div>`).join('') : '<div class="empty-card" style="margin-bottom:8px;">Sin ideas guardadas. Esto es tu libreta: apunta y sigue.</div>';
@@ -1492,7 +1515,7 @@ function renderMarca(){
   html += planeadas.length ? planeadas.map(p=>{
     const dias = p.fecha ? daysBetween(todayStr(), p.fecha) : null;
     const cuando = p.fecha ? (dias<0?'Se pasó':dias===0?'Hoy':dias===1?'Mañana':niceDate(p.fecha)) : 'Sin fecha';
-    return `<div class="card pub-card" data-id="${p.id}" style="cursor:pointer; border-left:3px solid var(--c-marca);">
+    return `<div class="card pub-card" data-id="${p.id}" data-sel-tipo="publicacion" data-sel-id="${p.id}" style="cursor:pointer; border-left:3px solid var(--c-marca);">
       <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
         <div style="font-weight:600;">${esc(p.titulo)}</div>
         <span class="tag" style="background:${dias!==null&&dias<=1?'var(--ambar-soft)':'var(--accent-soft)'}; color:${dias!==null&&dias<=1?'var(--ambar)':'var(--accent)'};">${esc(cuando)}</span>
@@ -1506,7 +1529,7 @@ function renderMarca(){
   const publicadas = M.publicaciones.filter(p=>p.estado==='publicada').sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
   html += `<div class="section-title" style="margin-top:22px;">Publicado</div>`;
   html += publicadas.length ? publicadas.slice(0,12).map(p=>`
-    <div class="card pub-card" data-id="${p.id}" style="cursor:pointer;">
+    <div class="card pub-card" data-id="${p.id}" data-sel-tipo="publicacion" data-sel-id="${p.id}" style="cursor:pointer;">
       <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
         <div style="font-weight:600;">${esc(p.titulo)}</div>
         <div class="helptext" style="margin:0;">${esc(niceDateShort(p.fecha))}</div>
@@ -1661,7 +1684,7 @@ function renderMaterias(){
       const tasks = DATA.academicTasks.filter(t=>t.subject===s.name && !t.done).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
       const colorNota = e.nota===null ? 'var(--text-dim)' : e.nota < cfg.pasaCon ? 'var(--urgent)' : 'var(--done)';
       html += `<div class="subject-group">
-        <div class="subject-row materia-row" data-id="${s.id}" style="cursor:pointer; border-left-color:var(--c-uni);">
+        <div class="subject-row materia-row" data-id="${s.id}" data-sel-tipo="materia" data-sel-id="${s.id}" style="cursor:pointer; border-left-color:var(--c-uni);">
           <div class="info">
             <div class="name">${esc(s.name)}</div>
             <div class="time">${[
@@ -2861,7 +2884,7 @@ function renderTurnos(){
     const meta = [niceDate(t.fecha), t.entra + '–' + t.sale];
     if(pago) meta.push('te pagan el ' + niceDateShort(pago.fecha));
     if(t.estimado) meta.push(money(t.estimado) + ' est.');
-    return `<div class="card turno-card" data-turno="${t.id}" style="border-left:3px solid var(--c-trabajo); cursor:pointer;">
+    return `<div class="card turno-card" data-turno="${t.id}" data-sel-tipo="turno" data-sel-id="${t.id}" style="border-left:3px solid var(--c-trabajo); cursor:pointer;">
       <div style="font-weight:600;">${esc(turnoTitulo(t))}${t.confirmado?'':'<span class="tentativo">sin confirmar</span>'}</div>
       <div class="helptext" style="margin:3px 0 0;">${esc(meta.join(' · '))}</div>
       ${duros ? `<div class="helptext" style="margin:5px 0 0; color:var(--urgent); font-weight:600;">⚠ se cruza con ${duros===1?'algo':duros+' cosas'} de ese día</div>` : ''}
@@ -3278,7 +3301,7 @@ function renderPlata(){
     const prox = proximoCobro(x);
     const faltan = prox ? daysBetween(todayStr(), prox) : null;
     const pronto = faltan!==null && faltan<=3;
-    return `<div class="card sus-card" data-id="${x.id}" style="cursor:pointer; border-left:3px solid var(--c-dinero);">
+    return `<div class="card sus-card" data-id="${x.id}" data-sel-tipo="suscripcion" data-sel-id="${x.id}" style="cursor:pointer; border-left:3px solid var(--c-dinero);">
       <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
         <div style="font-weight:600;">${esc(x.nombre)}</div>
         <div class="mono" style="font-weight:700;">${montoConMoneda(x.monto, x.moneda, x.montoCOP)}</div>
@@ -3301,7 +3324,7 @@ function renderPlata(){
     const debo = d.sentido!=='meDeben';
     const cuando = d.fecha ? (d.fechaHasta ? niceDateShort(d.fecha) + ' al ' + niceDateShort(d.fechaHasta) : niceDate(d.fecha)) + (d.aprox ? ' (estimado)' : '') : 'Sin fecha';
     const color = d.saldada ? 'var(--done)' : debo ? 'var(--urgent)' : 'var(--c-dinero)';
-    return `<div class="card deuda-card ${d.saldada?'saldada':''}" data-id="${d.id}" style="cursor:pointer; border-left:3px solid ${color};">
+    return `<div class="card deuda-card ${d.saldada?'saldada':''}" data-id="${d.id}" data-sel-tipo="deuda" data-sel-id="${d.id}" style="cursor:pointer; border-left:3px solid ${color};">
       <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
         <div style="font-weight:600;">${d.saldada?'✓ ':''}${esc(d.nombre)}</div>
         <div class="mono" style="font-weight:700; color:${color};">${d.saldada ? 'saldada' : money(saldo)}</div>
@@ -3327,7 +3350,7 @@ function renderPlata(){
   html += movs.length ? movs.map(m=>{
     const entra = m.type==='ingreso' || m.type==='prestamo_recibido';
     const pendiente = m.type==='pago' && m.status!=='hecho';
-    return `<div class="card mov-card" data-id="${m.id}" style="cursor:pointer; border-left:3px solid ${pendiente?'var(--ambar)':entra?'var(--c-dinero)':'var(--urgent)'};">
+    return `<div class="card mov-card" data-id="${m.id}" data-sel-tipo="movimiento" data-sel-id="${m.id}" style="cursor:pointer; border-left:3px solid ${pendiente?'var(--ambar)':entra?'var(--c-dinero)':'var(--urgent)'};">
       <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
         <div style="font-weight:600;">${esc(m.title)}</div>
         <div class="mono" style="font-weight:700; color:${pendiente?'var(--ambar)':entra?'var(--c-dinero)':'var(--urgent)'};">${entra?'+':'−'}${money(m.amount)}</div>
@@ -3634,6 +3657,181 @@ function openMovModal(deuda){
 }
 
 /* ============================================================
+   SELECCIONAR Y BORRAR
+   Como en WhatsApp: se mantiene presionado lo que se quiere botar, se tocan
+   los demas para sumarlos, y abajo aparece la barra para eliminarlos.
+============================================================ */
+const SELECCION = { tipo:null, ids:new Set() };
+let sinClic = false;          // tras un mantenido, el clic que viene no cuenta
+
+/* Cada tipo dice como se llama y como se borra. Agregar una lista nueva es
+   ponerle data-sel-tipo y data-sel-id, y una entrada aca. */
+const BORRABLES = {
+  pendiente: {
+    uno:'pendiente', varios:'pendientes',
+    borrar: ids => { DATA.pendientes = (DATA.pendientes||[]).filter(p=>!ids.has(p.id)); }
+  },
+  evento: {
+    uno:'cosa agendada', varios:'cosas agendadas',
+    borrar: ids => {
+      ids.forEach(id=>{
+        const e = (DATA.events||[]).find(x=>x.id===id);
+        if(e && e.linkedType==='turno') DATA.turnos = DATA.turnos.filter(t=>t.id!==e.linkedId);
+      });
+      DATA.events = (DATA.events||[]).filter(e=>!ids.has(e.id));
+    }
+  },
+  rutina: {
+    uno:'cosa que se repite', varios:'cosas que se repiten',
+    borrar: ids => { DATA.routines = (DATA.routines||[]).filter(r=>!ids.has(r.id)); }
+  },
+  turno: {
+    uno:'turno', varios:'turnos',
+    borrar: ids => {
+      ids.forEach(id=>removeLinkedEvent('turno', id));
+      DATA.turnos = (DATA.turnos||[]).filter(t=>!ids.has(t.id));
+    }
+  },
+  movimiento: {
+    uno:'movimiento', varios:'movimientos',
+    borrar: ids => { DATA.events = (DATA.events||[]).filter(e=>!ids.has(e.id)); }
+  },
+  idea: {
+    uno:'idea', varios:'ideas',
+    borrar: ids => { marcaData().ideas = marcaData().ideas.filter(i=>!ids.has(i.id)); }
+  },
+  publicacion: {
+    uno:'publicación', varios:'publicaciones',
+    borrar: ids => { marcaData().publicaciones = marcaData().publicaciones.filter(p=>!ids.has(p.id)); }
+  },
+  suscripcion: {
+    uno:'cobro', varios:'cobros',
+    borrar: ids => { DATA.suscripciones = (DATA.suscripciones||[]).filter(s=>!ids.has(s.id)); }
+  },
+  deuda: {
+    uno:'préstamo', varios:'préstamos',
+    borrar: ids => { DATA.deudas = (DATA.deudas||[]).filter(d=>!ids.has(d.id)); }
+  },
+  materia: {
+    uno:'materia', varios:'materias',
+    borrar: ids => { DATA.subjects = (DATA.subjects||[]).filter(m=>!ids.has(m.id)); }
+  }
+};
+
+function seleccionando(){ return SELECCION.tipo !== null; }
+
+function entrarSeleccion(tipo, id){
+  SELECCION.tipo = tipo;
+  SELECCION.ids = new Set([id]);
+  try{ navigator.vibrate && navigator.vibrate(18); }catch(e){}
+  pintarSeleccion();
+}
+function salirSeleccion(){
+  SELECCION.tipo = null;
+  SELECCION.ids.clear();
+  pintarSeleccion();
+}
+function alternar(id){
+  if(SELECCION.ids.has(id)) SELECCION.ids.delete(id); else SELECCION.ids.add(id);
+  if(!SELECCION.ids.size) salirSeleccion(); else pintarSeleccion();
+}
+
+function pintarSeleccion(){
+  document.querySelectorAll('[data-sel-id]').forEach(el=>{
+    const suyo = seleccionando() && el.dataset.selTipo === SELECCION.tipo;
+    el.classList.toggle('seleccionable', suyo);
+    el.classList.toggle('elegido', suyo && SELECCION.ids.has(el.dataset.selId));
+  });
+
+  let barra = document.getElementById('barraSel');
+  if(!seleccionando()){ if(barra) barra.remove(); document.body.classList.remove('con-barra'); return; }
+
+  const n = SELECCION.ids.size;
+  const meta = BORRABLES[SELECCION.tipo] || { uno:'cosa', varios:'cosas' };
+  if(!barra){
+    barra = document.createElement('div');
+    barra.id = 'barraSel';
+    barra.className = 'barra-sel';
+    document.body.appendChild(barra);
+  }
+  barra.innerHTML = `
+    <button class="cancelar" id="selCancelar" aria-label="Cancelar">✕</button>
+    <span class="cuantos">${n} ${n===1 ? meta.uno : meta.varios}</span>
+    <button class="borrar" id="selBorrar">Eliminar</button>`;
+  document.body.classList.add('con-barra');
+  document.getElementById('selCancelar').onclick = salirSeleccion;
+  document.getElementById('selBorrar').onclick = borrarSeleccionados;
+}
+
+function borrarSeleccionados(){
+  const meta = BORRABLES[SELECCION.tipo];
+  if(!meta) return salirSeleccion();
+  const n = SELECCION.ids.size;
+  const que = n===1 ? ('este ' + meta.uno) : (n + ' ' + meta.varios);
+  if(!confirm(`¿Eliminar ${que}? No se puede deshacer.`)) return;
+  meta.borrar(new Set(SELECCION.ids));
+  salirSeleccion();
+  saveData();
+  renderAll();
+  if(document.getElementById('view-calendario').classList.contains('active')) renderCalDayList();
+}
+
+/* El gesto: mantener presionado abre la seleccion; despues, un toque suma o quita. */
+(function engancharGesto(){
+  let reloj = null, desde = null;
+
+  const cancelar = ()=>{ clearTimeout(reloj); reloj = null; desde = null; };
+
+  document.addEventListener('pointerdown', (ev)=>{
+    /* si el mantenido anterior no termino en clic, la bandera no puede quedarse
+       prendida: se comeria el toque siguiente */
+    sinClic = false;
+    const el = ev.target.closest('[data-sel-id]');
+    if(!el) return;
+    /* si ya esta seleccionando otra cosa, el mantenido no aplica */
+    if(seleccionando() && el.dataset.selTipo !== SELECCION.tipo) return;
+    desde = { x: ev.clientX, y: ev.clientY };
+    reloj = setTimeout(()=>{
+      reloj = null;
+      sinClic = true;
+      if(seleccionando()) alternar(el.dataset.selId);
+      else entrarSeleccion(el.dataset.selTipo, el.dataset.selId);
+    }, 420);
+  }, { passive:true });
+
+  document.addEventListener('pointermove', (ev)=>{
+    if(!reloj || !desde) return;
+    /* si arrastra para desplazar la pantalla, no era un mantenido */
+    if(Math.abs(ev.clientX - desde.x) > 10 || Math.abs(ev.clientY - desde.y) > 10) cancelar();
+  }, { passive:true });
+
+  ['pointerup','pointercancel','pointerleave'].forEach(t=>
+    document.addEventListener(t, cancelar, { passive:true }));
+
+  /* En modo seleccion, el toque elige en vez de abrir. Va en captura para
+     ganarle a los clics que ya tiene cada lista. */
+  document.addEventListener('click', (ev)=>{
+    const el = ev.target.closest('[data-sel-id]');
+    if(sinClic){
+      sinClic = false;
+      if(el){ ev.preventDefault(); ev.stopPropagation(); }
+      return;
+    }
+    if(!seleccionando() || !el) return;
+    if(el.dataset.selTipo !== SELECCION.tipo) return;
+    ev.preventDefault(); ev.stopPropagation();
+    alternar(el.dataset.selId);
+  }, true);
+
+  /* El menu del navegador al mantener presionado estorba el gesto. */
+  document.addEventListener('contextmenu', (ev)=>{
+    if(ev.target.closest('[data-sel-id]')) ev.preventDefault();
+  });
+
+  addEventListener('keydown', (ev)=>{ if(ev.key==='Escape' && seleccionando()) salirSeleccion(); });
+})();
+
+/* ============================================================
    RENDER ALL
 ============================================================ */
 function renderAll(){
@@ -3647,6 +3845,7 @@ function renderAll(){
   if(active==='pendientes'){ renderTareasView(); renderMaterias(); renderMarca(); renderNexxaGestion(); renderTrabajo(); }
   if(active==='plata') renderPlata();
   if(active==='yo'){ renderYo(); renderAvisos(); renderPersonalGestion(); }
+  pintarSeleccion();
 }
 
 (async function init(){
