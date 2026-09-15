@@ -112,7 +112,7 @@ button{font-family:inherit;}
 .app{max-width:560px; margin:0 auto; position:relative;}
 
 /* ---------- header ---------- */
-.topbar{padding:22px 18px 14px; position:sticky; top:0; z-index:20; background:linear-gradient(180deg, var(--bg) 70%, transparent);}
+.topbar{padding:22px 18px 10px; position:sticky; top:0; z-index:20; background:var(--bg);}
 .topbar .greet{font-size:13px; color:var(--text-dim); font-weight:500; text-transform:uppercase; letter-spacing:.08em;}
 .topbar h1{font-size:26px; margin:2px 0 0; font-weight:700;}
 .topbar-row{display:flex; align-items:center; justify-content:space-between; gap:8px;}
@@ -1568,7 +1568,7 @@ function renderMaterias(){
   }
 
   /* ---- las materias ---- */
-  html += `<div class="section-title"><span>Materias</span>${subs.length ? `<button class="small-btn" id="defiBtn">Poner definitivas</button>` : `<span class="cuenta">0</span>`}</div>`;
+  html += `<div class="section-title"><span>Materias</span><button class="small-btn" id="defiBtn">Poner definitivas</button></div>`;
   if(subs.length){
     subs.forEach(s=>{
       const e = estadoMateria(s);
@@ -1597,7 +1597,7 @@ function renderMaterias(){
     });
     html += `<div class="helptext">Tócale a una materia para poner sus cortes, sus notas y sus fallas. Cada materia tiene los porcentajes que tenga: no se asume ninguno.</div>`;
   } else {
-    html += '<div class="empty-card">Aún no agregas materias de este período. Cuando te den el horario del bimestre, cárgalas acá.</div>';
+    html += `<div class="empty-card">Sin materias cargadas.<br><br>Si estás cerrando el bimestre y solo quieres guardar las notas, tócale a <b>Poner definitivas</b>: ahí las escribes con su nombre, sin horario ni porcentajes.</div>`;
   }
   html += `<button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addSubjectBtn">+ Agregar materia</button>`;
 
@@ -1785,7 +1785,10 @@ function openUniAjustes(){
 /* Cerrar el bimestre guarda las notas y deja el tablero limpio para el que
    viene, sin perder el promedio de la carrera (D100). */
 function cerrarBimestre(){
-  if(!DATA.subjects.length){ alert('No hay materias que cerrar.'); return; }
+  if(!DATA.subjects.length){
+    if(confirm('Todavía no hay materias con nota.\n\n¿Las escribes ahora?')) openDefinitivasModal();
+    return;
+  }
   const materias = DATA.subjects.map(s=>({ name:s.name, nota:estadoMateria(s).nota }));
   const sinNota = materias.filter(m=>m.nota===null).length;
   const aviso = sinNota ? `\n\n${sinNota} materia${sinNota>1?'s':''} sin nota quedarán sin contar.` : '';
