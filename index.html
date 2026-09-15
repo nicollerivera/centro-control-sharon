@@ -389,6 +389,7 @@ button{font-family:inherit;}
     <div class="subtabs">
       <button class="subtab active" data-sub="listas">Todo</button>
       <button class="subtab" data-sub="materias">Universidad</button>
+      <button class="subtab" data-sub="marca">Marca personal</button>
       <button class="subtab" data-sub="nexxa">Nexxa</button>
       <button class="subtab" data-sub="trabajo">Trabajo</button>
     </div>
@@ -409,6 +410,7 @@ button{font-family:inherit;}
       <div id="checklistBody"></div>
     </div>
     <div id="sub-materias" style="display:none"></div>
+    <div id="sub-marca" style="display:none"></div>
     <div id="sub-nexxa" style="display:none"></div>
     <div id="sub-trabajo" style="display:none"></div>
     <div id="sub-curso" hidden></div>
@@ -487,6 +489,7 @@ let DATA = {
   turnos: [],          // {id,lugar,hotel,fecha,entra,sale,confirmado,trasladoMin,estimado}
   plata: { saldo:null, saldoFecha:'', tasaUSD:null, tasaFecha:'', topes:{} },
   uni: { pasaCon:3.0, maxFallas:8, historial:[] },   // historial: {periodo, materias:[{name,nota}]}
+  marca: { ideas:[], publicaciones:[] },             // marca personal (D73)
   suscripciones: [],   // {id,nombre,monto,moneda,dia,nota} — vuelven cada mes
   deudas: [],          // {id,nombre,sentido,monto,fecha,fechaHasta,aprox,nota,movs:[]}
   compromisosSembrados: false,
@@ -706,7 +709,7 @@ function syncSourceFromEvent(e){
 ============================================================ */
 const views = ['hoy','calendario','pendientes','plata','yo'];
 /* Cada subpestaña sabe en qué sección vive, porque Gestión desapareció (D137). */
-const SUB_VIEW = { listas:'pendientes', materias:'pendientes', nexxa:'pendientes', trabajo:'pendientes', finanzas:'plata', personal:'yo', rutinas:'calendario' };
+const SUB_VIEW = { listas:'pendientes', materias:'pendientes', marca:'pendientes', nexxa:'pendientes', trabajo:'pendientes', finanzas:'plata', personal:'yo', rutinas:'calendario' };
 function showView(v){
   views.forEach(x=>{ document.getElementById('view-'+x).classList.toggle('active', x===v); });
   document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
@@ -1313,6 +1316,198 @@ function promedioCarrera(){
 function nota1(n){ return n===null||n===undefined ? '—' : Number(n).toFixed(1).replace('.', ','); }
 function fallasTotales(){ return DATA.subjects.reduce((a,s)=>a+Number(s.fallas||0), 0); }
 
+/* ============================================================
+   MARCA PERSONAL
+   Ideas de contenido, calendario de publicaciones y resultados (D73).
+   Los clientes no viven aca: viven en Trabajo con la etiqueta de donde
+   llegaron, y de ahi sale cuantos trajo la marca (D76, D82).
+============================================================ */
+const ESTADOS_IDEA = { idea:'Idea', grabando:'Grabando', listo:'Listo para publicar' };
+const REDES = ['Instagram','TikTok','LinkedIn','WhatsApp','Otra'];
+
+function marcaData(){
+  DATA.marca = DATA.marca || { ideas:[], publicaciones:[] };
+  DATA.marca.ideas = DATA.marca.ideas || [];
+  DATA.marca.publicaciones = DATA.marca.publicaciones || [];
+  return DATA.marca;
+}
+function clientesDeLaMarca(){
+  return (DATA.workClients||[]).filter(c=>c.origen==='marca');
+}
+
+function renderMarca(){
+  const box = document.getElementById('sub-marca');
+  if(!box) return;
+  const M = marcaData();
+  const mes = todayStr().slice(0,7);
+  const delMes = M.publicaciones.filter(p=>p.estado==='publicada' && (p.fecha||'').startsWith(mes));
+  const suma = campo => delMes.reduce((a,p)=>a+Number(p[campo]||0), 0);
+  const traidos = clientesDeLaMarca();
+
+  let html = '';
+
+  /* ---- resultados: alcance, respuestas y cierres (D73) ---- */
+  html += `<div class="section-title">Cómo te fue este mes</div>
+    <div class="summary-row">
+      <div class="summary-box"><div class="lbl">Alcance</div><div class="val mono">${suma('alcance').toLocaleString('es-CO')}</div></div>
+      <div class="summary-box"><div class="lbl">Respuestas</div><div class="val mono">${suma('respuestas')}</div></div>
+    </div>
+    <div class="summary-row" style="margin-top:8px;">
+      <div class="summary-box"><div class="lbl">Publicaste</div><div class="val mono">${delMes.length}</div></div>
+      <div class="summary-box"><div class="lbl">Clientes que trajo</div><div class="val mono" style="color:${traidos.length?'var(--c-marca)':'var(--text)'}">${traidos.length}</div></div>
+    </div>
+    ${traidos.length ? `<div class="helptext">${traidos.map(c=>esc(c.name)).join(' · ')} — llegaron por acá. Se cuentan desde Trabajo.</div>` : `<div class="helptext">Cuando agregues un cliente en Trabajo, dile que llegó por la marca personal y se cuenta acá.</div>`}`;
+
+  /* ---- ideas: captura rapida, sin clasificar nada (D110) ---- */
+  html += `<div class="section-title" style="margin-top:22px;"><span>Ideas de contenido</span><span class="cuenta">${M.ideas.filter(i=>i.estado!=='publicada').length}</span></div>
+    <div class="addbar"><input type="text" id="ideaInput" placeholder="Escríbela y ya, la ordenas después"><button id="addIdeaBtn">Añadir</button></div>`;
+  const ideas = M.ideas.filter(i=>i.estado!=='publicada')
+    .sort((a,b)=> Object.keys(ESTADOS_IDEA).indexOf(b.estado) - Object.keys(ESTADOS_IDEA).indexOf(a.estado));
+  html += ideas.length ? ideas.map(i=>`
+    <div class="pend idea-row" data-id="${i.id}" style="border-left-color:var(--c-marca); cursor:pointer;">
+      <div class="txt">${esc(i.texto)}</div>
+      <span class="urg" data-estado="${i.estado}" data-cambiar="${i.id}">${esc(ESTADOS_IDEA[i.estado]||'Idea')}</span>
+    </div>`).join('') : '<div class="empty-card" style="margin-bottom:8px;">Sin ideas guardadas. Esto es tu libreta: apunta y sigue.</div>';
+  html += `<div class="helptext">Tócale a la etiqueta para moverla de idea a grabando a lista. Tócale al texto para programarla.</div>`;
+
+  /* ---- el calendario de publicaciones ---- */
+  const planeadas = M.publicaciones.filter(p=>p.estado!=='publicada').sort((a,b)=>(a.fecha||'9999').localeCompare(b.fecha||'9999'));
+  html += `<div class="section-title" style="margin-top:22px;"><span>Programadas</span><button class="small-btn" id="addPubBtn">+ Publicación</button></div>`;
+  html += planeadas.length ? planeadas.map(p=>{
+    const dias = p.fecha ? daysBetween(todayStr(), p.fecha) : null;
+    const cuando = p.fecha ? (dias<0?'Se pasó':dias===0?'Hoy':dias===1?'Mañana':niceDate(p.fecha)) : 'Sin fecha';
+    return `<div class="card pub-card" data-id="${p.id}" style="cursor:pointer; border-left:3px solid var(--c-marca);">
+      <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
+        <div style="font-weight:600;">${esc(p.titulo)}</div>
+        <span class="tag" style="background:${dias!==null&&dias<=1?'var(--ambar-soft)':'var(--accent-soft)'}; color:${dias!==null&&dias<=1?'var(--ambar)':'var(--accent)'};">${esc(cuando)}</span>
+      </div>
+      <div class="helptext" style="margin:3px 0 0;">${esc(p.red||'Sin red')}</div>
+      <button class="small-btn" data-publicada="${p.id}" style="margin-top:9px;">Ya la publiqué</button>
+    </div>`;
+  }).join('') : '<div class="empty-card" style="margin-bottom:8px;">Nada programado.</div>';
+
+  /* ---- lo ya publicado, con sus numeros ---- */
+  const publicadas = M.publicaciones.filter(p=>p.estado==='publicada').sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
+  html += `<div class="section-title" style="margin-top:22px;">Publicado</div>`;
+  html += publicadas.length ? publicadas.slice(0,12).map(p=>`
+    <div class="card pub-card" data-id="${p.id}" style="cursor:pointer;">
+      <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
+        <div style="font-weight:600;">${esc(p.titulo)}</div>
+        <div class="helptext" style="margin:0;">${esc(niceDateShort(p.fecha))}</div>
+      </div>
+      <div class="helptext" style="margin:3px 0 0;">${esc(p.red||'')}${p.alcance?' · '+Number(p.alcance).toLocaleString('es-CO')+' de alcance':''}${p.respuestas?' · '+p.respuestas+' respuesta'+(p.respuestas>1?'s':''):''}${p.cierres?' · '+p.cierres+' cierre'+(p.cierres>1?'s':''):''}</div>
+      ${!p.alcance && !p.respuestas ? '<div class="helptext" style="margin:5px 0 0; color:var(--ambar);">Tócala para ponerle cómo le fue.</div>' : ''}
+    </div>`).join('') : '<div class="empty-card">Todavía no has publicado nada por acá.</div>';
+
+  box.innerHTML = html;
+
+  document.getElementById('addIdeaBtn').onclick = agregarIdea;
+  document.getElementById('ideaInput').onkeydown = (ev)=>{ if(ev.key==='Enter') agregarIdea(); };
+  document.getElementById('addPubBtn').onclick = ()=>openPublicacionModal();
+  box.querySelectorAll('[data-cambiar]').forEach(b=>b.onclick=(ev)=>{
+    ev.stopPropagation();
+    const i = M.ideas.find(x=>x.id===b.dataset.cambiar);
+    const orden = Object.keys(ESTADOS_IDEA);
+    i.estado = orden[(orden.indexOf(i.estado)+1) % orden.length];
+    saveData(); renderMarca();
+  });
+  box.querySelectorAll('.idea-row').forEach(r=>r.onclick=()=>{
+    const i = M.ideas.find(x=>x.id===r.dataset.id);
+    openIdeaModal(i);
+  });
+  box.querySelectorAll('.pub-card').forEach(c=>c.onclick=(ev)=>{
+    if(ev.target.closest('[data-publicada]')) return;
+    openPublicacionModal(M.publicaciones.find(p=>p.id===c.dataset.id));
+  });
+  box.querySelectorAll('[data-publicada]').forEach(b=>b.onclick=(ev)=>{
+    ev.stopPropagation();
+    openPublicacionModal(M.publicaciones.find(p=>p.id===b.dataset.publicada), true);
+  });
+}
+
+function agregarIdea(){
+  const inp = document.getElementById('ideaInput');
+  const texto = inp.value.trim();
+  if(!texto) return;
+  marcaData().ideas.push({ id:uid(), texto, estado:'idea', creado:todayStr() });
+  inp.value='';
+  saveData(); renderMarca();
+}
+
+function openIdeaModal(i){
+  if(!i) return;
+  openSheet(`<h3>Idea</h3>
+    <div class="field"><label>¿De qué es?</label><input type="text" id="i_texto" value="${esc(i.texto)}"></div>
+    <div class="field"><label>Cómo va</label><select id="i_estado">
+      ${Object.entries(ESTADOS_IDEA).map(([k,v])=>`<option value="${k}" ${i.estado===k?'selected':''}>${v}</option>`).join('')}
+    </select></div>
+    <div class="helptext">Si ya sabes cuándo la publicas, prográmala y pasa a la lista de arriba.</div>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" id="i_borrar">Borrar</button>
+      <button class="btn btn-ghost" id="i_programar">Programarla</button>
+      <button class="btn btn-primary" id="i_guardar">Guardar</button>
+    </div>`);
+  document.getElementById('i_borrar').onclick = ()=>{
+    marcaData().ideas = marcaData().ideas.filter(x=>x.id!==i.id);
+    saveData(); closeSheet(); renderMarca();
+  };
+  document.getElementById('i_guardar').onclick = ()=>{
+    i.texto = document.getElementById('i_texto').value.trim() || i.texto;
+    i.estado = document.getElementById('i_estado').value;
+    saveData(); closeSheet(); renderMarca();
+  };
+  document.getElementById('i_programar').onclick = ()=>{
+    const texto = document.getElementById('i_texto').value.trim() || i.texto;
+    marcaData().ideas = marcaData().ideas.filter(x=>x.id!==i.id);
+    openPublicacionModal({ id:null, titulo:texto, fecha:'', red:'', estado:'planeada', alcance:'', respuestas:'', cierres:'' });
+  };
+}
+
+function openPublicacionModal(existente, marcandoPublicada){
+  const p = existente || { id:null, titulo:'', fecha:todayStr(), red:REDES[0], estado:'planeada', alcance:'', respuestas:'', cierres:'' };
+  const yaSalio = marcandoPublicada || p.estado==='publicada';
+  const yaGuardada = !!(existente && existente.id);
+  openSheet(`<h3>${marcandoPublicada ? '¿Cómo te fue?' : yaGuardada ? 'Publicación' : 'Nueva publicación'}</h3>
+    <div class="field"><label>¿De qué es?</label><input type="text" id="p_titulo" value="${esc(p.titulo)}" placeholder="Ej: carrusel de errores en Meta Ads"></div>
+    <div class="field-row">
+      <div class="field"><label>Dónde</label><select id="p_red">${REDES.map(r=>`<option ${p.red===r?'selected':''}>${r}</option>`).join('')}</select></div>
+      <div class="field"><label>${yaSalio?'Salió el':'Sale el'}</label><input type="date" id="p_fecha" value="${esc(p.fecha)}"></div>
+    </div>
+    ${yaSalio ? `
+      <div class="field-row">
+        <div class="field"><label>Alcance</label><input type="number" id="p_alcance" inputmode="numeric" value="${p.alcance}" placeholder="Cuánta gente"></div>
+        <div class="field"><label>Respuestas</label><input type="number" id="p_resp" inputmode="numeric" value="${p.respuestas}" placeholder="DM, comentarios"></div>
+      </div>
+      <div class="field"><label>Cierres</label><input type="number" id="p_cierres" inputmode="numeric" value="${p.cierres}" placeholder="Clientes que salieron de acá">
+        <div class="helptext">Si alguno se volvió cliente, agrégalo en Trabajo y dile que llegó por la marca.</div></div>
+    ` : '<div class="helptext">Cuando la publiques le pones cómo le fue.</div>'}
+    <div class="sheet-actions">
+      ${yaGuardada?`<button class="btn btn-ghost" id="p_borrar">Borrar</button>`:''}
+      <button class="btn btn-primary" id="p_guardar">Guardar</button>
+    </div>`);
+  const borrar = document.getElementById('p_borrar');
+  if(borrar) borrar.onclick = ()=>{
+    marcaData().publicaciones = marcaData().publicaciones.filter(x=>x.id!==p.id);
+    saveData(); closeSheet(); renderMarca();
+  };
+  document.getElementById('p_guardar').onclick = ()=>{
+    const g = id => document.getElementById(id);
+    const datos = {
+      titulo: g('p_titulo').value.trim(),
+      red: g('p_red').value,
+      fecha: g('p_fecha').value,
+      estado: yaSalio ? 'publicada' : 'planeada',
+      alcance: g('p_alcance') ? Number(g('p_alcance').value)||'' : (p.alcance||''),
+      respuestas: g('p_resp') ? Number(g('p_resp').value)||'' : (p.respuestas||''),
+      cierres: g('p_cierres') ? Number(g('p_cierres').value)||'' : (p.cierres||'')
+    };
+    if(!datos.titulo){ alert('Ponle de qué es.'); return; }
+    if(yaGuardada) Object.assign(existente, datos);
+    else marcaData().publicaciones.push(Object.assign({id:uid()}, datos));
+    saveData(); closeSheet(); renderMarca();
+  };
+}
+
 /* ---- Universidad ---- */
 function renderMaterias(){
   const box = document.getElementById('sub-materias');
@@ -1747,6 +1942,16 @@ function renderTrabajo(){
 function openClientModal(){
   openSheet(`<h3>Agregar cliente/empresa</h3>
     <div class="field"><label>Nombre</label><input type="text" id="f_cname" placeholder="Ej: Nexxa, Empresa X..."></div>
+    <div class="field"><label>¿De dónde llegó?</label>
+      <select id="f_corigen">
+        <option value="">— sin decir —</option>
+        <option value="marca">Por mi marca personal</option>
+        <option value="recomendacion">Me lo recomendaron</option>
+        <option value="conocido">Es un conocido</option>
+        <option value="otro">De otro lado</option>
+      </select>
+      <div class="helptext">De acá sale cuántos clientes te trajo la marca personal.</div>
+    </div>
     <div class="field"><label>Forma de pago</label>
       <select id="f_ptype">
         <option value="hora">Por hora (valor fijo)</option>
@@ -1777,7 +1982,7 @@ function openClientModal(){
     const name = document.getElementById('f_cname').value.trim();
     if(!name){ alert('Ponle un nombre'); return; }
     const payType = typeSel.value;
-    const obj = { id:uid(), name, payType };
+    const obj = { id:uid(), name, payType, origen: document.getElementById('f_corigen').value };
     if(payType==='salario_min'){ obj.baseSalario = document.getElementById('f_basesal').value||1750000; obj.auxTransporte = document.getElementById('f_auxtrans').value||250000; obj.recargoDominical = document.getElementById('f_recargo').value||75; }
     else { obj.rate = document.getElementById('f_rate').value||0; }
     DATA.workClients.push(obj); saveData(); closeSheet(); renderTrabajo();
@@ -3119,7 +3324,7 @@ function renderAll(){
   const active = views.find(v=>document.getElementById('view-'+v).classList.contains('active'));
   if(active==='hoy') renderHoy();
   if(active==='calendario'){ renderCalendar(); renderChoquesSemana(); renderTurnos(); renderRutinas(); }
-  if(active==='pendientes'){ renderTareasView(); renderMaterias(); renderNexxaGestion(); renderTrabajo(); }
+  if(active==='pendientes'){ renderTareasView(); renderMaterias(); renderMarca(); renderNexxaGestion(); renderTrabajo(); }
   if(active==='plata') renderPlata();
   if(active==='yo'){ renderYo(); renderPersonalGestion(); }
 }
