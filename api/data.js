@@ -14,7 +14,9 @@ function authorized(req) {
 }
 
 function isNotFound(err) {
-  return err?.name === 'BlobNotFoundError' || /not\s*found/i.test(err?.message || '');
+const msg = err?.message || '';
+const name = err?.name || err?.constructor?.name || '';
+return /BlobNotFound/i.test(name) || /not\sfound|does\snot\s*exist/i.test(msg);
 }
 
 async function readBody(req) {
