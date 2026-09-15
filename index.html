@@ -485,6 +485,7 @@ let DATA = {
   cycle: { starts: [], avgLen: 28, periodLen: 5 },
   turnos: [],          // {id,lugar,hotel,fecha,entra,sale,confirmado,trasladoMin,estimado}
   plata: { saldo:null, saldoFecha:'', tasaUSD:null, tasaFecha:'', topes:{} },
+  uni: { pasaCon:3.0, maxFallas:8, historial:[] },   // historial: {periodo, materias:[{name,nota}]}
   suscripciones: [],   // {id,nombre,monto,moneda,dia,nota} — vuelven cada mes
   deudas: [],          // {id,nombre,sentido,monto,fecha,fechaHasta,aprox,nota,movs:[]}
   compromisosSembrados: false,
@@ -1274,54 +1275,238 @@ function openRoutineModal(existente){
   };
 }
 
+/* ============================================================
+   UNIVERSIDAD Y NOTAS
+   Los porcentajes se ponen materia por materia, libres: no se asume
+   ningun esquema de cortes (D114).
+============================================================ */
+function uniCfg(){ DATA.uni = DATA.uni || { pasaCon:3.0, maxFallas:8, historial:[] }; return DATA.uni; }
+function cortesDe(s){ return s.cortes || (s.cortes = []); }
+
+/* Con lo evaluado hasta ahora: cuanto lleva, cuanto del total ya se jugo, y
+   cuanto necesita en lo que falta para pasar (D90). */
+function estadoMateria(s){
+  const cortes = cortesDe(s);
+  const total = cortes.reduce((a,c)=>a+Number(c.pct||0), 0);
+  const puestos = cortes.filter(c=>c.nota!==null && c.nota!=='' && c.nota!==undefined);
+  const evaluado = puestos.reduce((a,c)=>a+Number(c.pct||0), 0);
+  const acumulado = puestos.reduce((a,c)=>a+Number(c.nota)*Number(c.pct||0), 0) / 100;
+  const nota = evaluado ? (acumulado * 100 / evaluado) : null;
+  const falta = total - evaluado;
+  const pasa = uniCfg().pasaCon;
+  let necesita = null;
+  if(falta > 0) necesita = (pasa * total / 100 - acumulado) * 100 / falta;
+  return { total, evaluado, falta, nota, acumulado, necesita,
+           imposible: necesita !== null && necesita > 5,
+           yaPaso: necesita !== null && necesita <= 0 };
+}
+
+/* El promedio es de toda la carrera, no solo del bimestre (D100). */
+function promedioCarrera(){
+  const notas = [];
+  (uniCfg().historial||[]).forEach(p=>(p.materias||[]).forEach(m=>{ if(Number(m.nota)) notas.push(Number(m.nota)); }));
+  DATA.subjects.forEach(s=>{ const e = estadoMateria(s); if(e.nota!==null) notas.push(e.nota); });
+  if(!notas.length) return null;
+  return notas.reduce((a,n)=>a+n,0) / notas.length;
+}
+function nota1(n){ return n===null||n===undefined ? '—' : Number(n).toFixed(1).replace('.', ','); }
+function fallasTotales(){ return DATA.subjects.reduce((a,s)=>a+Number(s.fallas||0), 0); }
+
 /* ---- Universidad ---- */
 function renderMaterias(){
   const box = document.getElementById('sub-materias');
   const subs = [...DATA.subjects].sort((a,b)=> a.day-b.day || (a.start||'').localeCompare(b.start||''));
-  let html = `<div class="period-pill" id="periodPill">📚 ${esc(DATA.period) || 'Sin período configurado'} <span style="font-size:11px;">✎</span></div>
-    <div class="section-title">Horario</div>`;
+  const cfg = uniCfg();
+  const prom = promedioCarrera();
+  const fallas = fallasTotales();
+
+  let html = `<div class="period-pill" id="periodPill">📚 ${esc(DATA.period) || 'Sin período configurado'} <span style="font-size:11px;">✎</span></div>`;
+
+  /* ---- los dos números de arriba ---- */
+  html += `<div class="summary-row">
+      <div class="summary-box"><div class="lbl">Promedio de la carrera</div><div class="val mono">${nota1(prom)}</div></div>
+      <div class="summary-box" id="fallasBox" style="cursor:pointer;"><div class="lbl">Fallas este bimestre</div>
+        <div class="val mono" style="color:${fallas>=cfg.maxFallas?'var(--urgent)':fallas>=cfg.maxFallas*0.6?'var(--ambar)':'var(--text)'}">${fallas} <span style="font-size:13px; color:var(--text-dim);">/ ${cfg.maxFallas}</span></div></div>
+    </div>`;
+
+  /* ---- la que está en riesgo, de primera (D90) ---- */
+  const enRiesgo = subs.map(s=>({s, e:estadoMateria(s)}))
+    .filter(x=> x.e.necesita !== null && x.e.necesita > 0 && x.e.evaluado > 0)
+    .sort((a,b)=> b.e.necesita - a.e.necesita)[0];
+  if(enRiesgo){
+    const {s,e} = enRiesgo;
+    html += `<div class="card" style="border-left:3px solid ${e.imposible?'var(--urgent)':'var(--ambar)'}; background:${e.imposible?'var(--urgent-soft)':'var(--ambar-soft)'};">
+      <div style="font-weight:700; font-size:15px;">${e.imposible ? `Con ${esc(s.name)} ya no alcanzas` : `Necesitas ${nota1(e.necesita)} en lo que falta de ${esc(s.name)}`}</div>
+      <div class="helptext" style="margin:4px 0 0;">Llevas ${nota1(e.nota)} con el ${Math.round(e.evaluado)}% evaluado.${e.imposible ? ' Tendrías que sacar más de 5,0, que no se puede.' : ` Con menos de ${nota1(e.necesita)} no pasas.`}</div>
+    </div>`;
+  }
+
+  /* ---- las materias ---- */
+  html += `<div class="section-title"><span>Materias</span><span class="cuenta">${subs.length}</span></div>`;
   if(subs.length){
     subs.forEach(s=>{
-      const tasks = DATA.academicTasks.filter(t=>t.subject===s.name).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+      const e = estadoMateria(s);
+      const tasks = DATA.academicTasks.filter(t=>t.subject===s.name && !t.done).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+      const colorNota = e.nota===null ? 'var(--text-dim)' : e.nota < cfg.pasaCon ? 'var(--urgent)' : 'var(--done)';
       html += `<div class="subject-group">
-        <div class="subject-row" data-id="${s.id}">
-          <div class="info"><div class="name">${esc(s.name)}</div><div class="time">${DOW[s.day]} · ${esc(s.start||'--')}${s.end?'–'+esc(s.end):''}</div></div>
-          <button class="small-btn" data-action="delSubject" data-id="${s.id}">Eliminar</button>
+        <div class="subject-row materia-row" data-id="${s.id}" style="cursor:pointer; border-left-color:var(--c-uni);">
+          <div class="info">
+            <div class="name">${esc(s.name)}</div>
+            <div class="time">${DOW[s.day]} · ${esc(s.start||'--')}${s.end?'–'+esc(s.end):''} · ${e.total ? Math.round(e.evaluado)+'% evaluado' : 'sin porcentajes'}${s.fallas ? ' · '+s.fallas+' falla'+(s.fallas>1?'s':'') : ''}</div>
+          </div>
+          <div class="mono" style="font-size:19px; font-weight:600; color:${colorNota};">${nota1(e.nota)}</div>
         </div>
+        ${e.total && e.total!==100 ? `<div class="helptext" style="margin:2px 0 6px 14px; color:var(--ambar);">Los porcentajes suman ${Math.round(e.total)}%, no 100%.</div>` : ''}
         ${tasks.map(t=>`
-          <div class="module-row ${t.done?'done':''}" data-id="${t.id}" style="margin-left:14px;">
-            <button class="module-check ${t.done?'done':''}" data-action="toggleTask" data-id="${t.id}"></button>
+          <div class="module-row" data-id="${t.id}" style="margin-left:14px;">
+            <button class="module-check" data-action="toggleTask" data-id="${t.id}"></button>
             <div style="flex:1; min-width:0;"><div class="mname">${esc(t.name)}</div><div class="meta" style="margin-top:2px;">${esc(t.type)}${t.date?' · '+niceDateShort(t.date):''}</div></div>
             <button class="small-btn" data-action="delTask" data-id="${t.id}">✕</button>
           </div>`).join('')}
       </div>`;
     });
+    html += `<div class="helptext">Tócale a una materia para poner sus cortes, sus notas y sus fallas. Cada materia tiene los porcentajes que tenga: no se asume ninguno.</div>`;
   } else {
-    html += '<div class="empty-card">Aún no agregas materias de este período.</div>';
+    html += '<div class="empty-card">Aún no agregas materias de este período. Cuando te den el horario del bimestre, cárgalas acá.</div>';
   }
   html += `<button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addSubjectBtn">+ Agregar materia</button>`;
 
-  const generalTasks = DATA.academicTasks.filter(t=>!t.subject).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
-  html += `<div class="section-title" style="margin-top:24px;">Tareas generales</div>`;
-  html += generalTasks.length ? generalTasks.map(t=>`
-    <div class="module-row ${t.done?'done':''}" data-id="${t.id}">
-      <button class="module-check ${t.done?'done':''}" data-action="toggleTask" data-id="${t.id}"></button>
-      <div style="flex:1; min-width:0;"><div class="mname">${esc(t.name)}</div><div class="meta" style="margin-top:2px;">${esc(t.type)}${t.date?' · '+niceDateShort(t.date):''}</div></div>
-      <button class="small-btn" data-action="delTask" data-id="${t.id}">✕</button>
-    </div>`).join('') : '<div class="empty-card">Sin tareas generales.</div>';
+  /* ---- entregas próximas ---- */
+  const entregas = DATA.academicTasks.filter(t=>!t.done && t.date).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,5);
+  html += `<div class="section-title" style="margin-top:24px;">Entregas próximas</div>`;
+  html += entregas.length ? entregas.map(t=>{
+    const dias = daysBetween(todayStr(), t.date);
+    const cuando = dias<0 ? 'Atrasada' : dias===0 ? 'Hoy' : dias===1 ? 'Mañana' : niceDate(t.date);
+    return `<div class="item" style="border-left-color:var(--c-uni);">
+      <div class="body"><div class="row1"><div class="title">${esc(t.name)}</div>
+        <span class="tag" style="background:${dias<=1?'var(--urgent-soft)':'var(--accent-soft)'}; color:${dias<=1?'var(--urgent)':'var(--accent)'};">${esc(cuando)}</span></div>
+      <div class="meta"><span>${esc(t.subject||'General')}${t.type?' · '+esc(t.type):''}</span></div></div>
+    </div>`;
+  }).join('') : '<div class="empty-card">Sin entregas con fecha.</div>';
   html += `<button class="btn btn-primary" style="width:100%; margin-top:10px;" id="addTaskBtn">+ Agregar tarea/proyecto/entregable</button>`;
+
+  /* ---- lo de bimestres pasados ---- */
+  html += `<div class="section-title" style="margin-top:24px;"><span>Bimestres pasados</span><button class="small-btn" id="cerrarBimestreBtn">Cerrar este</button></div>`;
+  html += (cfg.historial||[]).length ? cfg.historial.map(h=>`
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:baseline;">
+        <div style="font-weight:600;">${esc(h.periodo||'Bimestre')}</div>
+        <div class="mono" style="font-weight:700;">${nota1((h.materias||[]).reduce((a,m)=>a+Number(m.nota||0),0)/Math.max(1,(h.materias||[]).length))}</div>
+      </div>
+      <div class="helptext" style="margin:3px 0 0;">${(h.materias||[]).map(m=>esc(m.name)+' '+nota1(m.nota)).join(' · ')}</div>
+    </div>`).join('') : '<div class="empty-card">Todavía no has cerrado ningún bimestre. Cuando termines este, ciérralo y sus notas pasan al promedio de la carrera.</div>';
 
   box.innerHTML = html;
   document.getElementById('periodPill').onclick = openPeriodModal;
   document.getElementById('addSubjectBtn').onclick = openSubjectModal;
   document.getElementById('addTaskBtn').onclick = openTaskModal;
-  box.querySelectorAll('[data-action="delSubject"]').forEach(b=>{ b.onclick=(ev)=>{ ev.stopPropagation(); DATA.subjects = DATA.subjects.filter(s=>s.id!==b.dataset.id); saveData(); renderMaterias(); }; });
+  document.getElementById('fallasBox').onclick = openUniAjustes;
+  document.getElementById('cerrarBimestreBtn').onclick = cerrarBimestre;
+  box.querySelectorAll('.materia-row').forEach(r=>{
+    r.onclick = (ev)=>{ if(ev.target.closest('.small-btn')) return; openMateriaModal(DATA.subjects.find(x=>x.id===r.dataset.id)); };
+  });
   box.querySelectorAll('[data-action="toggleTask"]').forEach(b=>{
-    b.onclick=()=>{ const t=DATA.academicTasks.find(x=>x.id===b.dataset.id); t.done=!t.done; setLinkedEventStatus('academicTask', t.id, t.done?'hecho':'pendiente'); saveData(); renderMaterias(); };
+    b.onclick=(ev)=>{ ev.stopPropagation(); const t=DATA.academicTasks.find(x=>x.id===b.dataset.id); t.done=!t.done; setLinkedEventStatus('academicTask', t.id, t.done?'hecho':'pendiente'); saveData(); renderMaterias(); };
   });
   box.querySelectorAll('[data-action="delTask"]').forEach(b=>{
-    b.onclick=()=>{ DATA.academicTasks = DATA.academicTasks.filter(x=>x.id!==b.dataset.id); removeLinkedEvent('academicTask', b.dataset.id); saveData(); renderMaterias(); };
+    b.onclick=(ev)=>{ ev.stopPropagation(); DATA.academicTasks = DATA.academicTasks.filter(x=>x.id!==b.dataset.id); removeLinkedEvent('academicTask', b.dataset.id); saveData(); renderMaterias(); };
   });
+}
+
+/* Una materia por dentro: su horario, sus cortes con sus porcentajes, sus
+   notas y sus fallas. */
+function openMateriaModal(s){
+  if(!s) return;
+  const e = estadoMateria(s);
+  const cortes = cortesDe(s);
+  openSheet(`<h3>${esc(s.name)}</h3>
+    <div class="card" style="margin-bottom:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:baseline;">
+        <div style="font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; font-weight:700;">Vas en</div>
+        <div class="mono" style="font-size:24px; font-weight:600;">${nota1(e.nota)}</div>
+      </div>
+      <div class="helptext" style="margin:3px 0 0;">${e.total ? Math.round(e.evaluado)+'% evaluado de '+Math.round(e.total)+'%' : 'Ponle los cortes para que esto calcule'}${
+        e.necesita!==null && e.falta>0 ? (e.yaPaso ? ' · ya pasaste, pase lo que pase' : e.imposible ? ' · ya no alcanzas a pasar' : ' · necesitas '+nota1(e.necesita)+' en el '+Math.round(e.falta)+'% que falta') : ''}</div>
+    </div>
+
+    <div class="field"><label>Cortes y porcentajes</label>
+      <div id="cortesBox">${cortes.map((c,i)=>`
+        <div class="field-row corte-row" data-i="${i}" style="align-items:flex-end;">
+          <div class="field" style="flex:2;"><input type="text" data-campo="nombre" value="${esc(c.nombre||'')}" placeholder="Ej: Parcial"></div>
+          <div class="field" style="flex:1;"><input type="number" data-campo="pct" value="${c.pct??''}" placeholder="%" inputmode="numeric"></div>
+          <div class="field" style="flex:1;"><input type="number" data-campo="nota" value="${c.nota??''}" placeholder="Nota" inputmode="decimal" step="0.1"></div>
+          <button class="small-btn" data-quitar="${i}" style="margin-bottom:14px;">✕</button>
+        </div>`).join('')}</div>
+      <button class="small-btn" id="addCorte">+ Corte</button>
+      <div class="helptext">Deja la nota en blanco mientras no te la den. Los porcentajes de esta materia son los que tú pongas.</div>
+    </div>
+
+    <div class="field-row">
+      <div class="field"><label>Fallas</label><input type="number" id="f_fallas" value="${s.fallas||0}" inputmode="numeric" min="0"></div>
+      <div class="field"><label>Día</label><select id="f_mday">${DOW.map((d,i)=>`<option value="${i}" ${s.day===i?'selected':''}>${d}</option>`).join('')}</select></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Empieza</label><input type="time" id="f_mstart" value="${esc(s.start||'')}"></div>
+      <div class="field"><label>Termina</label><input type="time" id="f_mend" value="${esc(s.end||'')}"></div>
+    </div>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" id="delMateria">Borrar materia</button>
+      <button class="btn btn-primary" id="saveMateria">Guardar</button>
+    </div>`);
+
+  function leerCortes(){
+    const out = [];
+    sheet.querySelectorAll('.corte-row').forEach(row=>{
+      const v = campo => row.querySelector(`[data-campo="${campo}"]`).value;
+      const nombre = v('nombre').trim();
+      if(!nombre && !v('pct')) return;
+      out.push({ id:uid(), nombre, pct:Number(v('pct'))||0, nota: v('nota')==='' ? null : Number(v('nota')) });
+    });
+    return out;
+  }
+  document.getElementById('addCorte').onclick = ()=>{ s.cortes = leerCortes(); s.cortes.push({id:uid(), nombre:'', pct:'', nota:null}); openMateriaModal(s); };
+  sheet.querySelectorAll('[data-quitar]').forEach(b=>{
+    b.onclick = ()=>{ const i=Number(b.dataset.quitar); const c=leerCortes(); c.splice(i,1); s.cortes=c; openMateriaModal(s); };
+  });
+  document.getElementById('delMateria').onclick = ()=>{
+    DATA.subjects = DATA.subjects.filter(x=>x.id!==s.id); saveData(); closeSheet(); renderAll();
+  };
+  document.getElementById('saveMateria').onclick = ()=>{
+    s.cortes = leerCortes();
+    s.fallas = Number(document.getElementById('f_fallas').value)||0;
+    s.day = Number(document.getElementById('f_mday').value);
+    s.start = document.getElementById('f_mstart').value;
+    s.end = document.getElementById('f_mend').value;
+    saveData(); closeSheet(); renderAll();
+  };
+}
+
+function openUniAjustes(){
+  const cfg = uniCfg();
+  openSheet(`<h3>Universidad</h3>
+    <div class="field"><label>Se pasa con</label><input type="number" id="f_pasa" step="0.1" inputmode="decimal" value="${cfg.pasaCon}"></div>
+    <div class="field"><label>Máximo de fallas antes de perder</label><input type="number" id="f_maxf" inputmode="numeric" value="${cfg.maxFallas}"></div>
+    <div class="helptext">Algunas materias reprueban por inasistencia, así que Bitácora te lleva la cuenta.</div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="saveUni">Guardar</button></div>`);
+  document.getElementById('saveUni').onclick = ()=>{
+    cfg.pasaCon = Number(document.getElementById('f_pasa').value) || 3;
+    cfg.maxFallas = Number(document.getElementById('f_maxf').value) || 8;
+    saveData(); closeSheet(); renderMaterias();
+  };
+}
+
+/* Cerrar el bimestre guarda las notas y deja el tablero limpio para el que
+   viene, sin perder el promedio de la carrera (D100). */
+function cerrarBimestre(){
+  if(!DATA.subjects.length){ alert('No hay materias que cerrar.'); return; }
+  const materias = DATA.subjects.map(s=>({ name:s.name, nota:estadoMateria(s).nota }));
+  const sinNota = materias.filter(m=>m.nota===null).length;
+  const aviso = sinNota ? `\n\n${sinNota} materia${sinNota>1?'s':''} sin nota quedarán sin contar.` : '';
+  if(!confirm(`¿Cerrar ${DATA.period||'este bimestre'} y guardar sus notas?${aviso}\n\nLas materias salen del tablero y sus notas pasan al promedio de la carrera.`)) return;
+  uniCfg().historial.push({ periodo: DATA.period || ('Bimestre ' + (uniCfg().historial.length+1)), materias: materias.filter(m=>m.nota!==null), cerrado: todayStr() });
+  DATA.subjects = [];
+  DATA.academicTasks = DATA.academicTasks.filter(t=>!t.done);
+  saveData(); renderAll();
 }
 function openTaskModal(){
   openSheet(`<h3>Agregar tarea / proyecto / entregable</h3>
