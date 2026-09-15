@@ -145,8 +145,42 @@ button{font-family:inherit;}
 .item{display:flex; align-items:flex-start; gap:11px; background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--accent); border-radius:var(--radius-sm); padding:12px; margin-bottom:8px; cursor:pointer;}
 .item:active{background:var(--surface-2);}
 .item .hora{flex:none; width:44px; font-size:12.5px; font-weight:600; color:var(--text-muted); padding-top:1px;}
-.hueco{margin:0 0 8px 0; padding:7px 12px 7px 15px; border-left:2px dashed var(--border-2); font-size:12.5px; color:var(--text-muted); display:flex; align-items:center; gap:9px; flex-wrap:wrap;}
-.cabe{background:var(--accent-soft); color:var(--accent); font-weight:600; padding:2px 8px; border-radius:20px; font-size:11.5px;}
+
+/* ---------- la portada: quieta a proposito ---------- */
+.rotulo{display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin:24px 0 10px; font-size:13px; font-weight:600; color:var(--text-muted);}
+.rotulo span:last-child{font-size:12px; font-weight:500; color:var(--text-dim);}
+.rotulo:first-child{margin-top:6px;}
+
+/* lo que vence: una linea por cosa, sin tarjeta ni etiquetas de colores */
+.vence{margin:2px 0 4px;}
+.vence-fila{display:flex; align-items:center; gap:10px; padding:9px 2px; border-bottom:1px solid var(--border);}
+.vence-fila:last-child{border-bottom:none;}
+.vence-fila .punto{width:7px; height:7px; border-radius:50%; flex:none;}
+.vence-fila .que{flex:1; min-width:0; font-size:14.5px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.vence-fila .cuando{flex:none; font-size:12px; color:var(--text-muted); font-weight:600;}
+
+/* un bloque: hora, nombre, lugar y el circulo. Nada mas (D105) */
+.bloque{display:flex; align-items:center; gap:11px; padding:11px 2px; }
+.bloque .hora{flex:none; width:46px; font-size:13px; font-weight:600; color:var(--text); line-height:1.25;}
+.bloque .hora .hasta{display:block; font-size:11px; font-weight:400; color:var(--text-dim);}
+.bloque .raya{flex:none; width:3px; align-self:stretch; border-radius:3px; min-height:26px;}
+.bloque .cuerpo{flex:1; min-width:0;}
+.bloque .nombre{font-size:15px; font-weight:600; line-height:1.3;}
+.bloque .sitio{font-size:12.5px; color:var(--text-muted); margin-top:2px;}
+.bloque.hecho .nombre{color:var(--text-dim); text-decoration:line-through;}
+.bloque .status-btn{width:24px; height:24px; margin:0;}
+
+/* el hueco es espacio, no un renglon mas (D108) */
+.hueco{margin:0; padding:6px 0 6px 57px; font-size:12px; color:var(--text-dim); display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-height:26px;}
+.cabe{color:var(--accent); font-weight:600;}
+
+/* lo que no tiene hora, en el mismo idioma que lo demas */
+.suelto{display:flex; align-items:center; gap:10px; padding:9px 2px; border-bottom:1px solid var(--border);}
+.suelto:last-child{border-bottom:none;}
+.suelto .punto{width:7px; height:7px; border-radius:50%; flex:none; margin:0 8px;}
+.suelto .que{flex:1; min-width:0; font-size:14.5px; font-weight:500;}
+.suelto .de{flex:none; font-size:12px; color:var(--text-dim);}
+.status-btn.chico{width:20px; height:20px; margin-left:2px;}
 .cuenta{font-size:11.5px; color:var(--text-muted); font-weight:600; text-transform:none; letter-spacing:0;}
 .item .body{flex:1; min-width:0;}
 .item .row1{display:flex; align-items:center; justify-content:space-between; gap:8px;}
@@ -362,7 +396,6 @@ button{font-family:inherit;}
       <button class="sync" id="syncBtn" type="button" data-state="sync" aria-live="polite" title="Estado de sincronización — tocar para sincronizar ahora"><span class="sync-dot"></span><span id="syncText">Conectando…</span></button>
     </div>
     <h1 id="dateLabel">—</h1>
-    <svg class="linework" viewBox="0 0 400 14" preserveAspectRatio="none"><path d="M0 7 Q 20 1, 40 7 T 80 7 T 120 7 T 160 7 T 200 7 T 240 7 T 280 7 T 320 7 T 360 7 T 400 7" stroke="#8B6CF9" stroke-width="1.2" fill="none" opacity="0.6"/></svg>
   </div>
 
   <!-- ===== HOY ===== -->
@@ -816,7 +849,7 @@ function bindItemClicks(){
       saveData(); renderAll();
     };
   });
-  document.querySelectorAll('.item[data-id]').forEach(it=>{
+  document.querySelectorAll('.item[data-id], .bloque[data-id]').forEach(it=>{
     it.addEventListener('click', (ev)=>{
       if(ev.target.closest('[data-action="cyclestatus"]')) return;
       const e = DATA.events.find(x=>x.id===it.dataset.id);
@@ -862,6 +895,12 @@ function renderHoy(){
     vencen.push({ titulo:e.title, cuando:'Atrasado', sub:niceDateShort(e.date),
       color:CATS[e.cat]?CATS[e.cat].color:'var(--text-dim)', tarde:true });
   });
+  /* las mismas que disparan el aviso del dia antes, para que no se contradigan */
+  (DATA.academicTasks||[]).forEach(a=>{
+    if(a.done || !a.date || a.date > manana) return;
+    vencen.push({ titulo:a.name, cuando:a.date<t?'Atrasada':a.date===t?'Hoy':'Mañana',
+      sub:a.subject||'Universidad', color:'var(--c-uni)', tarde:a.date<t });
+  });
   (DATA.suscripciones||[]).forEach(x=>{
     const prox = proximoCobro(x);
     if(prox && (prox===t || prox===manana)) vencen.push({ titulo:x.nombre, cuando:prox===t?'Hoy':'Mañana',
@@ -873,30 +912,29 @@ function renderHoy(){
   });
 
   document.getElementById('hoyUrgent').innerHTML = vencen.length ? `
-    <div class="section-title"><span>Vence pronto</span><span class="cuenta">${vencen.length}</span></div>
-    ${vencen.map(v=>`
-      <div class="item" style="border-left-color:${v.color};">
-        <div class="body">
-          <div class="row1"><div class="title">${esc(v.titulo)}</div>
-            <span class="tag" style="background:${v.tarde?'var(--urgent-soft)':'var(--ambar-soft)'}; color:${v.tarde?'var(--urgent)':'var(--ambar)'};">${esc(v.cuando)}</span></div>
-          <div class="meta"><span>${esc(v.sub)}</span></div>
-        </div>
-      </div>`).join('')}` : '';
+    <div class="vence">
+      ${vencen.map(v=>`
+        <div class="vence-fila">
+          <span class="punto" style="background:${v.tarde?'var(--urgent)':'var(--ambar)'};"></span>
+          <span class="que">${esc(v.titulo)}</span>
+          <span class="cuando">${esc(v.cuando)}</span>
+        </div>`).join('')}
+    </div>` : '';
 
   /* ---- 2 · tu día: todo lo que tiene hora, junto y en orden ---- */
   const bloques = [];
   weekdayItems(dow).forEach(c=>{
     if(!c.start) return;
-    bloques.push({ titulo:c.name, start:c.start, end:c.end, color:c.color, sub:c.tag, fijo:true });
+    bloques.push({ titulo:c.name, start:c.start, end:c.end, color:c.color, lugar:(c.ref&&c.ref.notes)||'' });
   });
   DATA.events.filter(e=>e.date===t && e.start).forEach(e=>{
-    bloques.push({ titulo:e.title, start:e.start, end:e.end, color:CATS[e.cat]?CATS[e.cat].color:'var(--text-dim)',
-      sub:CATS[e.cat]?CATS[e.cat].label:'', ev:e });
+    bloques.push({ titulo:e.title, start:e.start, end:e.end,
+      color:CATS[e.cat]?CATS[e.cat].color:'var(--text-dim)', lugar:e.lugar||'', ev:e });
   });
   bloques.sort(porHora);
 
   /* los huecos se ven como espacio entre bloques, no como un texto aparte (D108) */
-  let libres = 0;
+  let totalLibre = 0;
   const filas = [];
   bloques.forEach((b,i)=>{
     filas.push({ tipo:'bloque', b });
@@ -905,7 +943,7 @@ function renderHoy(){
     const fin = finEnMinutos(b.start, b.end||b.start);
     const ini2 = minutosDe(sig.start);
     const hueco = ini2 - fin;
-    if(hueco >= 30){ libres += hueco; filas.push({ tipo:'hueco', min:hueco, hasta:sig.start }); }
+    if(hueco >= 30){ totalLibre += hueco; filas.push({ tipo:'hueco', min:hueco, hasta:sig.start }); }
   });
 
   const cabe = (DATA.pendientes||[]).filter(p=>!p.hecho).sort((a,b)=> (a.urgencia==='urgente'?0:1)-(b.urgencia==='urgente'?0:1))[0];
@@ -913,32 +951,43 @@ function renderHoy(){
   filas.forEach((f,i)=>{ if(f.tipo==='hueco' && f.min>mejor){ mejor=f.min; mayor=i; } });
   const lista = document.getElementById('hoyList');
   lista.innerHTML = bloques.length ? filas.map(f=>{
-    if(f.tipo==='hueco') return `<div class="hueco">${duracionLarga(f.min)} libres · hasta ${esc(f.hasta)}${filas.indexOf(f)===mayor && f.min>=60 && cabe ? `<span class="cabe">cabe: ${esc(cabe.titulo)}</span>` : ''}</div>`;
+    if(f.tipo==='hueco') return `<div class="hueco">${libres(f.min)} · hasta ${esc(f.hasta)}${filas.indexOf(f)===mayor && f.min>=60 && cabe ? `<span class="cabe">cabe: ${esc(cabe.titulo)}</span>` : ''}</div>`;
     const b = f.b;
-    return `<div class="item" style="border-left-color:${b.color};" ${b.ev?`data-id="${b.ev.id}"`:'style="cursor:default;"'}>
-      <div class="hora mono">${esc(b.start)}</div>
-      <div class="body"><div class="row1"><div class="title">${esc(b.titulo)}</div></div>
-      <div class="meta"><span>${esc(b.end?b.start+'–'+b.end:b.start)}${b.sub?' · '+esc(b.sub):''}</span></div></div>
+    /* nombre, hora y lugar, y el circulo para marcarlo. Nada mas (D105, D107) */
+    const hecho = b.ev && b.ev.status==='hecho';
+    const progreso = b.ev && b.ev.status==='progreso';
+    return `<div class="bloque${hecho?' hecho':''}" ${b.ev?`data-id="${b.ev.id}"`:''}>
+      <div class="hora mono">${esc(b.start)}${b.end?`<span class="hasta">${esc(b.end)}</span>`:''}</div>
+      <div class="raya" style="background:${b.color};"></div>
+      <div class="cuerpo">
+        <div class="nombre">${esc(b.titulo)}</div>
+        ${b.lugar && b.lugar.trim() !== b.titulo.trim() ? `<div class="sitio">${esc(b.lugar)}</div>` : ''}
+      </div>
+      ${b.ev ? `<button class="status-btn ${hecho?'hecho':progreso?'progreso':''}" data-action="cyclestatus" data-id="${b.ev.id}"></button>` : ''}
     </div>`;
   }).join('') : `<div class="empty-card">Hoy no tienes nada con hora. Toca + para agregar algo.</div>`;
 
   document.getElementById('hoyClasses').innerHTML = bloques.length
-    ? `<div class="section-title"><span>Tu día</span><span class="cuenta">${bloques.length} bloque${bloques.length>1?'s':''}${libres?' · '+duracionLarga(libres)+' libres':''}</span></div>`
-    : `<div class="section-title">Tu día</div>`;
+    ? `<div class="rotulo"><span>Tu día</span><span>${totalLibre ? libres(totalLibre) : bloques.length+' bloques'}</span></div>`
+    : `<div class="rotulo"><span>Tu día</span></div>`;
 
   /* ---- 3 · lo flexible de hoy: sin hora ---- */
   const sueltos = DATA.events.filter(e=>e.date===t && !e.start && e.status!=='hecho');
   const urgentes = (DATA.pendientes||[]).filter(p=>!p.hecho && p.urgencia==='urgente');
   const flexBox = document.getElementById('hoyUpcoming');
   flexBox.innerHTML = (sueltos.length || urgentes.length) ? `
-    <div class="section-title">Lo flexible de hoy</div>
-    ${sueltos.map(itemHTML).join('')}
+    <div class="rotulo" style="margin-top:22px;"><span>Sin hora</span></div>
+    ${sueltos.map(e=>`
+      <div class="suelto" data-id="${e.id}">
+        <span class="punto" style="background:${CATS[e.cat]?CATS[e.cat].color:'var(--text-dim)'};"></span>
+        <span class="que">${esc(e.title)}</span>
+      </div>`).join('')}
     ${urgentes.map(p=>{
       const l = (DATA.listas||[]).find(x=>x.id===p.listaId);
-      return `<div class="pend" style="border-left-color:var(--urgent)">
-        <button class="status-btn" data-action="togglePend" data-pid="${p.id}"></button>
-        <div class="txt">${esc(p.titulo)}</div>
-        <span class="urg" data-nivel="urgente">${l?esc(l.nombre):'lista'}</span>
+      return `<div class="suelto">
+        <button class="status-btn chico" data-action="togglePend" data-pid="${p.id}"></button>
+        <span class="que">${esc(p.titulo)}</span>
+        ${l ? `<span class="de">${esc(l.nombre)}</span>` : ''}
       </div>`;
     }).join('')}` : '';
 
@@ -2546,6 +2595,10 @@ function hhmm(min){
 function duracionLarga(min){
   const h = Math.floor(min/60), m = min%60;
   return h ? (h + ' h' + (m ? ' ' + m : '')) : (m + ' min');
+}
+/* "1 h libre" y no "1 h libres". */
+function libres(min){
+  return duracionLarga(min) + (min === 60 ? ' libre' : ' libres');
 }
 
 /* Los compromisos fijos que Sharon ya tiene (D27). Solo se siembran una vez. */
