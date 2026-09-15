@@ -184,6 +184,14 @@ button{font-family:inherit;}
 .suelto .de{flex:none; font-size:12px; color:var(--text-dim);}
 
 /* ---------- la mañana y el cierre ---------- */
+.agregar-opciones{display:grid; gap:8px;}
+.opcion-agregar{width:100%; text-align:left; background:var(--surface-2); border:1px solid var(--border);
+  border-radius:var(--radius); padding:14px 15px; cursor:pointer; color:var(--text);}
+.opcion-agregar .que{display:block; font-size:15px; font-weight:600;}
+.opcion-agregar .nota{display:block; font-size:12.5px; color:var(--text-muted); margin-top:2px;}
+
+.lista-head .nombre{background:none; border:none; padding:0; color:inherit; font:inherit; cursor:pointer; display:flex; align-items:center; gap:7px; text-align:left;}
+
 .manana{margin-bottom:6px;}
 .manana .saludo{font-size:15px; font-weight:600; margin-bottom:12px;}
 .manana .par{display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap;}
@@ -470,7 +478,6 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
     <div id="choquesSemana"></div>
     <div class="section-title" style="margin-top:28px;">
       <span>Turnos</span>
-      <button class="small-btn" id="addTurnoBtn">+ Turno</button>
     </div>
     <div id="turnosBody"></div>
     <div class="section-title" style="margin-top:28px;">Lo que se repite</div>
@@ -498,10 +505,7 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
       <div class="helptext">Esto se queda en su lista, sin fecha, hasta que lo marques. Si querés agendarlo para un día, tocá el texto y ponele fecha.</div>
       <div id="listasBody"></div>
 
-      <div class="section-title" style="margin-top:28px;">
-        <span>Agendado pendiente</span>
-        <button class="small-btn" id="markDoneBtn" style="background:var(--done-soft); color:var(--done); border-color:transparent;">✓ Ya lo hice</button>
-      </div>
+      <div class="section-title" style="margin-top:28px;">Agendado pendiente</div>
       <div id="checklistBody"></div>
     </div>
     <div id="sub-materias" style="display:none"></div>
@@ -1174,10 +1178,11 @@ function renderListas(){
     const faltan = items.filter(p=>!p.hecho).length;
     const hechas = items.length - faltan;
     return `<div class="lista-head">
-        <span class="nombre"><span class="punto" style="background:${l.color}"></span>${esc(l.nombre)}<span style="color:var(--text-dim); font-weight:500;">· ${faltan}</span></span>
+        <button class="nombre" data-action="editarLista" data-lista="${l.id}" title="Tocar para cambiarle el nombre o el color">
+          <span class="punto" style="background:${l.color}"></span>${esc(l.nombre)}<span style="color:var(--text-dim); font-weight:500;">· ${faltan}</span>
+        </button>
         <span class="acciones">
           ${hechas ? `<button class="small-btn" data-action="limpiarLista" data-lista="${l.id}">Limpiar ${hechas} hecha${hechas>1?'s':''}</button>` : ''}
-          <button class="small-btn" data-action="editarLista" data-lista="${l.id}">✎</button>
         </span>
       </div>` +
       (items.length ? items.map(p=>pendienteHTML(p, l.color)).join('')
@@ -1315,7 +1320,7 @@ function openListaModal(lista){
     saveData(); closeSheet(); renderAll();
   };
 }
-document.getElementById('markDoneBtn').onclick = ()=>openDoneModal();
+
 
 /* ============================================================
    RENDER: GESTIÓN
@@ -1332,13 +1337,7 @@ function renderRutinas(){
           <div class="name">${CATS[r.cat].emoji} ${esc(r.title)} ${flexPill(r)}</div>
           <div class="time">${r.days.map(d=>DOW_SHORT[d]).join(' · ')} ${r.start?'· '+esc(r.start)+(r.end?'–'+esc(r.end):''):''}</div>
         </div>
-        <button class="small-btn" data-action="delRoutine" data-id="${r.id}">Eliminar</button>
-      </div>`).join('') : '<div class="empty-card">Aún no tienes rutinas o patrones semanales.</div>'}
-    <button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addRoutineBtn">+ Agregar rutina semanal</button>`;
-  document.getElementById('addRoutineBtn').onclick = ()=>openRoutineModal();
-  box.querySelectorAll('[data-action="delRoutine"]').forEach(b=>{
-    b.onclick=(e)=>{ e.stopPropagation(); DATA.routines = DATA.routines.filter(x=>x.id!==b.dataset.id); saveData(); renderAll(); };
-  });
+      </div>`).join('') : '<div class="empty-card">Aún no tienes rutinas o patrones semanales.</div>'}`;
   box.querySelectorAll('.rutina-row').forEach(row=>{
     row.onclick = ()=> openRoutineModal(DATA.routines.find(x=>x.id===row.dataset.id));
   });
@@ -1495,7 +1494,7 @@ function renderMarca(){
 
   /* ---- el calendario de publicaciones ---- */
   const planeadas = M.publicaciones.filter(p=>p.estado!=='publicada').sort((a,b)=>(a.fecha||'9999').localeCompare(b.fecha||'9999'));
-  html += `<div class="section-title" style="margin-top:22px;"><span>Programadas</span><button class="small-btn" id="addPubBtn">+ Publicación</button></div>`;
+  html += `<div class="section-title" style="margin-top:22px;"><span>Programadas</span></div>`;
   html += planeadas.length ? planeadas.map(p=>{
     const dias = p.fecha ? daysBetween(todayStr(), p.fecha) : null;
     const cuando = p.fecha ? (dias<0?'Se pasó':dias===0?'Hoy':dias===1?'Mañana':niceDate(p.fecha)) : 'Sin fecha';
@@ -1526,7 +1525,7 @@ function renderMarca(){
 
   document.getElementById('addIdeaBtn').onclick = agregarIdea;
   document.getElementById('ideaInput').onkeydown = (ev)=>{ if(ev.key==='Enter') agregarIdea(); };
-  document.getElementById('addPubBtn').onclick = ()=>openPublicacionModal();
+  const _b_addPubBtn = document.getElementById('addPubBtn'); if(_b_addPubBtn) _b_addPubBtn.onclick = ()=>openPublicacionModal();
   box.querySelectorAll('[data-cambiar]').forEach(b=>b.onclick=(ev)=>{
     ev.stopPropagation();
     const i = M.ideas.find(x=>x.id===b.dataset.cambiar);
@@ -1684,7 +1683,6 @@ function renderMaterias(){
           <div class="module-row" data-id="${t.id}" style="margin-left:14px;">
             <button class="module-check" data-action="toggleTask" data-id="${t.id}"></button>
             <div style="flex:1; min-width:0;"><div class="mname">${esc(t.name)}</div><div class="meta" style="margin-top:2px;">${esc(t.type)}${t.date?' · '+niceDateShort(t.date):''}</div></div>
-            <button class="small-btn" data-action="delTask" data-id="${t.id}">✕</button>
           </div>`).join('')}
       </div>`;
     });
@@ -1692,7 +1690,6 @@ function renderMaterias(){
   } else {
     html += `<div class="empty-card">Sin materias cargadas.<br><br>Si estás cerrando el bimestre y solo quieres guardar las notas, tócale a <b>Poner definitivas</b>: ahí las escribes con su nombre, sin horario ni porcentajes.</div>`;
   }
-  html += `<button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addSubjectBtn">+ Agregar materia</button>`;
 
   /* ---- entregas próximas ---- */
   const entregas = DATA.academicTasks.filter(t=>!t.done && t.date).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,5);
@@ -1706,7 +1703,6 @@ function renderMaterias(){
       <div class="meta"><span>${esc(t.subject||'General')}${t.type?' · '+esc(t.type):''}</span></div></div>
     </div>`;
   }).join('') : '<div class="empty-card">Sin entregas con fecha.</div>';
-  html += `<button class="btn btn-primary" style="width:100%; margin-top:10px;" id="addTaskBtn">+ Agregar tarea/proyecto/entregable</button>`;
 
   /* ---- lo de bimestres pasados ---- */
   html += `<div class="section-title" style="margin-top:24px;"><span>Bimestres pasados</span><button class="small-btn" id="cerrarBimestreBtn">Cerrar este</button></div>`;
@@ -1721,8 +1717,8 @@ function renderMaterias(){
 
   box.innerHTML = html;
   document.getElementById('periodPill').onclick = openPeriodModal;
-  document.getElementById('addSubjectBtn').onclick = openSubjectModal;
-  document.getElementById('addTaskBtn').onclick = openTaskModal;
+  const _b_addSubjectBtn = document.getElementById('addSubjectBtn'); if(_b_addSubjectBtn) _b_addSubjectBtn.onclick = openSubjectModal;
+  const _b_addTaskBtn = document.getElementById('addTaskBtn'); if(_b_addTaskBtn) _b_addTaskBtn.onclick = openTaskModal;
   document.getElementById('fallasBox').onclick = openUniAjustes;
   const defiBtn = document.getElementById('defiBtn');
   if(defiBtn) defiBtn.onclick = openDefinitivasModal;
@@ -1733,9 +1729,7 @@ function renderMaterias(){
   box.querySelectorAll('[data-action="toggleTask"]').forEach(b=>{
     b.onclick=(ev)=>{ ev.stopPropagation(); const t=DATA.academicTasks.find(x=>x.id===b.dataset.id); t.done=!t.done; setLinkedEventStatus('academicTask', t.id, t.done?'hecho':'pendiente'); saveData(); renderMaterias(); };
   });
-  box.querySelectorAll('[data-action="delTask"]').forEach(b=>{
-    b.onclick=(ev)=>{ ev.stopPropagation(); DATA.academicTasks = DATA.academicTasks.filter(x=>x.id!==b.dataset.id); removeLinkedEvent('academicTask', b.dataset.id); saveData(); renderMaterias(); };
-  });
+
 }
 
 /* Una materia por dentro: su horario, sus cortes con sus porcentajes, sus
@@ -2030,9 +2024,9 @@ function renderNexxaGestion(){
           <button class="small-btn" data-action="delNexxa" data-id="${ev.id}" style="color:var(--urgent);">Eliminar</button>
         </div>
       </div>`).join('') : '<div class="empty-card">Aún no registras eventos de Nexxa.</div>'}
-    <button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addNexxaBtn">+ Agregar evento</button>
+
   `;
-  document.getElementById('addNexxaBtn').onclick = openNexxaModal;
+  const _b_addNexxaBtn = document.getElementById('addNexxaBtn'); if(_b_addNexxaBtn) _b_addNexxaBtn.onclick = openNexxaModal;
   box.querySelectorAll('[data-action="cycleNexxaStatus"]').forEach(b=>{
     b.onclick = ()=>{
       const ev = DATA.nexxaEvents.find(x=>x.id===b.dataset.id);
@@ -2122,8 +2116,8 @@ function renderTrabajo(){
       <button class="small-btn" data-action="delClient" data-id="${c.id}" style="margin-top:10px; color:var(--urgent);">Eliminar cliente</button>
     </div>`;
   }).join('') : '<div class="empty-card">Aún no registras clientes o empresas.</div>') +
-  `<button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addClientBtn">+ Agregar cliente/empresa</button>`;
-  document.getElementById('addClientBtn').onclick = openClientModal;
+  '';
+  const _b_addClientBtn = document.getElementById('addClientBtn'); if(_b_addClientBtn) _b_addClientBtn.onclick = openClientModal;
   box.querySelectorAll('[data-action="logSession"]').forEach(b=>{ b.onclick=()=>openSessionModal(b.dataset.id); });
   box.querySelectorAll('[data-action="delClient"]').forEach(b=>{ b.onclick=()=>{ DATA.workClients = DATA.workClients.filter(x=>x.id!==b.dataset.id); DATA.workSessions = DATA.workSessions.filter(x=>x.clientId!==b.dataset.id); saveData(); renderTrabajo(); }; });
 }
@@ -2238,9 +2232,9 @@ function renderPersonalGestion(){
         </div>
         <button class="small-btn" data-action="delPersonal" data-id="${it.id}">✕</button>
       </div>`).join('') : '<div class="empty-card">Aún no registras citas, trámites, salidas o cómo usas tu tiempo libre.</div>'}
-    <button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addPersonalBtn">+ Agregar</button>
+
   `;
-  document.getElementById('addPersonalBtn').onclick = ()=>openPersonalModal();
+  const _b_addPersonalBtn = document.getElementById('addPersonalBtn'); if(_b_addPersonalBtn) _b_addPersonalBtn.onclick = ()=>openPersonalModal();
   box.querySelectorAll('.personal-row .body').forEach(bd=>{
     bd.style.cursor = 'pointer';
     bd.onclick = ()=>{
@@ -2384,13 +2378,60 @@ function closeSheet(){ overlay.classList.remove('active'); }
 overlay.addEventListener('click', (e)=>{ if(e.target===overlay) closeSheet(); });
 document.addEventListener('click', (e)=>{ if(e.target.id==='closeSheet') closeSheet(); });
 
-/* El boton de agregar cambia segun donde estes (D109). */
+/* El + es la unica puerta para agregar, y ofrece lo de la seccion donde este
+   (D109). Antes cada pantalla tenia sus propios botones morados de ancho
+   completo, que era lo que mas ruido hacia. */
+function subActiva(vista){
+  const b = document.querySelector('#view-'+vista+' .subtab.active');
+  return b ? b.dataset.sub : null;
+}
+function opcionesDeAgregar(){
+  const vista = views.find(v=>document.getElementById('view-'+v).classList.contains('active'));
+  if(vista==='calendario') return [
+    { que:'Un turno', nota:'Infinity, Asignar o Movistar', hacer:()=>openTurnoModal() },
+    { que:'Algo con fecha y hora', nota:'una cita, un evento', hacer:()=>openEventModal() },
+    { que:'Algo que se repite', nota:'clases, Joel, gym', hacer:()=>openRoutineModal() }
+  ];
+  if(vista==='plata') return [
+    { que:'Un movimiento', nota:'gasto, ingreso, préstamo', hacer:()=>openMovimientoModal() },
+    { que:'Un cobro de cada mes', nota:'como Datos o Claude', hacer:()=>openSuscripcionModal() },
+    { que:'Un préstamo', nota:'lo que debes o te deben', hacer:()=>openDeudaModal() },
+    { que:'Una compra a cuotas', nota:'', hacer:()=>openInstallmentModal() }
+  ];
+  if(vista==='pendientes'){
+    const sub = subActiva('pendientes');
+    if(sub==='materias') return [
+      { que:'Una materia', nota:'', hacer:()=>openSubjectModal() },
+      { que:'Una entrega', nota:'tarea, proyecto, parcial', hacer:()=>openTaskModal() }
+    ];
+    if(sub==='marca') return [
+      { que:'Una publicación', nota:'programarla o anotarla', hacer:()=>openPublicacionModal() }
+    ];
+    if(sub==='nexxa') return [{ que:'Un evento de Nexxa', nota:'', hacer:()=>openNexxaModal() }];
+    if(sub==='trabajo') return [{ que:'Un cliente o empresa', nota:'', hacer:()=>openClientModal() }];
+    return [
+      { que:'Algo con fecha', nota:'lo sin fecha se escribe arriba', hacer:()=>openEventModal() },
+      { que:'Algo que ya hiciste', nota:'para que quede registrado', hacer:()=>openDoneModal() }
+    ];
+  }
+  if(vista==='yo') return [{ que:'Una nota tuya', nota:'', hacer:()=>openPersonalModal() }];
+  return [{ que:'Algo con fecha y hora', nota:'', hacer:()=>openEventModal() }];
+}
+
 document.getElementById('fabAdd').onclick = ()=>{
-  const activa = views.find(v=>document.getElementById('view-'+v).classList.contains('active'));
-  if(activa==='calendario') return openTurnoModal();
-  openEventModal();
+  const opciones = opcionesDeAgregar();
+  if(opciones.length === 1) return opciones[0].hacer();   // una sola: sin menu de por medio
+  openSheet(`<h3>¿Qué agregamos?</h3>
+    <div class="agregar-opciones">
+      ${opciones.map((o,i)=>`<button class="opcion-agregar" data-i="${i}">
+        <span class="que">${esc(o.que)}</span>
+        ${o.nota ? `<span class="nota">${esc(o.nota)}</span>` : ''}
+      </button>`).join('')}
+    </div>`);
+  sheet.querySelectorAll('.opcion-agregar').forEach(b=>{
+    b.onclick = ()=>{ closeSheet(); opciones[Number(b.dataset.i)].hacer(); };
+  });
 };
-document.addEventListener('click', (e)=>{ if(e.target.id==='addTurnoBtn') openTurnoModal(); });
 
 function openEventModal(existing, preset){
   const isEdit = !!existing;
@@ -3280,7 +3321,7 @@ function renderPlata(){
   }
 
   /* 4 · lo que vuelve cada mes */
-  html += `<div class="section-title"><span>Cada mes</span><button class="small-btn" id="addSusBtn">+ Cobro</button></div>`;
+  html += `<div class="section-title"><span>Cada mes</span></div>`;
   html += DATA.suscripciones.length ? DATA.suscripciones.map(x=>{
     const prox = proximoCobro(x);
     const faltan = prox ? daysBetween(todayStr(), prox) : null;
@@ -3294,14 +3335,13 @@ function renderPlata(){
         ${x.dia ? 'El ' + x.dia + ' de cada mes' + (prox ? ' · el próximo, ' + esc(niceDate(prox)) : '') : '⚠ falta el día del mes'}${x.nota ? ' · ' + esc(x.nota) : ''}
       </div>
       ${tasaImplicita(x) ? `<div class="helptext" style="margin:4px 0 0;">Te lo descontaron a ${money(tasaImplicita(x))} el dólar${tasaImplicita(x)!==tasaUSD() ? ` · <button class="small-btn" data-usar-tasa="${x.id}">usar esta tasa</button>` : ''}</div>` : ''}
-      ${x.dia ? (pagadoEsteMes(x)
-        ? `<div class="helptext" style="margin:6px 0 0; color:var(--done); font-weight:600;">✓ Pagado este mes · <button class="small-btn" data-despagar="${x.id}">deshacer</button></div>`
-        : `<button class="small-btn" data-pagar-sus="${x.id}" style="margin-top:9px;">Ya lo pagué este mes</button>`) : ''}
+      ${x.dia && pagadoEsteMes(x) ? `<div class="helptext" style="margin:6px 0 0; color:var(--done); font-weight:600;">✓ Pagado este mes</div>` : ''}
+      ${x.dia && !pagadoEsteMes(x) && pronto ? `<button class="small-btn" data-pagar-sus="${x.id}" style="margin-top:9px;">Ya lo pagué</button>` : ''}
     </div>`;
   }).join('') : '<div class="empty-card" style="margin-bottom:8px;">Sin cobros mensuales.</div>';
 
   /* 5 · deudas y prestamos, en los dos sentidos (D96, D39) */
-  html += `<div class="section-title"><span>Debo y me deben</span><button class="small-btn" id="addDeudaBtn">+ Préstamo</button></div>`;
+  html += `<div class="section-title"><span>Debo y me deben</span></div>`;
   const deudasOrden = [...DATA.deudas].sort((a,b)=> (a.saldada?1:0) - (b.saldada?1:0));
   html += deudasOrden.length ? deudasOrden.map(d=>{
     const saldo = saldoDeuda(d);
@@ -3326,8 +3366,7 @@ function renderPlata(){
     <div class="summary-row">
       <div class="summary-box"><div class="lbl">Entró</div><div class="val money" style="color:var(--done)">+${money(ingresos)}</div></div>
       <div class="summary-box"><div class="lbl">Salió</div><div class="val money" style="color:var(--urgent)">-${money(gastos)}</div></div>
-    </div>
-    <button class="btn btn-primary" style="width:100%; margin:2px 0 4px;" id="addMoneyBtn">+ Registrar un movimiento</button>`;
+    </div>`;
 
   /* los movimientos, uno por uno y tocables: antes solo se veian los totales */
   const movs = evMes.slice().sort((a,b)=>b.date.localeCompare(a.date));
@@ -3357,14 +3396,10 @@ function renderPlata(){
         </div>
         <div style="font-size:12.5px; color:var(--text-muted); margin-top:3px;">${money(paid)} pagado de ${money(inst.total)}</div>
         <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
-        <div style="display:flex; gap:8px; margin-top:10px;">
-          <button class="small-btn" data-action="payInstallment" data-id="${inst.id}">+ Registrar pago</button>
-          <button class="small-btn" data-action="delInstallment" data-id="${inst.id}" style="color:var(--urgent);">Eliminar</button>
-        </div>
+        <button class="small-btn" data-action="payInstallment" data-id="${inst.id}" style="margin-top:10px;">Registrar pago</button>
       </div>`;
     }).join('');
   } else { html += '<div class="empty-card" style="margin-bottom:10px;">Sin compras a cuotas registradas.</div>'; }
-  html += `<button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addInstallmentBtn">+ Agregar compra a cuotas</button>`;
 
   /* la tasa del dolar vive abajo: la pones tu a mano y funciona sin internet (D128) */
   html += `<div class="section-title" style="margin-top:26px;">Dólar</div>
@@ -3381,9 +3416,9 @@ function renderPlata(){
   document.getElementById('saldoCard').onclick = openSaldoModal;
   document.getElementById('tasaCard').onclick = openTasaModal;
   document.getElementById('topesBtn').onclick = openTopesModal;
-  document.getElementById('addSusBtn').onclick = ()=>openSuscripcionModal();
-  document.getElementById('addDeudaBtn').onclick = ()=>openDeudaModal();
-  document.getElementById('addMoneyBtn').onclick = ()=>openMovimientoModal();
+  const _b_addSusBtn = document.getElementById('addSusBtn'); if(_b_addSusBtn) _b_addSusBtn.onclick = ()=>openSuscripcionModal();
+  const _b_addDeudaBtn = document.getElementById('addDeudaBtn'); if(_b_addDeudaBtn) _b_addDeudaBtn.onclick = ()=>openDeudaModal();
+  const _b_addMoneyBtn = document.getElementById('addMoneyBtn'); if(_b_addMoneyBtn) _b_addMoneyBtn.onclick = ()=>openMovimientoModal();
   box.querySelectorAll('.mov-card').forEach(c=>c.onclick=()=>{
     const m = DATA.events.find(x=>x.id===c.dataset.id);
     openMovimientoModal(Object.assign(m, { moneda: m.moneda||'COP', amount: m.montoOriginal || m.amount }));
@@ -3408,7 +3443,7 @@ function renderPlata(){
     m.status='hecho'; m.pagadoFecha = todayStr();
     saveData(); renderPlata();
   });
-  document.getElementById('addInstallmentBtn').onclick = openInstallmentModal;
+  const _b_addInstallmentBtn = document.getElementById('addInstallmentBtn'); if(_b_addInstallmentBtn) _b_addInstallmentBtn.onclick = openInstallmentModal;
   box.querySelectorAll('.sus-card').forEach(c=>c.onclick=()=>openSuscripcionModal(DATA.suscripciones.find(x=>x.id===c.dataset.id)));
   box.querySelectorAll('[data-usar-tasa]').forEach(b=>b.onclick=(ev)=>{
     ev.stopPropagation();
@@ -3418,7 +3453,7 @@ function renderPlata(){
   });
   box.querySelectorAll('.deuda-card').forEach(c=>c.onclick=()=>openDeudaModal(DATA.deudas.find(x=>x.id===c.dataset.id)));
   box.querySelectorAll('[data-action="payInstallment"]').forEach(b=>b.onclick=()=>openPayModal(b.dataset.id));
-  box.querySelectorAll('[data-action="delInstallment"]').forEach(b=>b.onclick=()=>{ DATA.installments = DATA.installments.filter(i=>i.id!==b.dataset.id); saveData(); renderPlata(); });
+
 }
 
 function openSaldoModal(){
