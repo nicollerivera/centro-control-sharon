@@ -226,6 +226,9 @@ button{font-family:inherit;}
 .choque-head{display:flex; align-items:center; gap:8px; color:var(--urgent); font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:.06em;}
 .choque-box{margin-top:9px; padding:13px 14px; border-radius:var(--radius); background:var(--urgent-soft); border-left:3px solid var(--urgent); font-size:14.5px; line-height:1.45;}
 .choque-box p{margin:0 0 7px;} .choque-box p:last-child{margin-bottom:0;}
+.choque-head.suave{color:var(--ambar);}
+.choque-box.suave{background:var(--ambar-soft); border-left-color:var(--ambar);}
+.porque-suave{color:var(--text-muted); font-size:13px;}
 .opcion{width:100%; text-align:left; padding:12px 13px; border-radius:var(--radius); border:1px solid var(--border); background:var(--surface); color:var(--text); cursor:default; margin-bottom:8px;}
 .opcion .qué{font-weight:600; font-size:14.5px;}
 .opcion .porqué{font-size:12.5px; color:var(--text-muted); margin-top:2px;}
@@ -1137,34 +1140,64 @@ document.getElementById('markDoneBtn').onclick = ()=>openDoneModal();
 function renderRutinas(){
   const box = document.getElementById('sub-rutinas');
   const rs = [...DATA.routines].sort((a,b)=>Math.min(...a.days)-Math.min(...b.days));
-  box.innerHTML = `<div class="helptext" style="margin-top:0;">Para cosas que se repiten cada semana: hobbies, gym, tiempo de pantalla, rutinas de cuidado, etc. Se reflejan automáticamente en Hoy y en el calendario.</div>
+  box.innerHTML = `<div class="helptext" style="margin-top:0;">Lo que se repite cada semana: clases, Joel, gym, lo que sea. Tócalo para cambiarle días u horas — si rotas, esto se mueve contigo. Y dile qué tan firme es: de eso depende si un turno encima te sale en rojo o no.</div>
     ${rs.length ? rs.map(r=>`
-      <div class="subject-row" data-id="${r.id}" style="border-left-color:${CATS[r.cat].color}">
-        <div class="info"><div class="name">${CATS[r.cat].emoji} ${esc(r.title)}</div><div class="time">${r.days.map(d=>DOW_SHORT[d]).join(' · ')} ${r.start?'· '+esc(r.start)+(r.end?'–'+esc(r.end):''):''}</div></div>
+      <div class="subject-row rutina-row" data-id="${r.id}" style="border-left-color:${CATS[r.cat].color}; cursor:pointer;">
+        <div class="info">
+          <div class="name">${CATS[r.cat].emoji} ${esc(r.title)} ${flexPill(r)}</div>
+          <div class="time">${r.days.map(d=>DOW_SHORT[d]).join(' · ')} ${r.start?'· '+esc(r.start)+(r.end?'–'+esc(r.end):''):''}</div>
+        </div>
         <button class="small-btn" data-action="delRoutine" data-id="${r.id}">Eliminar</button>
       </div>`).join('') : '<div class="empty-card">Aún no tienes rutinas o patrones semanales.</div>'}
     <button class="btn btn-primary" style="width:100%; margin-top:6px;" id="addRoutineBtn">+ Agregar rutina semanal</button>`;
   document.getElementById('addRoutineBtn').onclick = ()=>openRoutineModal();
-  box.querySelectorAll('[data-action="delRoutine"]').forEach(b=>{ b.onclick=()=>{ DATA.routines = DATA.routines.filter(x=>x.id!==b.dataset.id); saveData(); renderRutinas(); }; });
+  box.querySelectorAll('[data-action="delRoutine"]').forEach(b=>{
+    b.onclick=(e)=>{ e.stopPropagation(); DATA.routines = DATA.routines.filter(x=>x.id!==b.dataset.id); saveData(); renderAll(); };
+  });
+  box.querySelectorAll('.rutina-row').forEach(row=>{
+    row.onclick = ()=> openRoutineModal(DATA.routines.find(x=>x.id===row.dataset.id));
+  });
 }
-function openRoutineModal(){
-  openSheet(`<h3>Rutina semanal</h3>
+function flexPill(r){
+  const f = flexDe(r);
+  if(f==='firme') return '';
+  const color = f==='saltable' ? 'var(--c-uni)' : 'var(--c-joel)';
+  return `<span class="tentativo" style="background:color-mix(in srgb, ${color} 15%, transparent); color:${color};">${FLEX[f].corto}</span>`;
+}
+
+function openRoutineModal(existente){
+  const r = existente || { id:null, cat:'personal', title:'', days:[], start:'', end:'', flex:'firme' };
+  openSheet(`<h3>${existente ? 'Editar' : 'Rutina semanal'}</h3>
     <div class="field"><label>Categoría</label><div class="chiprow" id="catChipsR">
-      ${Object.entries(CATS).map(([k,v],i)=>`<div class="chip ${k==='personal'?'active':''}" data-cat="${k}" style="--chip-color:${v.color}; --chip-color-soft:${v.color}22;">${v.emoji} ${v.label}</div>`).join('')}
+      ${Object.entries(CATS).map(([k,v])=>`<div class="chip ${k===r.cat?'active':''}" data-cat="${k}" style="--chip-color:${v.color}; --chip-color-soft:${v.color}22;">${v.emoji} ${v.label}</div>`).join('')}
     </div></div>
-    <div class="field"><label>¿Qué es?</label><input type="text" id="f_rtitle" placeholder="Ej: Tatuaje / dibujo, Gym, Tiempo de pantalla"></div>
-    <div class="field"><label>Días</label><div class="chiprow" id="dayChipsR">${DOW_SHORT.map((d,i)=>`<div class="chip" data-day="${i}">${d}</div>`).join('')}</div></div>
-    <div class="field-row"><div class="field"><label>Inicio (opcional)</label><input type="time" id="f_rstart"></div><div class="field"><label>Fin (opcional)</label><input type="time" id="f_rend"></div></div>
+    <div class="field"><label>¿Qué es?</label><input type="text" id="f_rtitle" value="${esc(r.title)}" placeholder="Ej: Universidad, Recoger a Joel, Gym"></div>
+    <div class="field"><label>Días</label><div class="chiprow" id="dayChipsR">${DOW_SHORT.map((d,i)=>`<div class="chip ${r.days.includes(i)?'active':''}" data-day="${i}">${d}</div>`).join('')}</div></div>
+    <div class="field-row">
+      <div class="field"><label>Inicio (opcional)</label><input type="time" id="f_rstart" value="${esc(r.start)}"></div>
+      <div class="field"><label>Fin (opcional)</label><input type="time" id="f_rend" value="${esc(r.end)}"></div>
+    </div>
+    <div class="field"><label>Si te sale un turno encima…</label>
+      <div class="chiprow" id="flexChipsR">
+        ${Object.entries(FLEX).map(([k,v])=>`<div class="chip ${flexDe(r)===k?'active':''}" data-flex="${k}" style="--chip-color:var(--accent); --chip-color-soft:var(--accent-soft);">${v.label}</div>`).join('')}
+      </div>
+      <div class="helptext" id="flexNota">${FLEX[flexDe(r)].nota}</div>
+    </div>
     <div class="sheet-actions"><button class="btn btn-primary" id="saveRoutine">Guardar</button></div>`);
-  let rcat='personal'; let rdays=[];
+
+  let rcat=r.cat, rdays=[...r.days], rflex=flexDe(r);
   document.querySelectorAll('#catChipsR .chip').forEach(c=>{ c.onclick=()=>{ document.querySelectorAll('#catChipsR .chip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); rcat=c.dataset.cat; }; });
   document.querySelectorAll('#dayChipsR .chip').forEach(c=>{ c.onclick=()=>{ c.classList.toggle('active'); const d=Number(c.dataset.day); if(rdays.includes(d)) rdays=rdays.filter(x=>x!==d); else rdays.push(d); }; });
+  document.querySelectorAll('#flexChipsR .chip').forEach(c=>{ c.onclick=()=>{ document.querySelectorAll('#flexChipsR .chip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); rflex=c.dataset.flex; document.getElementById('flexNota').textContent = FLEX[rflex].nota; }; });
+
   document.getElementById('saveRoutine').onclick = ()=>{
     const title = document.getElementById('f_rtitle').value.trim();
     if(!title){ alert('Escribe qué es'); return; }
     if(!rdays.length){ alert('Selecciona al menos un día'); return; }
-    DATA.routines.push({ id:uid(), cat:rcat, title, days:[...rdays], start:document.getElementById('f_rstart').value, end:document.getElementById('f_rend').value });
-    saveData(); closeSheet(); renderRutinas(); renderAll();
+    const datos = { cat:rcat, title, days:[...rdays].sort(), start:document.getElementById('f_rstart').value, end:document.getElementById('f_rend').value, flex:rflex };
+    if(existente) Object.assign(existente, datos);
+    else DATA.routines.push(Object.assign({ id:uid(), notes:'' }, datos));
+    saveData(); closeSheet(); renderAll();
   };
 }
 
@@ -1879,6 +1912,15 @@ function openSubjectModal(){
    que tendrias que mover, pero nunca te lo impide (D16).
 ============================================================ */
 
+/* Que tan de verdad te bloquea un bloque. No todo lo que esta en tu dia te
+   impide trabajar: la U la puedes ver grabada y a Joel lo recogen si no estas. */
+const FLEX = {
+  firme:    { label:'No se mueve',        corto:'firme',    nota:'Esto sí te bloquea.' },
+  saltable: { label:'La puedo ver después', corto:'saltable', nota:'Se puede ver grabado o recuperar.' },
+  cubrible: { label:'Alguien lo cubre',   corto:'cubrible', nota:'Si no estás, alguien más lo hace.' }
+};
+function flexDe(b){ return (b && FLEX[b.flex]) ? b.flex : 'firme'; }
+
 /* Los tres lugares, con sus reglas distintas (D23). */
 const LUGARES = {
   infinity:{ nombre:'Infinity',       ini:'I', sub:'Horario variable · paga lunes',   entra:'', sale:'',      traslado:60 },
@@ -1942,15 +1984,13 @@ function bloquesDelDia(fecha, exceptoTurnoId){
   const out = [];
   DATA.events.forEach(e=>{
     if(e.date!==fecha || !e.start || e.status==='hecho') return;
-    if(e.saltable) return;                        // una clase grabada no te alarma (D69)
     if(e.linkedType==='turno' && e.linkedId===exceptoTurnoId) return;
     if(e.cat==='nexxa' && e.noVoy) return;        // si no vas, no te ocupa el tiempo (D129)
-    out.push({ titulo:e.title, desde:minutosDe(e.start), hasta:finEnMinutos(e.start, e.end||e.start), fuente:'evento', ref:e });
+    out.push({ titulo:e.title, desde:minutosDe(e.start), hasta:finEnMinutos(e.start, e.end||e.start), fuente:'evento', flex:flexDe(e), ref:e });
   });
   (DATA.routines||[]).forEach(r=>{
     if(!r.days || !r.days.includes(dow) || !r.start) return;
-    if(r.saltable) return;
-    out.push({ titulo:r.title, desde:minutosDe(r.start), hasta:finEnMinutos(r.start, r.end||r.start), fuente:'rutina', ref:r });
+    out.push({ titulo:r.title, desde:minutosDe(r.start), hasta:finEnMinutos(r.start, r.end||r.start), fuente:'rutina', flex:flexDe(r), ref:r });
   });
   return out.filter(b=>b.desde!==null && b.hasta!==null);
 }
@@ -1962,16 +2002,18 @@ function detectarChoques(turno){
   const traslado = Number(turno.trasladoMin || LUGARES[turno.lugar]?.traslado || 0);
   const choques = [];
   bloquesDelDia(turno.fecha, turno.id).forEach(b=>{
+    const grado = flexDe(b) === 'firme' ? 'duro' : 'blando';
     if(b.desde < hasta && desde < b.hasta){
-      choques.push({ tipo:'directo', bloque:b });
+      choques.push({ tipo:'directo', grado, bloque:b });
     } else if(b.hasta <= desde && desde - b.hasta < traslado){
-      choques.push({ tipo:'traslado', bloque:b, faltan: traslado - (desde - b.hasta) });
+      choques.push({ tipo:'traslado', grado, bloque:b, faltan: traslado - (desde - b.hasta) });
     } else if(hasta <= b.desde && b.desde - hasta < traslado){
-      choques.push({ tipo:'traslado-despues', bloque:b, faltan: traslado - (b.desde - hasta) });
+      choques.push({ tipo:'traslado-despues', grado, bloque:b, faltan: traslado - (b.desde - hasta) });
     }
   });
   return choques;
 }
+function choquesDuros(t){ return detectarChoques(t).filter(c=>c.grado==='duro'); }
 
 function hhmm(min){
   const m = ((min % 1440) + 1440) % 1440;
@@ -1989,11 +2031,11 @@ function sembrarCompromisos(){
   if((DATA.routines||[]).length) return;   // si ya armo los suyos, no le metemos nada
   const colegio = [1,2,3,4,5];
   DATA.routines = [
-    { id:uid(), cat:'personal', title:'Llevar a Joel',   days:colegio, start:'07:00', end:'07:30', notes:'Colegio' },
-    { id:uid(), cat:'personal', title:'Recoger a Joel',  days:colegio, start:'13:30', end:'14:00', notes:'Colegio' },
-    { id:uid(), cat:'universidad', title:'Universidad',  days:colegio, start:'18:00', end:'22:00', notes:'' },
-    { id:uid(), cat:'personal', title:'SENA — inglés',   days:[3],     start:'08:00', end:'09:00', notes:'' },
-    { id:uid(), cat:'personal', title:'Clase con Leslie',days:[3],     start:'10:30', end:'11:30', notes:'En línea' }
+    { id:uid(), cat:'personal', title:'Llevar a Joel',   days:colegio, start:'07:00', end:'07:30', notes:'Colegio', flex:'cubrible' },
+    { id:uid(), cat:'personal', title:'Recoger a Joel',  days:colegio, start:'13:30', end:'14:00', notes:'Colegio', flex:'cubrible' },
+    { id:uid(), cat:'universidad', title:'Universidad',  days:colegio, start:'18:00', end:'22:00', notes:'', flex:'saltable' },
+    { id:uid(), cat:'personal', title:'SENA — inglés',   days:[3],     start:'08:00', end:'09:00', notes:'', flex:'saltable' },
+    { id:uid(), cat:'personal', title:'Clase con Leslie',days:[3],     start:'10:30', end:'11:30', notes:'En línea', flex:'firme' }
   ];
 }
 
@@ -2103,7 +2145,9 @@ function pintarTurnoModal(){
     if(!t.lugar){ alert('Elige el lugar del turno.'); return; }
     if(!t.entra || !t.sale){ alert('Falta la hora de entrada o de salida.'); return; }
     const choques = detectarChoques(t);
-    if(choques.length){ mostrarChoque(t, choques); return; }
+    /* Solo te para lo que de verdad te bloquea. Lo que se acomoda queda
+       anotado en el turno, sin interrumpirte (D07: nada de ruido). */
+    if(choques.some(c=>c.grado==='duro')){ mostrarChoque(t, choques); return; }
     guardarTurno(t); closeSheet();
   };
 }
@@ -2113,21 +2157,21 @@ function pintarTurnoModal(){
 function mostrarChoque(t, choques){
   const l = LUGARES[t.lugar];
   const traslado = Number(t.trasladoMin || l.traslado || 0);
-  const desde = minutosDe(t.entra);
+  const desde = minutosDe(t.entra), hasta = finEnMinutos(t.entra, t.sale);
+  const duros = choques.filter(c=>c.grado==='duro');
+  const blandos = choques.filter(c=>c.grado!=='duro');
 
-  const frases = choques.map(c=>{
+  const frase = c => {
     if(c.tipo==='directo') return `Se cruza con <b>${esc(c.bloque.titulo)}</b>, de ${hhmm(c.bloque.desde)} a ${hhmm(c.bloque.hasta)}.`;
     if(c.tipo==='traslado') return `Con ${duracionLarga(traslado)} de traslado no alcanzas: <b>${esc(c.bloque.titulo)}</b> termina ${hhmm(c.bloque.hasta)} y te faltan ${duracionLarga(c.faltan)}.`;
     return `Al salir no alcanzas a llegar a <b>${esc(c.bloque.titulo)}</b>, que empieza ${hhmm(c.bloque.desde)}: te faltan ${duracionLarga(c.faltan)}.`;
-  });
+  };
 
-  const opciones = choques.map(c=>({
+  const opciones = duros.map(c=>({
     que: 'Soltar ' + c.bloque.titulo,
     por: hhmm(c.bloque.desde) + '–' + hhmm(c.bloque.hasta) + (c.bloque.fuente==='rutina' ? ' · se repite cada semana' : '')
   }));
-  /* Solo tiene sentido ofrecer entrar mas tarde si todavia queda turno. */
-  const hasta = finEnMinutos(t.entra, t.sale);
-  const masTarde = Math.max(...choques.map(c=> c.bloque.hasta + traslado));
+  const masTarde = Math.max(...duros.map(c=> c.bloque.hasta + traslado));
   if(isFinite(masTarde) && masTarde > desde && masTarde < hasta){
     const dia = masTarde >= 1440 ? ' del día siguiente' : '';
     opciones.push({ que:'Pedir entrar más tarde', por: l.nombre + ' · llegarías ' + hhmm(masTarde) + dia });
@@ -2136,14 +2180,17 @@ function mostrarChoque(t, choques){
   openSheet(`
     <h3>${esc(turnoTitulo(t))}</h3>
     <div class="helptext" style="margin:-4px 0 12px;">${niceDate(t.fecha)} · ${t.entra} — ${t.sale}${t.confirmado?'':' <span class="tentativo">sin confirmar</span>'}</div>
-    <div class="choque-head">⚠ Se cruza con ${choques.length===1?'una cosa':choques.length+' cosas'}</div>
-    <div class="choque-box">${frases.map(f=>`<p>${f}</p>`).join('')}</div>
+    <div class="choque-head">⚠ Se cruza con ${duros.length===1?'una cosa':duros.length+' cosas'}</div>
+    <div class="choque-box">${duros.map(c=>`<p>${frase(c)}</p>`).join('')}</div>
+    ${blandos.length ? `
+      <div class="choque-head suave" style="margin-top:16px;">Además, pero se acomoda</div>
+      <div class="choque-box suave">${blandos.map(c=>`<p>${frase(c)} <span class="porque-suave">${esc(FLEX[flexDe(c.bloque)].nota)}</span></p>`).join('')}</div>` : ''}
     <div class="section-title" style="margin-top:20px;">Qué tendrías que mover o soltar</div>
     ${opciones.map(o=>`<div class="opcion"><div class="qué">${esc(o.que)}</div><div class="porqué">${esc(o.por)}</div></div>`).join('')}
     <p class="nota-suave">Bitácora no decide por ti. Puedes aceptarlo igual.</p>
     <div class="sheet-actions">
-      <button class="btn-ghost" id="ch_volver">Volver</button>
-      <button class="btn-primary" id="ch_igual">Aceptar igual</button>
+      <button class="btn btn-ghost" id="ch_volver">Volver</button>
+      <button class="btn btn-primary" id="ch_igual">Aceptar igual</button>
     </div>
   `);
   document.getElementById('ch_volver').onclick = ()=> pintarTurnoModal();
@@ -2162,14 +2209,17 @@ function renderTurnos(){
   }
   caja.innerHTML = proximos.map(t=>{
     const pago = (t.lugar==='asignar' && t.hotel) ? pagoDeTurno(t.fecha, t.hotel) : null;
-    const cruza = detectarChoques(t).length;
+    const todos = detectarChoques(t);
+    const duros = todos.filter(c=>c.grado==='duro').length;
+    const blandos = todos.length - duros;
     const meta = [niceDate(t.fecha), t.entra + '–' + t.sale];
     if(pago) meta.push('te pagan el ' + niceDateShort(pago.fecha));
     if(t.estimado) meta.push(money(t.estimado) + ' est.');
     return `<div class="card turno-card" data-turno="${t.id}" style="border-left:3px solid var(--c-trabajo); cursor:pointer;">
       <div style="font-weight:600;">${esc(turnoTitulo(t))}${t.confirmado?'':'<span class="tentativo">sin confirmar</span>'}</div>
       <div class="helptext" style="margin:3px 0 0;">${esc(meta.join(' · '))}</div>
-      ${cruza ? `<div class="helptext" style="margin:5px 0 0; color:var(--urgent); font-weight:600;">⚠ se cruza con ${cruza===1?'algo':cruza+' cosas'} de ese día</div>` : ''}
+      ${duros ? `<div class="helptext" style="margin:5px 0 0; color:var(--urgent); font-weight:600;">⚠ se cruza con ${duros===1?'algo':duros+' cosas'} de ese día</div>` : ''}
+      ${blandos ? `<div class="helptext" style="margin:5px 0 0; color:var(--ambar); font-weight:600;">se cruza con ${blandos===1?'algo':blandos+' cosas'} que se acomodan</div>` : ''}
     </div>`;
   }).join('');
   caja.querySelectorAll('.turno-card').forEach(c=>{
@@ -2186,7 +2236,7 @@ function renderChoquesSemana(){
   for(let i=0;i<7;i++){
     const f = fmtDate(addDays(hoy,i));
     DATA.turnos.filter(t=>t.fecha===f).forEach(t=>{
-      if(detectarChoques(t).length) cruces.push({ fecha:f, turno:t });
+      if(choquesDuros(t).length) cruces.push({ fecha:f, turno:t });
     });
   }
   if(!cruces.length){ caja.innerHTML=''; return; }
