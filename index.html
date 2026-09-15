@@ -349,6 +349,23 @@ body.con-barra .elegido .urg, body.con-barra .elegido .tag{visibility:hidden;}
 .etapas{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;}
 .etapas .chip{padding:6px 11px; font-size:12.5px;}
 .etapas .chip.active{border-color:var(--c-marca); color:var(--c-marca); background:color-mix(in srgb, var(--c-marca) 12%, transparent);}
+/* informe del mes de la marca */
+.mes-nav{display:flex; align-items:center; justify-content:space-between; margin:0 0 10px;}
+.mes-nav button{background:var(--surface-2); border:none; color:var(--text); width:34px; height:34px; border-radius:50%; font-size:17px;}
+.mes-nav .nom{font-weight:700; font-size:15px; text-transform:capitalize;}
+.met-grid{display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px; margin-bottom:12px;}
+.met{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:11px 12px;}
+.met .l{font-size:11.5px; color:var(--text-dim); font-weight:600;}
+.met .n{font-size:20px; font-weight:600; font-family:'Space Grotesk',sans-serif; margin-top:2px;}
+.met .c{font-size:11.5px; font-weight:700; margin-top:1px;}
+.met .c.sube{color:var(--done);} .met .c.baja{color:var(--urgent);} .met .c.igual{color:var(--text-dim); font-weight:600;}
+.hallazgos{list-style:none; margin:0 0 12px; padding:0;}
+.hallazgos li{background:var(--surface); border:1px solid var(--border); border-left:3px solid var(--c-marca); border-radius:var(--radius); padding:11px 13px; margin-bottom:7px; font-size:14px; line-height:1.4;}
+.hallazgos li.ojo{border-left-color:var(--ambar);}
+.tabla-mini{width:100%; border-collapse:collapse; font-size:13px; margin-bottom:12px;}
+.tabla-mini th{text-align:left; font-size:11px; color:var(--text-dim); font-weight:600; padding:4px 6px;}
+.tabla-mini td{padding:7px 6px; border-top:1px solid var(--border);}
+.tabla-mini td.num, .tabla-mini th.num{text-align:right; font-family:'Space Grotesk',sans-serif;}
 .pleg-acciones{display:flex; justify-content:flex-end; gap:8px; margin:2px 0 8px;}
 
 /* ---------- turnos y choques ---------- */
@@ -1512,6 +1529,96 @@ function ponerEtapa(p, etapa){
   p.estado = etapa==='Publicado' ? 'publicada' : 'planeada';
 }
 
+/* Lo que Instagram le da de cada publicacion. Todo opcional: pone lo que tenga. */
+const METRICAS = [
+  { k:'alcance',     l:'Alcance',            ph:'cuentas alcanzadas' },
+  { k:'vistas',      l:'Reproducciones',     ph:'vistas' },
+  { k:'likes',       l:'Me gusta',           ph:'' },
+  { k:'comentarios', l:'Comentarios',        ph:'' },
+  { k:'compartidos', l:'Compartidos',        ph:'' },
+  { k:'guardados',   l:'Guardados',          ph:'' },
+  { k:'seguidores',  l:'Seguidores nuevos',  ph:'' },
+  { k:'respuestas',  l:'Mensajes (DM)',      ph:'te escribieron' },
+  { k:'leads',       l:'Leads',              ph:'pidieron info o la palabra clave' },
+  { k:'cierres',     l:'Clientes',           ph:'se volvieron clientes' },
+];
+const num = v => Number(v)||0;
+function tieneNumeros(p){ return METRICAS.some(m=>num(p[m.k])>0); }
+function interacciones(p){ return num(p.likes)+num(p.comentarios)+num(p.compartidos)+num(p.guardados); }
+/* "Carrusel (6 slides)" y "Carrusel (7 slides)" son el mismo formato */
+function formatoCorto(f){ return String(f||'Sin formato').split(/[(+\/]/)[0].trim() || 'Sin formato'; }
+function mesAnterior(mes){ const [y,m]=mes.split('-').map(Number); const d=new Date(y,m-2,1); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function nombreMes(mes){ const [y,m]=mes.split('-').map(Number); return MONTHS[m-1] + (y!==new Date().getFullYear() ? ' '+y : ''); }
+function milesCO(n){ return Math.round(n).toLocaleString('es-CO'); }
+function cambioPct(ahora, antes){
+  if(!antes) return ahora ? { t:'nuevo', c:'igual' } : { t:'', c:'igual' };
+  const pct = Math.round((ahora-antes)/antes*100);
+  if(pct===0) return { t:'igual que antes', c:'igual' };
+  return { t:(pct>0?'↑ ':'↓ ')+Math.abs(pct)+'%', c: pct>0?'sube':'baja' };
+}
+
+/* Lee los numeros del mes y los dice en palabras. Solo afirma lo que los
+   datos sostienen: con una sola publicacion no hay comparacion que hacer. */
+function informeMarca(M, mes){
+  const pubs = M.publicaciones.filter(p=>etapaDe(p)==='Publicado' && (p.fecha||'').startsWith(mes));
+  const conDatos = pubs.filter(tieneNumeros);
+  const antes = M.publicaciones.filter(p=>etapaDe(p)==='Publicado' && (p.fecha||'').startsWith(mesAnterior(mes)) && tieneNumeros(p));
+  const total = (lista, k) => lista.reduce((a,p)=>a+(k==='inter'?interacciones(p):num(p[k])),0);
+  const prom = (lista, k) => lista.length ? total(lista,k)/lista.length : 0;
+  const nAntes = nombreMes(mesAnterior(mes));
+  const hallazgos = [];
+
+  /* frente al mes anterior, por publicacion para que publicar mas o menos no engañe */
+  if(conDatos.length && antes.length){
+    const suben = [], bajan = [];
+    [['alcance','alcance'],['inter','interacciones'],['guardados','guardados'],['seguidores','seguidores'],['respuestas','mensajes'],['leads','leads']].forEach(([k,nom])=>{
+      const a = prom(conDatos,k), b = prom(antes,k);
+      if(!b) return;
+      if((a-b)/b >= 0.15) suben.push(nom); else if((b-a)/b >= 0.15) bajan.push(nom);
+    });
+    const lista = l => l.length>1 ? l.slice(0,-1).join(', ')+' y '+l[l.length-1] : l[0];
+    if(suben.length) hallazgos.push({ t:`Mejoraste frente a ${nAntes}: cada publicación trae más ${lista(suben)}.` });
+    if(bajan.length) hallazgos.push({ ojo:true, t:`Bajó frente a ${nAntes}: ${lista(bajan)} por publicación. Mira qué cambió en el formato o el tema.` });
+    if(!suben.length && !bajan.length) hallazgos.push({ t:`Vas parecido a ${nAntes}: ningún número se movió más de 15% por publicación.` });
+  }
+  if(conDatos.length>=2){
+    const top = [...conDatos].sort((a,b)=>num(b.alcance)-num(a.alcance))[0];
+    if(num(top.alcance)) hallazgos.push({ t:`La que más gente alcanzó: «${top.titulo}», con ${milesCO(num(top.alcance))}.` });
+    const conv = [...conDatos].sort((a,b)=>(num(b.respuestas)+num(b.leads))-(num(a.respuestas)+num(a.leads)))[0];
+    const nConv = num(conv.respuestas)+num(conv.leads);
+    if(nConv && conv!==top) hallazgos.push({ t:`La que más conversaciones abrió: «${conv.titulo}», con ${nConv} entre mensajes y leads. Alcance no es lo mismo que clientes.` });
+    else if(nConv) hallazgos.push({ t:`Además fue la que más conversaciones abrió: ${nConv} entre mensajes y leads.` });
+
+    const agrupar = campo => {
+      const g = {};
+      conDatos.forEach(p=>{ const k = campo==='formato' ? formatoCorto(p.formato) : (p.pilar||'Sin pilar'); (g[k]=g[k]||[]).push(p); });
+      return Object.entries(g).map(([k,l])=>({ k, n:l.length, alcance:prom(l,'alcance'), inter:prom(l,'inter'), guardados:prom(l,'guardados'), conv:prom(l,'respuestas')+prom(l,'leads') }));
+    };
+    const formatos = agrupar('formato'), pilares = agrupar('pilar');
+    const mejor = (lista, k) => lista.length>=2 ? [...lista].sort((a,b)=>b[k]-a[k]) : null;
+    const f = mejor(formatos,'guardados');
+    if(f && f[0].guardados && f[0].guardados >= f[1].guardados*1.3)
+      hallazgos.push({ t:`${f[0].k} es el formato que más se guarda: ${milesCO(f[0].guardados)} por publicación, contra ${milesCO(f[1].guardados)} de ${f[1].k}.` });
+    const fa = mejor(formatos,'alcance');
+    if(fa && fa[0].alcance && fa[0].alcance >= fa[1].alcance*1.3 && (!f || fa[0].k!==f[0].k))
+      hallazgos.push({ t:`${fa[0].k} es el que más alcanza: ${milesCO(fa[0].alcance)} por publicación.` });
+    const pc = mejor(pilares,'conv');
+    if(pc && pc[0].conv >= 1) hallazgos.push({ t:`El pilar que más conversaciones trae es ${pc[0].k}: ${pc[0].conv.toLocaleString('es-CO',{maximumFractionDigits:1})} por publicación. Por ahí están los clientes.` });
+    hallazgos.formatos = formatos;
+  }
+  const alcTot = total(conDatos,'alcance');
+  if(alcTot && total(conDatos,'inter')){
+    const tasa = total(conDatos,'inter')/alcTot*100;
+    hallazgos.push({ t:`De cada 100 personas que te vieron, ${tasa.toLocaleString('es-CO',{maximumFractionDigits:1})} interactuaron.` });
+  }
+  if(conDatos.length>=2 && conDatos.length<6) hallazgos.push({ t:'Son pocas publicaciones todavía: lo de formatos y pilares tómalo como pista, no como regla.' });
+  const sinDatos = pubs.length - conDatos.length;
+  if(sinDatos) hallazgos.push({ ojo:true, t:`${sinDatos} publicada${sinDatos>1?'s':''} sin números. Tócala abajo en Publicado y ponle lo que te dio Instagram.` });
+  if(conDatos.length===1 && !antes.length) hallazgos.push({ t:'Con una sola publicación con números todavía no hay nada que comparar. A medida que llenes más, acá te digo qué funciona.' });
+
+  return { pubs, conDatos, antes, total, prom, hallazgos, formatos: hallazgos.formatos||[] };
+}
+
 function marcaData(){
   DATA.marca = DATA.marca || { ideas:[], publicaciones:[] };
   DATA.marca.ideas = DATA.marca.ideas || [];
@@ -1522,13 +1629,13 @@ function clientesDeLaMarca(){
   return (DATA.workClients||[]).filter(c=>c.origen==='marca');
 }
 
+let marcaMes = null;
 function renderMarca(){
   const box = document.getElementById('sub-marca');
   if(!box) return;
   const M = marcaData();
   const mes = todayStr().slice(0,7);
-  const delMes = M.publicaciones.filter(p=>p.estado==='publicada' && (p.fecha||'').startsWith(mes));
-  const suma = campo => delMes.reduce((a,p)=>a+Number(p[campo]||0), 0);
+  if(!marcaMes) marcaMes = mes;
   const traidos = clientesDeLaMarca();
 
   let html = '';
@@ -1545,18 +1652,27 @@ function renderMarca(){
     html += `<div class="empty-card" style="margin-bottom:14px;">¿Tienes tu parrilla en Excel? Tócale al + y elige <b>Importar parrilla</b>: aquí te sale qué te toca grabar.</div>`;
   }
 
-  /* ---- resultados: alcance, respuestas y cierres (D73) ---- */
-  html += plegable('marca:mes', 'Cómo te fue este mes',
-    delMes.length ? delMes.length + ' publicada' + (delMes.length>1?'s':'') + ' · ' + suma('alcance').toLocaleString('es-CO') + ' de alcance' : 'sin publicar',
-    `<div class="summary-row">
-      <div class="summary-box"><div class="lbl">Alcance</div><div class="val mono">${suma('alcance').toLocaleString('es-CO')}</div></div>
-      <div class="summary-box"><div class="lbl">Respuestas</div><div class="val mono">${suma('respuestas')}</div></div>
-    </div>
-    <div class="summary-row" style="margin-top:8px;">
-      <div class="summary-box"><div class="lbl">Publicaste</div><div class="val mono">${delMes.length}</div></div>
-      <div class="summary-box"><div class="lbl">Clientes que trajo</div><div class="val mono" style="color:${traidos.length?'var(--c-marca)':'var(--text)'}">${traidos.length}</div></div>
-    </div>
-    ${traidos.length ? `<div class="helptext">${traidos.map(c=>esc(c.name)).join(' · ')} — llegaron por acá. Se cuentan desde Trabajo.</div>` : `<div class="helptext">Cuando agregues un cliente en Trabajo, dile que llegó por la marca personal y se cuenta acá.</div>`}`);
+  /* ---- resultados del mes: los numeros de cada publicacion, sumados y leidos (D73) ---- */
+  const inf = informeMarca(M, marcaMes);
+  const antesMes = nombreMes(mesAnterior(marcaMes));
+  const tarjetas = [['alcance','Alcance'],['inter','Interacciones'],['guardados','Guardados'],['seguidores','Seguidores nuevos'],['respuestas','Mensajes'],['leads','Leads']];
+  const cuerpoMes = `<div class="mes-nav"><button id="mesAntes" aria-label="Mes anterior">‹</button><span class="nom">${esc(nombreMes(marcaMes))}</span><button id="mesDespues" aria-label="Mes siguiente" ${marcaMes>=mes?'disabled style="opacity:.3"':''}>›</button></div>` +
+    (inf.conDatos.length ? `<div class="met-grid">${tarjetas.map(([k,l])=>{
+        const ahora = inf.total(inf.conDatos,k), ch = inf.antes.length ? cambioPct(inf.prom(inf.conDatos,k), inf.prom(inf.antes,k)) : null;
+        return `<div class="met"><div class="l">${l}</div><div class="n">${milesCO(ahora)}</div>${ch && ch.t && ch.t!=='nuevo' ? `<div class="c ${ch.c}">${ch.t} <span style="font-weight:500; color:var(--text-dim);">vs ${esc(antesMes.slice(0,3))}</span></div>` : ''}</div>`;
+      }).join('')}
+      <div class="met"><div class="l">Publicaste</div><div class="n">${inf.pubs.length}</div></div>
+      <div class="met"><div class="l">Clientes</div><div class="n" style="color:${inf.total(inf.conDatos,'cierres')?'var(--c-marca)':'inherit'}">${milesCO(inf.total(inf.conDatos,'cierres'))}</div></div>
+    </div>` : '') +
+    (inf.hallazgos.length ? `<div class="ficha-sub" style="margin-top:4px;"><span>Lo que dicen tus números</span></div><ul class="hallazgos">${inf.hallazgos.map(h=>`<li class="${h.ojo?'ojo':''}">${esc(h.t)}</li>`).join('')}</ul>` : '') +
+    (inf.formatos.length>=2 ? `<div class="ficha-sub"><span>Por formato</span></div><div style="overflow-x:auto;"><table class="tabla-mini"><tr><th>Formato</th><th class="num">Alcance</th><th class="num">Guard.</th><th class="num">Conv.</th></tr>${[...inf.formatos].sort((a,b)=>b.alcance-a.alcance).map(f=>`<tr><td>${esc(f.k)} <span style="color:var(--text-dim)">×${f.n}</span></td><td class="num">${milesCO(f.alcance)}</td><td class="num">${milesCO(f.guardados)}</td><td class="num">${f.conv.toLocaleString('es-CO',{maximumFractionDigits:1})}</td></tr>`).join('')}</table></div><div class="helptext" style="margin:-6px 0 12px;">Promedio por publicación. Conv. = mensajes + leads.</div>` : '') +
+    (!inf.pubs.length ? `<div class="helptext" style="margin:0 0 10px;">No publicaste nada en ${esc(nombreMes(marcaMes))}.</div>` : '') +
+    (traidos.length ? `<div class="helptext">${traidos.map(c=>esc(c.name)).join(' · ')} llegaron por la marca. Se cuentan desde Trabajo.</div>` : '');
+  const chResumen = inf.conDatos.length && inf.antes.length ? cambioPct(inf.prom(inf.conDatos,'alcance'), inf.prom(inf.antes,'alcance')) : null;
+  html += plegable('marca:mes', 'Cómo te fue',
+    inf.conDatos.length ? milesCO(inf.total(inf.conDatos,'alcance')) + ' de alcance' + (chResumen && chResumen.c!=='igual' ? ' · ' + chResumen.t : '')
+      : inf.pubs.length ? inf.pubs.length + ' sin números' : 'sin publicar',
+    cuerpoMes, !!(inf.pubs.length && inf.pubs.length>inf.conDatos.length));
 
   /* ---- ideas: captura rapida, sin clasificar nada (D110) ---- */
   const ideas = M.ideas.filter(i=>i.estado!=='publicada')
@@ -1584,12 +1700,14 @@ function renderMarca(){
         <div style="font-weight:600;">${esc(p.titulo)}</div>
         <div class="helptext" style="margin:0;">${esc(niceDateShort(p.fecha))}</div>
       </div>
-      <div class="helptext" style="margin:3px 0 0;">${esc(p.red||'')}${p.alcance?' · '+Number(p.alcance).toLocaleString('es-CO')+' de alcance':''}${p.respuestas?' · '+p.respuestas+' respuesta'+(p.respuestas>1?'s':''):''}${p.cierres?' · '+p.cierres+' cierre'+(p.cierres>1?'s':''):''}</div>
-      ${!p.alcance && !p.respuestas ? '<div class="helptext" style="margin:5px 0 0; color:var(--ambar);">Tócala para ponerle cómo le fue.</div>' : ''}
+      <div class="helptext" style="margin:3px 0 0;">${[formatoCorto(p.formato)!=='Sin formato'?formatoCorto(p.formato):p.red, num(p.alcance)&&milesCO(num(p.alcance))+' de alcance', interacciones(p)&&interacciones(p)+' interacciones', (num(p.respuestas)+num(p.leads))&&(num(p.respuestas)+num(p.leads))+' conversaciones', num(p.cierres)&&num(p.cierres)+' cliente'+(num(p.cierres)>1?'s':'')].filter(Boolean).map(x=>esc(String(x))).join(' · ')}</div>
+      ${!tieneNumeros(p) ? '<div class="helptext" style="margin:5px 0 0; color:var(--ambar);">Tócala para ponerle cómo le fue.</div>' : ''}
     </div>`).join(''));
 
   box.innerHTML = html;
 
+  document.getElementById('mesAntes').onclick = ()=>{ marcaMes = mesAnterior(marcaMes); renderMarca(); };
+  document.getElementById('mesDespues').onclick = ()=>{ if(marcaMes<mes){ const [y,m]=marcaMes.split('-').map(Number); const d=new Date(y,m,1); marcaMes = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); renderMarca(); } };
   document.getElementById('addIdeaBtn').onclick = agregarIdea;
   document.getElementById('ideaInput').onkeydown = (ev)=>{ if(ev.key==='Enter') agregarIdea(); };
   const _b_addPubBtn = document.getElementById('addPubBtn'); if(_b_addPubBtn) _b_addPubBtn.onclick = ()=>openPublicacionModal();
@@ -1607,7 +1725,8 @@ function renderMarca(){
   box.querySelectorAll('.pub-card, .grabar-card').forEach(c=>c.onclick=(ev)=>{
     if(ev.target.closest('[data-publicada]')) return;
     const pieza = M.publicaciones.find(p=>p.id===c.dataset.id);
-    pieza.guion || pieza.copy ? openFichaPieza(pieza) : openPublicacionModal(pieza);
+    if(c.classList.contains('pub-card') && !tieneNumeros(pieza)) openPublicacionModal(pieza, true);
+    else pieza.guion || pieza.copy ? openFichaPieza(pieza) : openPublicacionModal(pieza, etapaDe(pieza)==='Publicado');
   });
   box.querySelectorAll('[data-publicada]').forEach(b=>b.onclick=(ev)=>{
     ev.stopPropagation();
@@ -1655,7 +1774,10 @@ function openFichaPieza(p){
     <dl class="ficha-meta">${meta.map(([k,v])=>`<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
     ${p.guion ? `<div class="ficha-sub"><span>Guion</span></div>` + partesGuion(p.guion).map(x=>`<div class="ficha-bloque">${x.k?`<div class="k">${esc(x.k)}</div>`:''}<div class="v">${esc(x.v.replace(/^«|»$/g,''))}</div></div>`).join('') : ''}
     ${p.copy ? `<div class="ficha-sub"><span>Copy</span><button class="small-btn" id="f_copiar">Copiar</button></div><div class="ficha-bloque"><div class="v">${esc(p.copy)}</div></div>` : ''}
-    <div class="sheet-actions"><button class="btn btn-ghost" id="f_editar">Editar fecha o resultados</button></div>`);
+    ${etapa==='Publicado' ? `<div class="ficha-sub"><span>Cómo le fue</span></div>` + (tieneNumeros(p)
+        ? `<dl class="ficha-meta">${METRICAS.filter(m=>num(p[m.k])).map(m=>`<dt>${m.l}</dt><dd class="mono">${milesCO(num(p[m.k]))}</dd>`).join('')}</dl>`
+        : '<div class="helptext" style="margin:0 0 10px;">Todavía sin números.</div>') : ''}
+    <div class="sheet-actions"><button class="btn ${etapa==='Publicado'?'btn-primary':'btn-ghost'}" id="f_editar">${etapa==='Publicado' ? (tieneNumeros(p)?'Editar resultados':'Poner resultados') : 'Editar fecha'}</button></div>`);
   document.querySelectorAll('#f_etapas .chip').forEach(c=>c.onclick=()=>{
     ponerEtapa(p, c.dataset.etapa);
     saveData(); renderMarca();
@@ -1799,12 +1921,10 @@ function openPublicacionModal(existente, marcandoPublicada){
       <div class="field"><label>${yaSalio?'Salió el':'Sale el'}</label><input type="date" id="p_fecha" value="${esc(p.fecha)}"></div>
     </div>
     ${yaSalio ? `
-      <div class="field-row">
-        <div class="field"><label>Alcance</label><input type="number" id="p_alcance" inputmode="numeric" value="${p.alcance}" placeholder="Cuánta gente"></div>
-        <div class="field"><label>Respuestas</label><input type="number" id="p_resp" inputmode="numeric" value="${p.respuestas}" placeholder="DM, comentarios"></div>
-      </div>
-      <div class="field"><label>Cierres</label><input type="number" id="p_cierres" inputmode="numeric" value="${p.cierres}" placeholder="Clientes que salieron de acá">
-        <div class="helptext">Si alguno se volvió cliente, agrégalo en Trabajo y dile que llegó por la marca.</div></div>
+      <div class="helptext" style="margin:-4px 0 12px;">Lo sacas de Estadísticas en Instagram. Pon solo lo que tengas.</div>
+      ${METRICAS.reduce((filas,m,i)=>{ if(i%2===0) filas.push([]); filas[filas.length-1].push(m); return filas; }, []).map(fila=>`<div class="field-row">${fila.map(m=>
+        `<div class="field"><label>${m.l}</label><input type="number" min="0" inputmode="numeric" id="p_m_${m.k}" value="${p[m.k]??''}" placeholder="${m.ph}"></div>`).join('')}</div>`).join('')}
+      <div class="helptext">Si alguien se volvió cliente, agrégalo también en Trabajo y dile que llegó por la marca.</div>
     ` : '<div class="helptext">Cuando la publiques le pones cómo le fue.</div>'}
     <div class="sheet-actions">
       ${yaGuardada?`<button class="btn btn-ghost" id="p_borrar">Borrar</button>`:''}
@@ -1822,10 +1942,8 @@ function openPublicacionModal(existente, marcandoPublicada){
       red: g('p_red').value,
       fecha: g('p_fecha').value,
       estado: yaSalio ? 'publicada' : 'planeada',
-      alcance: g('p_alcance') ? Number(g('p_alcance').value)||'' : (p.alcance||''),
-      respuestas: g('p_resp') ? Number(g('p_resp').value)||'' : (p.respuestas||''),
-      cierres: g('p_cierres') ? Number(g('p_cierres').value)||'' : (p.cierres||'')
     };
+    METRICAS.forEach(m=>{ const el = g('p_m_'+m.k); datos[m.k] = el ? (el.value==='' ? '' : Number(el.value)) : (p[m.k]??''); });
     if(!datos.titulo){ alert('Ponle de qué es.'); return; }
     if(yaSalio) datos.etapa = 'Publicado';
     else if(etapaDe(p)==='Publicado') datos.etapa = 'Programado';
