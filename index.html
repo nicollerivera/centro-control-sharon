@@ -1522,6 +1522,14 @@ function renderAll(){
 })();
 </script>
 <script>
+/* Le pide al navegador que no borre lo guardado si el telefono se queda sin
+   espacio. Instalada, Chrome suele conceder esto sin preguntar nada. */
+if (navigator.storage && navigator.storage.persist) {
+  navigator.storage.persisted()
+    .then((ya) => (ya ? true : navigator.storage.persist()))
+    .catch(() => {});
+}
+
 /* Guarda la app en el telefono para que abra sin internet (ver sw.js).
    Si mientras tanto se publico una version nueva, se recarga sola una vez. */
 if ('serviceWorker' in navigator) {
