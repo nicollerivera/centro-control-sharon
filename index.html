@@ -321,6 +321,28 @@ body.con-barra .elegido .urg, body.con-barra .elegido .tag{visibility:hidden;}
 .lista-avisos{margin:0 0 10px; padding-left:20px; font-size:13.5px; color:var(--text); line-height:1.5;}
 .lista-avisos li{margin:3px 0;}
 .deuda-card.saldada{opacity:.62;}
+/* registro rapido de plata */
+.seg{display:flex; background:var(--surface-2); border-radius:12px; padding:3px; margin:0 0 14px;}
+.seg button{flex:1; border:none; background:none; color:var(--text-muted); font:inherit; font-weight:600; font-size:14.5px; padding:9px; border-radius:10px;}
+.seg button.on{background:var(--surface); color:var(--text); box-shadow:0 1px 3px rgba(0,0,0,.1);}
+.monto-grande{display:flex; align-items:baseline; gap:6px; border-bottom:2px solid var(--border); padding:4px 2px 8px; margin:0 0 6px;}
+.monto-grande:focus-within{border-color:var(--accent);}
+.monto-grande .signo{font-size:26px; color:var(--text-dim); font-family:'Space Grotesk',sans-serif;}
+.monto-grande input{flex:1; min-width:0; border:none; background:none; color:var(--text); font-size:34px; font-weight:600; font-family:'Space Grotesk',sans-serif; outline:none; padding:0;}
+.monto-grande .mon{border:none; background:var(--surface-2); color:var(--text-muted); font:inherit; font-size:12.5px; font-weight:700; padding:5px 9px; border-radius:8px;}
+.monto-leido{font-size:13px; color:var(--text-muted); min-height:18px; margin:0 0 14px;}
+.cats{display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:6px; margin:0 0 14px;}
+.cats button{border:1.5px solid var(--border); background:var(--surface); color:var(--text); font:inherit; font-size:12.5px; font-weight:600; padding:10px 4px; border-radius:10px; line-height:1.2;}
+.cats button.on{border-color:var(--c-dinero); background:color-mix(in srgb, var(--c-dinero) 12%, var(--surface)); color:var(--c-dinero);}
+.repetir{display:flex; gap:6px; overflow-x:auto; margin:0 -2px 14px; padding:0 2px 2px; scrollbar-width:none;}
+.repetir .chip{flex:none; font-size:12.5px; padding:6px 11px;}
+.lbl-mini{font-size:11.5px; font-weight:700; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; margin:0 0 6px;}
+.quedaria{margin-top:12px; padding-top:11px; border-top:1px solid var(--border);}
+.quedaria .fila{display:flex; justify-content:space-between; gap:10px; align-items:baseline;}
+.quedaria .n{font-size:19px; font-weight:600;}
+.quedaria .det{font-size:12.5px; color:var(--text-muted); margin-top:5px; line-height:1.5;}
+.toast{position:fixed; left:50%; bottom:calc(84px + env(safe-area-inset-bottom,0px)); transform:translate(-50%, 20px); background:var(--text); color:var(--surface); font-size:14px; font-weight:600; padding:11px 16px; border-radius:12px; opacity:0; transition:opacity .2s, transform .2s; z-index:200; max-width:calc(100% - 32px); text-align:center; pointer-events:none;}
+.toast.ver{opacity:1; transform:translate(-50%, 0);}
 /* secciones plegables: cerradas muestran solo nombre y resumen */
 .pleg{margin-bottom:8px;}
 .pleg-head{display:flex; align-items:center; gap:10px; width:100%; text-align:left; padding:14px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); font:inherit; cursor:pointer;}
@@ -3121,7 +3143,9 @@ function opcionesDeAgregar(){
     { que:'Algo que se repite', nota:'clases, Joel, gym', hacer:()=>openRoutineModal() }
   ];
   if(vista==='plata') return [
-    { que:'Un movimiento', nota:'gasto, ingreso, préstamo', hacer:()=>openMovimientoModal() },
+    { que:'Un gasto', nota:'tres toques', hacer:()=>openRegistroRapido('gasto') },
+    { que:'Un ingreso', nota:'', hacer:()=>openRegistroRapido('ingreso') },
+    { que:'Un pago pendiente', nota:'algo que toca pagar', hacer:()=>openMovimientoModal({ id:null, _nuevo:true, cat:'finanzas', type:'pago', amount:'', moneda:'COP', categoria:'Otros', persona:'', title:'', date:todayStr(), notes:'', status:'pendiente' }) },
     { que:'Un cobro de cada mes', nota:'como Datos o Claude', hacer:()=>openSuscripcionModal() },
     { que:'Un préstamo', nota:'lo que debes o te deben', hacer:()=>openDeudaModal() },
     { que:'Una compra a cuotas', nota:'', hacer:()=>openInstallmentModal() },
@@ -3904,7 +3928,11 @@ const TIPOS_MOV = {
 };
 
 function openMovimientoModal(existente){
-  const e = existente || { id:null, cat:'finanzas', type:'gasto', amount:'', moneda:'COP',
+  if(existente && existente._nuevo){ const pre = existente; existente = null; delete pre._nuevo; return openMovimientoModalCon(pre); }
+  return openMovimientoModalCon(null, existente);
+}
+function openMovimientoModalCon(pre, existente){
+  const e = existente || pre || { id:null, cat:'finanzas', type:'gasto', amount:'', moneda:'COP',
     categoria:'Otros', persona:'', title:'', date:todayStr(), notes:'', status:'hecho' };
 
   function pintar(){
@@ -4001,6 +4029,134 @@ function openCobroModal(t){
   };
 }
 
+function avisar(texto){
+  let t = document.getElementById('toast');
+  if(!t){ t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t); }
+  t.textContent = texto; t.classList.add('ver');
+  clearTimeout(t._reloj); t._reloj = setTimeout(()=>t.classList.remove('ver'), 2600);
+}
+
+/* Anotar un gasto o un ingreso tiene que ser de tres toques: cuanto, en que
+   categoria, guardar. Todo lo demas tiene valor por defecto (hoy, pesos) y
+   lo raro (pago pendiente, prestamos, nota) queda en Mas opciones. La
+   categoria sigue siendo obligatoria en los gastos, que de ahi sale el
+   presupuesto (D113). */
+function openRegistroRapido(tipo, base){
+  const r = Object.assign({ tipo: tipo||'gasto', monto:'', moneda:'COP', categoria:'', titulo:'', fecha:todayStr() }, base||{});
+  const recientes = (t)=>{
+    const vistos = new Set(), out = [];
+    DATA.events.filter(e=>e.cat==='finanzas' && e.type===t && Number(e.amount))
+      .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
+      .forEach(e=>{
+        const k = (e.title||'').toLowerCase() + '|' + (e.categoria||'');
+        if(vistos.has(k) || out.length>=6) return;
+        vistos.add(k); out.push(e);
+      });
+    return out;
+  };
+  const ayer = fmtDate(addDays(new Date(), -1));
+
+  function pintar(){
+    const esGasto = r.tipo==='gasto';
+    const rep = recientes(r.tipo);
+    openSheet(`
+      <div class="seg" role="tablist"><button data-tipo="gasto" class="${esGasto?'on':''}">Gasté</button><button data-tipo="ingreso" class="${!esGasto?'on':''}">Me entró</button></div>
+      ${rep.length ? `<div class="lbl-mini">Repetir</div><div class="repetir">${rep.map(e=>`<div class="chip" data-rep="${e.id}">${esc(e.title||e.categoria||'')} · ${e.moneda==='USD'&&e.montoOriginal ? 'US$'+e.montoOriginal : money(e.amount)}</div>`).join('')}</div>` : ''}
+      <div class="monto-grande"><span class="signo">${r.moneda==='USD'?'US$':'$'}</span>
+        <input id="r_monto" type="text" inputmode="numeric" autocomplete="off" placeholder="0" value="${r.monto ? Number(r.monto).toLocaleString('es-CO') : ''}">
+        <button class="mon" id="r_moneda">${r.moneda==='USD'?'Pesos':'US$'}</button></div>
+      <div class="monto-leido" id="r_leido"></div>
+      ${esGasto ? `<div class="lbl-mini">¿En qué?</div><div class="cats">${CATEGORIAS_GASTO.map(c=>`<button data-cat="${esc(c)}" class="${r.categoria===c?'on':''}">${esc(c)}</button>`).join('')}</div>` : ''}
+      <div class="field"><input type="text" id="r_titulo" value="${esc(r.titulo)}" placeholder="${esGasto?'Detalle (opcional): almuerzo, bus…':'¿De dónde? Ej: Infinity, cliente…'}"></div>
+      <div class="chiprow" id="r_fechas" style="margin:-4px 0 14px;">
+        <div class="chip ${r.fecha===todayStr()?'active':''}" data-f="${todayStr()}">Hoy</div>
+        <div class="chip ${r.fecha===ayer?'active':''}" data-f="${ayer}">Ayer</div>
+        <div class="chip ${r.fecha!==todayStr()&&r.fecha!==ayer?'active':''}" data-f="otra">${r.fecha!==todayStr()&&r.fecha!==ayer ? esc(niceDateShort(r.fecha)) : 'Otro día'}</div>
+      </div>
+      <input type="date" id="r_fecha" value="${r.fecha}" hidden>
+      <div class="sheet-actions">
+        <button class="btn btn-ghost" id="r_mas">Más opciones</button>
+        <button class="btn btn-primary" id="r_guardar">Guardar</button>
+      </div>`);
+    const g = id => document.getElementById(id);
+    const leerMonto = ()=>{ const n = Number(String(g('r_monto').value).replace(/[^\d]/g,'')); r.monto = n || ''; return n; };
+    const pintarLeido = ()=>{
+      const n = leerMonto();
+      let t = '';
+      if(n && r.moneda==='USD') t = tasaUSD() ? `Son ${money(Math.round(n*tasaUSD()))} a ${money(tasaUSD())} el dólar` : 'Ponle la tasa del dólar en Plata para convertirlo';
+      else if(n && esGasto && r.categoria && Number(DATA.plata.topes[r.categoria])>0){
+        const usado = (gastosDelMes()[r.categoria]||0) + n, tope = Number(DATA.plata.topes[r.categoria]);
+        t = `${r.categoria}: llevarías ${money(usado)} de ${money(tope)}`;
+      }
+      g('r_leido').textContent = t;
+      g('r_leido').style.color = t && r.moneda!=='USD' && (gastosDelMes()[r.categoria]||0)+n > Number(DATA.plata.topes[r.categoria]||Infinity) ? 'var(--urgent)' : '';
+    };
+    g('r_monto').oninput = ()=>{
+      const n = leerMonto();
+      g('r_monto').value = n ? n.toLocaleString('es-CO') : '';
+      pintarLeido();
+    };
+    setTimeout(()=>{ if(!r.monto) g('r_monto').focus(); }, 60);
+    pintarLeido();
+    const guardarTexto = ()=>{ r.titulo = g('r_titulo').value.trim(); leerMonto(); };
+    document.querySelectorAll('.seg [data-tipo]').forEach(b=>b.onclick=()=>{ guardarTexto(); r.tipo = b.dataset.tipo; r.categoria = ''; pintar(); });
+    g('r_moneda').onclick = ()=>{ guardarTexto(); r.moneda = r.moneda==='USD' ? 'COP' : 'USD'; pintar(); };
+    document.querySelectorAll('.cats [data-cat]').forEach(b=>b.onclick=()=>{
+      r.categoria = b.dataset.cat;
+      document.querySelectorAll('.cats button').forEach(x=>x.classList.toggle('on', x===b));
+      pintarLeido();
+    });
+    document.querySelectorAll('[data-rep]').forEach(c=>c.onclick=()=>{
+      const e = DATA.events.find(x=>x.id===c.dataset.rep); if(!e) return;
+      Object.assign(r, { monto: e.montoOriginal || e.amount, moneda: e.moneda||'COP', categoria: e.categoria||'', titulo: e.title||'' });
+      pintar();
+    });
+    document.querySelectorAll('#r_fechas [data-f]').forEach(c=>c.onclick=()=>{
+      if(c.dataset.f==='otra'){ const f = g('r_fecha'); f.hidden = false; f.showPicker ? f.showPicker() : f.focus();
+        f.onchange = ()=>{ guardarTexto(); r.fecha = f.value || todayStr(); pintar(); }; return; }
+      guardarTexto(); r.fecha = c.dataset.f; pintar();
+    });
+    g('r_mas').onclick = ()=>{
+      guardarTexto();
+      openMovimientoModal({ id:null, _nuevo:true, cat:'finanzas', type:r.tipo, amount:r.monto, moneda:r.moneda, categoria:r.categoria||'Otros', persona:'', title:r.titulo, date:r.fecha, notes:'', status:'hecho' });
+    };
+    g('r_guardar').onclick = ()=>{
+      guardarTexto();
+      if(!r.monto){ alert('¿Cuánto fue?'); g('r_monto').focus(); return; }
+      if(esGasto && !r.categoria){ alert('Toca en qué fue: de ahí sale tu presupuesto.'); return; }
+      const pesos = r.moneda==='USD' ? enPesos(r.monto,'USD') : Number(r.monto);
+      if(pesos===null){ alert('Ponle la tasa del dólar primero: en Plata, abre Dólar.'); return; }
+      DATA.events.push({ id:uid(), cat:'finanzas', type:r.tipo, amount:pesos, moneda:r.moneda,
+        montoOriginal: r.moneda==='USD' ? Number(r.monto) : null, categoria: esGasto ? r.categoria : '',
+        persona:'', title: r.titulo || (esGasto ? r.categoria : 'Ingreso'), date:r.fecha, notes:'', start:'', end:'', status:'hecho' });
+      saveData(); closeSheet(); renderPlata();
+      abrirPlegable('mes');
+      const tope = esGasto ? Number(DATA.plata.topes[r.categoria]) : 0;
+      avisar(esGasto
+        ? (tope ? `Anotado · ${r.categoria}: ${money(gastosDelMes()[r.categoria]||0)} de ${money(tope)}` : `Anotado: −${money(pesos)} en ${r.categoria}`)
+        : `Anotado: +${money(pesos)}`);
+    };
+  }
+  pintar();
+}
+
+/* Lo que quedaria si llega lo que esperas y pagas lo que debes (D05). Es un
+   estimado y se presenta como tal (D36); el saldo sigue siendo el tuyo (D99). */
+function cuentaQuedaria(){
+  const P = DATA.plata;
+  if(P.saldo===null || P.saldo==='') return null;
+  const hoy = todayStr(), en30 = fmtDate(addDays(new Date(), 30));
+  const recibir = porRecibir().reduce((a,x)=>a+x.monto, 0);
+  const cobros = (DATA.suscripciones||[]).map(x=>({ x, f:proximoCobro(x) })).filter(o=>o.f && o.f<=en30)
+    .reduce((a,o)=>a + (enPesos(o.x.monto, o.x.moneda) || Number(o.x.montoCOP) || 0), 0);
+  const pagos = DATA.events.filter(e=>e.cat==='finanzas' && e.type==='pago' && e.status!=='hecho').reduce((a,e)=>a+Number(e.amount||0), 0);
+  const debes = (DATA.deudas||[]).filter(d=>!d.saldada && d.sentido!=='meDeben').reduce((a,d)=>a+Math.max(0,saldoDeuda(d)), 0);
+  const cuotas = (DATA.installments||[]).reduce((a,i)=>a + Math.max(0, Number(i.total) - i.payments.reduce((s,p)=>s+Number(p.amount),0)), 0);
+  const teDeben = (DATA.deudas||[]).filter(d=>!d.saldada && d.sentido==='meDeben').reduce((a,d)=>a+Math.max(0,saldoDeuda(d)), 0);
+  const total = Number(P.saldo) + recibir - cobros - pagos - debes - cuotas;
+  return { total, recibir, cobros, pagos, debes, cuotas, teDeben };
+}
+
 function renderPlata(){
   const box = document.getElementById('sub-finanzas');
   const P = DATA.plata;
@@ -4011,6 +4167,14 @@ function renderPlata(){
     <div class="lbl">Tengo ahora <span class="saldo-edad">${P.saldoFecha ? esc(haceCuanto(P.saldoFecha)) : 'sin declarar'}</span></div>
     <div class="saldo-num mono">${P.saldo===null||P.saldo==='' ? '—' : money(P.saldo)}</div>
     <div class="helptext" style="margin:4px 0 0;">${P.saldoFecha ? 'Tú lo declaraste el ' + esc(niceDate(P.saldoFecha)) + '. Tócalo para ajustarlo.' : 'Tócalo para decir cuánto tienes. Bitácora no lo calcula sola.'}</div>
+    ${(q=>q && (q.recibir||q.cobros||q.pagos||q.debes||q.cuotas) ? `<div class="quedaria">
+      <div class="fila"><span style="font-size:13px; font-weight:600;">Te quedaría <span class="tentativo">est.</span></span><span class="n mono" style="color:${q.total<0?'var(--urgent)':'inherit'}">${q.total<0?'−':''}${money(Math.abs(q.total))}</span></div>
+      <div class="det">${[q.recibir&&`+ ${money(q.recibir)} por recibir`, q.cobros&&`− ${money(q.cobros)} cobros del mes`, q.pagos&&`− ${money(q.pagos)} pagos pendientes`, q.debes&&`− ${money(q.debes)} que debes`, q.cuotas&&`− ${money(q.cuotas)} en cuotas`].filter(Boolean).join('<br>')}${q.teDeben?`<br><span style="color:var(--text-dim)">Sin contar ${money(q.teDeben)} que te deben.</span>`:''}</div>
+    </div>` : '')(cuentaQuedaria())}
+  </div>
+  <div style="display:flex; gap:8px; margin:0 0 16px;">
+    <button class="btn btn-primary" id="plataGasto" style="flex:1;">− Gasté</button>
+    <button class="btn btn-ghost" id="plataIngreso" style="flex:1;">+ Me entró</button>
   </div>`;
 
   /* 2 · lo demas va plegado: cerrado se ve el nombre y un resumen, y se abre
@@ -4152,6 +4316,8 @@ function renderPlata(){
   box.innerHTML = html;
   bindItemClicks();
   document.getElementById('saldoCard').onclick = openSaldoModal;
+  document.getElementById('plataGasto').onclick = ()=>openRegistroRapido('gasto');
+  document.getElementById('plataIngreso').onclick = ()=>openRegistroRapido('ingreso');
   document.getElementById('tasaCard').onclick = openTasaModal;
   const _b_topesBtn = document.getElementById('topesBtn'); if(_b_topesBtn) _b_topesBtn.onclick = openTopesModal;
   const _b_addSusBtn = document.getElementById('addSusBtn'); if(_b_addSusBtn) _b_addSusBtn.onclick = ()=>openSuscripcionModal();
