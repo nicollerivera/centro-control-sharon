@@ -2583,6 +2583,115 @@ function gastosDelMes(){
   return out;
 }
 
+/* Registrar plata no es agendar algo: aca no se pregunta ni horario ni
+   repeticion ni de que area es. Solo lo que hace falta para que quede bien
+   clasificado (D113). */
+const TIPOS_MOV = {
+  gasto:            'Gasto',
+  ingreso:          'Ingreso',
+  pago:             'Pago pendiente',
+  prestamo_dado:    'Le presté a alguien',
+  prestamo_recibido:'Me prestaron'
+};
+
+function openMovimientoModal(existente){
+  const e = existente || { id:null, cat:'finanzas', type:'gasto', amount:'', moneda:'COP',
+    categoria:'Otros', persona:'', title:'', date:todayStr(), notes:'', status:'hecho' };
+
+  function pintar(){
+    const esPrestamo = e.type==='prestamo_dado' || e.type==='prestamo_recibido';
+    openSheet(`<h3>${existente?'Editar movimiento':'Registrar un movimiento'}</h3>
+      <div class="field"><label>¿Qué fue?</label>
+        <select id="m_tipo">${Object.entries(TIPOS_MOV).map(([k,v])=>`<option value="${k}" ${e.type===k?'selected':''}>${v}</option>`).join('')}</select>
+      </div>
+      <div class="field-row">
+        <div class="field" style="flex:2;"><label>Cuánto</label><input type="number" id="m_monto" inputmode="decimal" value="${e.amount}" placeholder="$"></div>
+        <div class="field" style="flex:1;"><label>Moneda</label><select id="m_moneda">
+          <option value="COP" ${e.moneda!=='USD'?'selected':''}>Pesos</option>
+          <option value="USD" ${e.moneda==='USD'?'selected':''}>Dólares</option>
+        </select></div>
+      </div>
+      ${e.moneda==='USD' && tasaUSD() ? `<div class="helptext" style="margin:-8px 0 14px;">A ${money(tasaUSD())} el dólar, son ${money(enPesos(e.amount||0,'USD'))}.</div>` : ''}
+      ${e.type==='gasto' ? `<div class="field"><label>¿De qué categoría?</label>
+        <select id="m_categoria">${CATEGORIAS_GASTO.map(c=>`<option value="${esc(c)}" ${e.categoria===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
+        <div class="helptext">De esto sale el presupuesto.</div></div>` : ''}
+      ${esPrestamo ? `<div class="field"><label>¿Con quién?</label><input type="text" id="m_persona" value="${esc(e.persona)}" placeholder="Nombre"></div>` : ''}
+      <div class="field"><label>${e.type==='pago' ? '¿Qué hay que pagar?' : 'En qué / de dónde'}</label>
+        <input type="text" id="m_titulo" value="${esc(e.title)}" placeholder="${e.type==='gasto'?'Ej: almuerzo, transporte':'Ej: turno de Infinity'}"></div>
+      <div class="field"><label>${e.type==='pago' ? 'Se vence el' : 'Cuándo'}</label><input type="date" id="m_fecha" value="${esc(e.date)}"></div>
+      <div class="field"><label>Nota (opcional)</label><input type="text" id="m_nota" value="${esc(e.notes)}"></div>
+      <div class="sheet-actions">
+        ${existente?`<button class="btn btn-ghost" id="m_borrar">Borrar</button>`:''}
+        <button class="btn btn-primary" id="m_guardar">Guardar</button>
+      </div>`);
+
+    function leer(){
+      const g = id => document.getElementById(id);
+      e.type = g('m_tipo').value;
+      e.amount = g('m_monto').value;
+      e.moneda = g('m_moneda').value;
+      e.title = g('m_titulo').value.trim();
+      e.date = g('m_fecha').value || todayStr();
+      e.notes = g('m_nota').value.trim();
+      if(g('m_categoria')) e.categoria = g('m_categoria').value;
+      if(g('m_persona')) e.persona = g('m_persona').value.trim();
+    }
+    /* el formulario cambia segun el tipo: no le mostramos campos que no aplican */
+    document.getElementById('m_tipo').onchange = ()=>{ leer(); pintar(); };
+    document.getElementById('m_moneda').onchange = ()=>{ leer(); pintar(); };
+
+    const borrar = document.getElementById('m_borrar');
+    if(borrar) borrar.onclick = ()=>{
+      DATA.events = DATA.events.filter(x=>x.id!==existente.id);
+      saveData(); closeSheet(); renderPlata();
+    };
+    document.getElementById('m_guardar').onclick = ()=>{
+      leer();
+      if(!Number(e.amount)){ alert('Falta el monto.'); return; }
+      if(!e.title) e.title = TIPOS_MOV[e.type];
+      /* lo que se guarda son pesos, con el original anotado al lado */
+      const pesos = e.moneda==='USD' ? enPesos(e.amount,'USD') : Number(e.amount);
+      if(pesos===null){ alert('Ponle la tasa del dólar primero, abajo en Plata.'); return; }
+      const obj = {
+        cat:'finanzas', type:e.type, amount:pesos, moneda:e.moneda,
+        montoOriginal: e.moneda==='USD' ? Number(e.amount) : null,
+        categoria: e.type==='gasto' ? e.categoria : '',
+        persona: e.persona || '', title:e.title, date:e.date, notes:e.notes,
+        start:'', end:'',
+        status: e.type==='pago' ? 'pendiente' : 'hecho'
+      };
+      if(existente) Object.assign(existente, obj);
+      else DATA.events.push(Object.assign({id:uid()}, obj));
+      saveData(); closeSheet(); renderPlata();
+    };
+  }
+  pintar();
+}
+
+/* Turno trabajado y pago recibido son dos cosas distintas (D77). Cuando le
+   pagan, corrige el estimado con lo que de verdad entro (D36). */
+function openCobroModal(t){
+  const esperado = Number(t.estimado)||0;
+  openSheet(`<h3>¿Cuánto te pagaron?</h3>
+    <div class="helptext" style="margin:-4px 0 14px;">${esc(turnoTitulo(t))} · turno del ${esc(niceDate(t.fecha))}. Calculabas ${money(esperado)}.</div>
+    <div class="field"><label>Lo que de verdad entró</label><input type="number" id="c_monto" inputmode="numeric" value="${esperado}"></div>
+    <div class="field"><label>Cuándo te pagaron</label><input type="date" id="c_fecha" value="${fechaDePagoTurno(t) || todayStr()}"></div>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" id="c_nada">Todavía no</button>
+      <button class="btn btn-primary" id="c_guardar">Ya me pagaron</button>
+    </div>`);
+  document.getElementById('c_nada').onclick = closeSheet;
+  document.getElementById('c_guardar').onclick = ()=>{
+    const real = Number(document.getElementById('c_monto').value)||0;
+    const fecha = document.getElementById('c_fecha').value || todayStr();
+    t.cobrado = true; t.pagoReal = real; t.pagoFecha = fecha;
+    DATA.events.push({ id:uid(), cat:'finanzas', type:'ingreso', amount:real, moneda:'COP',
+      title: turnoTitulo(t), date: fecha, notes:'Turno del ' + niceDateShort(t.fecha),
+      start:'', end:'', status:'hecho', deTurno:t.id });
+    saveData(); closeSheet(); renderPlata();
+  };
+}
+
 function renderPlata(){
   const box = document.getElementById('sub-finanzas');
   const P = DATA.plata;
@@ -2606,6 +2715,7 @@ function renderPlata(){
         <div class="mono" style="font-weight:700;">${money(x.monto)}</div>
       </div>
       <div class="helptext" style="margin:3px 0 0;">${x.fecha ? 'Te pagan el ' + esc(niceDate(x.fecha)) : 'Sin fecha de pago definida'} · turno del ${esc(niceDateShort(x.turno.fecha))}</div>
+      <button class="small-btn" data-cobrar="${x.turno.id}" style="margin-top:9px;">Ya me pagaron</button>
     </div>`).join('')
     : '<div class="empty-card" style="margin-bottom:8px;">Nada por recibir. Ponle a cada turno lo que calculas que te pagan y aparece acá.</div>';
   html += `<div class="helptext">Son estimados tuyos. Cuando te paguen los corriges y Bitácora ajusta.</div>`;
@@ -2677,6 +2787,20 @@ function renderPlata(){
     </div>
     <button class="btn btn-primary" style="width:100%; margin:2px 0 4px;" id="addMoneyBtn">+ Registrar un movimiento</button>`;
 
+  /* los movimientos, uno por uno y tocables: antes solo se veian los totales */
+  const movs = evMes.slice().sort((a,b)=>b.date.localeCompare(a.date));
+  html += movs.length ? movs.map(m=>{
+    const entra = m.type==='ingreso' || m.type==='prestamo_recibido';
+    const pendiente = m.type==='pago' && m.status!=='hecho';
+    return `<div class="card mov-card" data-id="${m.id}" style="cursor:pointer; border-left:3px solid ${pendiente?'var(--ambar)':entra?'var(--c-dinero)':'var(--urgent)'};">
+      <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
+        <div style="font-weight:600;">${esc(m.title)}</div>
+        <div class="mono" style="font-weight:700; color:${pendiente?'var(--ambar)':entra?'var(--c-dinero)':'var(--urgent)'};">${entra?'+':'−'}${money(m.amount)}</div>
+      </div>
+      <div class="helptext" style="margin:3px 0 0;">${esc(TIPOS_MOV[m.type]||'Movimiento')}${m.categoria?' · '+esc(m.categoria):''}${m.persona?' · '+esc(m.persona):''} · ${esc(niceDateShort(m.date))}${m.montoOriginal?' · US$'+m.montoOriginal:''}</div>
+    </div>`;
+  }).join('') : '<div class="empty-card" style="margin-bottom:8px;">Sin movimientos este mes.</div>';
+
   html += `<div class="section-title">Compras a cuotas</div>`;
   if(DATA.installments.length){
     html += DATA.installments.map(inst=>{
@@ -2715,7 +2839,15 @@ function renderPlata(){
   document.getElementById('topesBtn').onclick = openTopesModal;
   document.getElementById('addSusBtn').onclick = ()=>openSuscripcionModal();
   document.getElementById('addDeudaBtn').onclick = ()=>openDeudaModal();
-  document.getElementById('addMoneyBtn').onclick = ()=>openEventModal(null, {cat:'finanzas'});
+  document.getElementById('addMoneyBtn').onclick = ()=>openMovimientoModal();
+  box.querySelectorAll('.mov-card').forEach(c=>c.onclick=()=>{
+    const m = DATA.events.find(x=>x.id===c.dataset.id);
+    openMovimientoModal(Object.assign(m, { moneda: m.moneda||'COP', amount: m.montoOriginal || m.amount }));
+  });
+  box.querySelectorAll('[data-cobrar]').forEach(b=>b.onclick=(ev)=>{
+    ev.stopPropagation();
+    openCobroModal(DATA.turnos.find(t=>t.id===b.dataset.cobrar));
+  });
   document.getElementById('addInstallmentBtn').onclick = openInstallmentModal;
   box.querySelectorAll('.sus-card').forEach(c=>c.onclick=()=>openSuscripcionModal(DATA.suscripciones.find(x=>x.id===c.dataset.id)));
   box.querySelectorAll('[data-usar-tasa]').forEach(b=>b.onclick=(ev)=>{
