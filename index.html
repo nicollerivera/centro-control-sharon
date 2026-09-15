@@ -331,6 +331,24 @@ body.con-barra .elegido .urg, body.con-barra .elegido .tag{visibility:hidden;}
 .pleg.abierta .pleg-chev{transform:rotate(90deg);}
 .pleg-body{padding:8px 0 6px;}
 .pleg-tit .punto{display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:8px; vertical-align:1px;}
+/* parrilla de contenido: lo que toca grabar y la ficha de cada pieza */
+.grabar-card{display:flex; gap:12px; align-items:flex-start; padding:13px 14px; background:var(--surface); border:1px solid var(--border); border-left:3px solid var(--c-marca); border-radius:var(--radius); margin-bottom:8px; cursor:pointer;}
+.grabar-fecha{flex:none; width:44px; text-align:center; line-height:1.1;}
+.grabar-fecha .d{font-size:19px; font-weight:700; font-family:'Space Grotesk',sans-serif;}
+.grabar-fecha .m{font-size:11px; color:var(--text-dim); text-transform:uppercase;}
+.grabar-fecha.tarde .d, .grabar-fecha.tarde .m{color:var(--ambar);}
+.grabar-info{flex:1; min-width:0;}
+.grabar-info .t{font-weight:600; font-size:14.5px; line-height:1.3;}
+.grabar-info .s{font-size:12.5px; color:var(--text-muted); margin-top:3px;}
+.ficha-meta{display:grid; grid-template-columns:auto 1fr; gap:6px 12px; font-size:13.5px; margin-bottom:16px;}
+.ficha-meta dt{color:var(--text-dim);} .ficha-meta dd{margin:0; font-weight:600;}
+.ficha-bloque{background:var(--surface-2); border-radius:var(--radius); padding:12px 14px; margin-bottom:8px;}
+.ficha-bloque .k{font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--c-marca); margin-bottom:4px;}
+.ficha-bloque .v{font-size:15px; line-height:1.45; white-space:pre-line;}
+.ficha-sub{font-size:13px; color:var(--text-muted); font-weight:600; margin:18px 0 8px; display:flex; justify-content:space-between; align-items:center;}
+.etapas{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;}
+.etapas .chip{padding:6px 11px; font-size:12.5px;}
+.etapas .chip.active{border-color:var(--c-marca); color:var(--c-marca); background:color-mix(in srgb, var(--c-marca) 12%, transparent);}
 .pleg-acciones{display:flex; justify-content:flex-end; gap:8px; margin:2px 0 8px;}
 
 /* ---------- turnos y choques ---------- */
@@ -1486,6 +1504,13 @@ function fallasTotales(){ return DATA.subjects.reduce((a,s)=>a+Number(s.fallas||
 ============================================================ */
 const ESTADOS_IDEA = { idea:'Idea', grabando:'Grabando', listo:'Listo para publicar' };
 const REDES = ['Instagram','TikTok','LinkedIn','WhatsApp','Otra'];
+/* Las etapas son las de su parrilla de Excel, en su orden. */
+const ETAPAS = ['Por grabar','Grabado','En edición','Programado','Publicado'];
+function etapaDe(p){ return p.etapa || (p.estado==='publicada' ? 'Publicado' : 'Programado'); }
+function ponerEtapa(p, etapa){
+  p.etapa = etapa;
+  p.estado = etapa==='Publicado' ? 'publicada' : 'planeada';
+}
 
 function marcaData(){
   DATA.marca = DATA.marca || { ideas:[], publicaciones:[] };
@@ -1507,6 +1532,18 @@ function renderMarca(){
   const traidos = clientesDeLaMarca();
 
   let html = '';
+
+  /* ---- lo que toca grabar: lo primero que se ve (su parrilla) ---- */
+  const porGrabar = M.publicaciones.filter(p=>etapaDe(p)==='Por grabar')
+    .sort((a,b)=>(a.fecha||'9999').localeCompare(b.fecha||'9999'));
+  if(porGrabar.length){
+    html += `<div class="section-title" style="margin-top:4px;"><span>Te toca grabar</span><span class="count">${porGrabar.length}</span></div>`;
+    html += porGrabar.slice(0,3).map(p=>tarjetaPieza(p)).join('');
+    if(porGrabar.length>3) html += plegable('marca:grabar-mas', 'Las demás por grabar', String(porGrabar.length-3), porGrabar.slice(3).map(p=>tarjetaPieza(p)).join(''));
+    html += '<div style="height:14px;"></div>';
+  } else if(!M.publicaciones.length){
+    html += `<div class="empty-card" style="margin-bottom:14px;">¿Tienes tu parrilla en Excel? Tócale al + y elige <b>Importar parrilla</b>: aquí te sale qué te toca grabar.</div>`;
+  }
 
   /* ---- resultados: alcance, respuestas y cierres (D73) ---- */
   html += plegable('marca:mes', 'Cómo te fue este mes',
@@ -1532,23 +1569,12 @@ function renderMarca(){
       <span class="urg" data-estado="${i.estado}" data-cambiar="${i.id}">${esc(ESTADOS_IDEA[i.estado]||'Idea')}</span>
     </div>`).join('') + `<div class="helptext">Tócale a la etiqueta para moverla de idea a grabando a lista. Tócale al texto para programarla.</div>` : ''));
 
-  /* ---- el calendario de publicaciones ---- */
-  const planeadas = M.publicaciones.filter(p=>p.estado!=='publicada').sort((a,b)=>(a.fecha||'9999').localeCompare(b.fecha||'9999'));
-  const diasProx = planeadas.length && planeadas[0].fecha ? daysBetween(todayStr(), planeadas[0].fecha) : null;
-  if(planeadas.length) html += plegable('marca:programadas', 'Programadas',
-    planeadas.length + (diasProx===null ? '' : ' · ' + (diasProx<0?'una se pasó':diasProx===0?'una hoy':diasProx===1?'una mañana':'la próxima, '+niceDateShort(planeadas[0].fecha))),
-    planeadas.map(p=>{
-    const dias = p.fecha ? daysBetween(todayStr(), p.fecha) : null;
-    const cuando = p.fecha ? (dias<0?'Se pasó':dias===0?'Hoy':dias===1?'Mañana':niceDate(p.fecha)) : 'Sin fecha';
-    return `<div class="card pub-card" data-id="${p.id}" data-sel-tipo="publicacion" data-sel-id="${p.id}" style="cursor:pointer; border-left:3px solid var(--c-marca);">
-      <div style="display:flex; justify-content:space-between; gap:10px; align-items:baseline;">
-        <div style="font-weight:600;">${esc(p.titulo)}</div>
-        <span class="tag" style="background:${dias!==null&&dias<=1?'var(--ambar-soft)':'var(--accent-soft)'}; color:${dias!==null&&dias<=1?'var(--ambar)':'var(--accent)'};">${esc(cuando)}</span>
-      </div>
-      <div class="helptext" style="margin:3px 0 0;">${esc(p.red||'Sin red')}</div>
-      <button class="small-btn" data-publicada="${p.id}" style="margin-top:9px;">Ya la publiqué</button>
-    </div>`;
-  }).join(''), diasProx!==null && diasProx<=1);
+  /* ---- en proceso: grabado, en edicion, programado ---- */
+  const enProceso = M.publicaciones.filter(p=>['Grabado','En edición','Programado'].includes(etapaDe(p)))
+    .sort((a,b)=>(a.fecha||'9999').localeCompare(b.fecha||'9999'));
+  if(enProceso.length) html += plegable('marca:proceso', 'En proceso',
+    ['Grabado','En edición','Programado'].map(e=>{ const n=enProceso.filter(p=>etapaDe(p)===e).length; return n ? n+' '+e.toLowerCase() : ''; }).filter(Boolean).join(' · '),
+    enProceso.map(p=>tarjetaPieza(p, etapaDe(p))).join(''));
 
   /* ---- lo ya publicado, con sus numeros ---- */
   const publicadas = M.publicaciones.filter(p=>p.estado==='publicada').sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
@@ -1578,14 +1604,148 @@ function renderMarca(){
     const i = M.ideas.find(x=>x.id===r.dataset.id);
     openIdeaModal(i);
   });
-  box.querySelectorAll('.pub-card').forEach(c=>c.onclick=(ev)=>{
+  box.querySelectorAll('.pub-card, .grabar-card').forEach(c=>c.onclick=(ev)=>{
     if(ev.target.closest('[data-publicada]')) return;
-    openPublicacionModal(M.publicaciones.find(p=>p.id===c.dataset.id));
+    const pieza = M.publicaciones.find(p=>p.id===c.dataset.id);
+    pieza.guion || pieza.copy ? openFichaPieza(pieza) : openPublicacionModal(pieza);
   });
   box.querySelectorAll('[data-publicada]').forEach(b=>b.onclick=(ev)=>{
     ev.stopPropagation();
     openPublicacionModal(M.publicaciones.find(p=>p.id===b.dataset.publicada), true);
   });
+}
+
+/* Una pieza de la parrilla en una fila: la fecha grande a la izquierda y lo
+   justo para saber que es. */
+function tarjetaPieza(p, etiqueta){
+  const dias = p.fecha ? daysBetween(todayStr(), p.fecha) : null;
+  const d = p.fecha ? parseDate(p.fecha) : null;
+  const tarde = dias!==null && dias<0 && etapaDe(p)!=='Publicado';
+  return `<div class="grabar-card" data-id="${p.id}" data-sel-tipo="publicacion" data-sel-id="${p.id}">
+    <div class="grabar-fecha ${tarde?'tarde':''}">${d ? `<div class="d">${d.getDate()}</div><div class="m">${MONTHS[d.getMonth()].slice(0,3)}</div>` : '<div class="m">sin fecha</div>'}</div>
+    <div class="grabar-info">
+      <div class="t">${esc(p.titulo)}</div>
+      <div class="s">${[etiqueta, p.formato, tarde ? 'se pasó la fecha' : dias===0 ? 'sale hoy' : dias===1 ? 'sale mañana' : ''].filter(Boolean).map(esc).join(' · ')}</div>
+    </div>
+  </div>`;
+}
+
+/* El guion viene como "GANCHO: ... \n DESARROLLO: ...": se parte en bloques
+   para leerlo de un vistazo mientras graba. */
+function partesGuion(txt){
+  const partes = [];
+  String(txt||'').replace(/​/g,' ').split('\n').forEach(linea=>{
+    const m = linea.match(/^\s*([A-ZÁÉÍÓÚÑ0-9][A-ZÁÉÍÓÚÑ0-9 \-]*(?:\([^)]*\))?)\s*:\s*(.*)$/);
+    if(m) partes.push({ k:m[1].trim(), v:m[2].trim() });
+    else if(linea.trim()){
+      if(partes.length) partes[partes.length-1].v += '\n' + linea.trim();
+      else partes.push({ k:'', v:linea.trim() });
+    }
+  });
+  return partes;
+}
+
+function openFichaPieza(p){
+  const etapa = etapaDe(p);
+  const meta = [['Sale', p.fecha ? niceDate(p.fecha) : 'sin fecha'], ['Formato', p.formato], ['Pilar', p.pilar], ['CTA', p.cta],
+    ['Lead magnet', p.leadMagnet], ['Para', p.avatar], ['Grilla', p.grilla]].filter(([k,v])=>v && v!=='—');
+  openSheet(`<h3 style="line-height:1.3;">${esc(p.titulo)}</h3>
+    <div class="etapas" id="f_etapas">${ETAPAS.map(e=>`<div class="chip ${e===etapa?'active':''}" data-etapa="${e}">${e}</div>`).join('')}</div>
+    <div class="helptext" style="margin:0 0 14px;">Tócale a la etapa en la que va.</div>
+    <dl class="ficha-meta">${meta.map(([k,v])=>`<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+    ${p.guion ? `<div class="ficha-sub"><span>Guion</span></div>` + partesGuion(p.guion).map(x=>`<div class="ficha-bloque">${x.k?`<div class="k">${esc(x.k)}</div>`:''}<div class="v">${esc(x.v.replace(/^«|»$/g,''))}</div></div>`).join('') : ''}
+    ${p.copy ? `<div class="ficha-sub"><span>Copy</span><button class="small-btn" id="f_copiar">Copiar</button></div><div class="ficha-bloque"><div class="v">${esc(p.copy)}</div></div>` : ''}
+    <div class="sheet-actions"><button class="btn btn-ghost" id="f_editar">Editar fecha o resultados</button></div>`);
+  document.querySelectorAll('#f_etapas .chip').forEach(c=>c.onclick=()=>{
+    ponerEtapa(p, c.dataset.etapa);
+    saveData(); renderMarca();
+    if(c.dataset.etapa==='Publicado') openPublicacionModal(p, true);
+    else openFichaPieza(p);
+  });
+  const cp = document.getElementById('f_copiar');
+  if(cp) cp.onclick = ()=>{
+    const ok = ()=>{ cp.textContent = 'Copiado ✓'; };
+    if(navigator.clipboard) navigator.clipboard.writeText(p.copy).then(ok, ()=>alert('No se pudo copiar. Mantén presionado el texto para copiarlo.'));
+  };
+  document.getElementById('f_editar').onclick = ()=>openPublicacionModal(p, etapa==='Publicado');
+}
+
+/* ---- Importar la parrilla desde su Excel ----
+   El contenido no vive en el codigo (el repo es publico): ella sube el
+   archivo y queda en sus datos. Volver a importarlo actualiza guion, copy y
+   fechas, pero respeta la etapa y los resultados que ya puso en la app. */
+function cargarXLSX(){
+  if(window.XLSX) return Promise.resolve(window.XLSX);
+  return new Promise((ok, mal)=>{
+    const sc = document.createElement('script');
+    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    sc.onload = ()=>ok(window.XLSX);
+    sc.onerror = ()=>mal(new Error('sin internet'));
+    document.head.appendChild(sc);
+  });
+}
+function fechaDeCelda(XLSX, v){
+  const dos = n => String(n).padStart(2,'0');
+  if(typeof v==='number'){ const d = XLSX.SSF.parse_date_code(v); return d ? `${d.y}-${dos(d.m)}-${dos(d.d)}` : ''; }
+  const m = String(v||'').trim().match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+  if(m) return `${m[3]}-${dos(m[2])}-${dos(m[1])}`;
+  const iso = String(v||'').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return iso ? `${iso[1]}-${iso[2]}-${iso[3]}` : '';
+}
+function importarParrilla(){
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  inp.onchange = async ()=>{
+    const file = inp.files[0]; if(!file) return;
+    leerParrilla(await file.arrayBuffer());
+  };
+  inp.click();
+}
+async function leerParrilla(buf){
+    let XLSX;
+    try{ XLSX = await cargarXLSX(); }catch(e){ alert('Para importar el Excel necesitas internet un momento.'); return; }
+    const wb = XLSX.read(buf, { type:'array' });
+    const M = marcaData();
+    const norm = t => String(t||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
+    let nuevas = 0, actualizadas = 0, ideasNuevas = 0;
+
+    wb.SheetNames.forEach(nombre=>{
+      const filas = XLSX.utils.sheet_to_json(wb.Sheets[nombre], { header:1, raw:true, defval:'' });
+      const iHead = filas.findIndex(f=>f.some(c=>norm(c).startsWith('tema/idea')) || f.some(c=>norm(c)==='idea / tema'));
+      if(iHead<0) return;
+      const head = filas[iHead].map(norm);
+      const col = (...nombres) => head.findIndex(h=>nombres.some(n=>h.startsWith(n)));
+      const val = (f, i) => i>=0 ? String(f[i]??'').trim() : '';
+
+      if(head.some(h=>h.startsWith('tema/idea'))){
+        const c = { fecha:col('fecha'), dia:col('dia'), pilar:col('pilar'), tema:col('tema/idea'), formato:col('formato'), cta:col('cta'),
+          lead:col('lead magnet'), guion:col('guion'), copy:col('copy'), status:col('status'), grilla:col('celda grilla'), avatar:col('avatar') };
+        filas.slice(iHead+1).forEach(f=>{
+          const titulo = val(f, c.tema); if(!titulo) return;
+          const fecha = fechaDeCelda(XLSX, f[c.fecha]);
+          if(!fecha && !val(f,c.formato)) return;   // las notas de "como usar esta hoja"
+          const statusXls = ETAPAS.find(e=>norm(e)===norm(val(f,c.status))) || 'Por grabar';
+          const datos = { titulo, fecha, dia:val(f,c.dia), pilar:val(f,c.pilar), formato:val(f,c.formato), cta:val(f,c.cta),
+            leadMagnet:val(f,c.lead), guion:val(f,c.guion), copy:val(f,c.copy), grilla:val(f,c.grilla), avatar:val(f,c.avatar), deParrilla:true };
+          const ya = M.publicaciones.find(p=>norm(p.titulo)===norm(titulo));
+          if(ya){ Object.assign(ya, datos); if(!ya.etapa) ponerEtapa(ya, statusXls); actualizadas++; }
+          else{ const p = Object.assign({ id:uid(), red:'Instagram', alcance:'', respuestas:'', cierres:'' }, datos); ponerEtapa(p, statusXls); M.publicaciones.push(p); nuevas++; }
+        });
+      } else {
+        const c = { idea:col('idea / tema'), pilar:col('pilar'), gancho:col('gancho'), formato:col('formato'), avatar:col('avatar'), cta:col('cta') };
+        filas.slice(iHead+1).forEach(f=>{
+          const texto = val(f, c.idea); if(!texto) return;
+          if(M.ideas.some(i=>norm(i.texto)===norm(texto)) || M.publicaciones.some(p=>norm(p.titulo)===norm(texto))) return;
+          M.ideas.push({ id:uid(), texto, estado:'idea', creado:todayStr(), pilar:val(f,c.pilar), gancho:val(f,c.gancho), formato:val(f,c.formato), avatar:val(f,c.avatar), cta:val(f,c.cta) });
+          ideasNuevas++;
+        });
+      }
+    });
+
+    if(!nuevas && !actualizadas && !ideasNuevas){ alert('No encontré la parrilla en ese archivo. Tiene que tener la columna "Tema/Idea de Contenido".'); return; }
+    saveData(); renderMarca();
+    alert([nuevas && `${nuevas} contenido${nuevas>1?'s':''} nuevo${nuevas>1?'s':''}`, actualizadas && `${actualizadas} actualizado${actualizadas>1?'s':''}`, ideasNuevas && `${ideasNuevas} idea${ideasNuevas>1?'s':''} al banco`].filter(Boolean).join(' · ') + '.');
 }
 
 function agregarIdea(){
@@ -1601,6 +1761,8 @@ function openIdeaModal(i){
   if(!i) return;
   openSheet(`<h3>Idea</h3>
     <div class="field"><label>¿De qué es?</label><input type="text" id="i_texto" value="${esc(i.texto)}"></div>
+    ${i.gancho ? `<div class="ficha-bloque"><div class="k">Gancho</div><div class="v">${esc(i.gancho.replace(/^«|»$/g,''))}</div></div>` : ''}
+    ${[i.formato, i.pilar, i.cta].filter(Boolean).length ? `<div class="helptext" style="margin:0 0 14px;">${[i.formato, i.pilar, i.cta].filter(Boolean).map(esc).join(' · ')}</div>` : ''}
     <div class="field"><label>Cómo va</label><select id="i_estado">
       ${Object.entries(ESTADOS_IDEA).map(([k,v])=>`<option value="${k}" ${i.estado===k?'selected':''}>${v}</option>`).join('')}
     </select></div>
@@ -1622,7 +1784,7 @@ function openIdeaModal(i){
   document.getElementById('i_programar').onclick = ()=>{
     const texto = document.getElementById('i_texto').value.trim() || i.texto;
     marcaData().ideas = marcaData().ideas.filter(x=>x.id!==i.id);
-    openPublicacionModal({ id:null, titulo:texto, fecha:'', red:'', estado:'planeada', alcance:'', respuestas:'', cierres:'' });
+    openPublicacionModal({ id:null, titulo:texto, fecha:'', red:'', estado:'planeada', alcance:'', respuestas:'', cierres:'', formato:i.formato||'', pilar:i.pilar||'', cta:i.cta||'', avatar:i.avatar||'', guion:i.gancho ? 'GANCHO: '+i.gancho : '' });
   };
 }
 
@@ -1665,8 +1827,10 @@ function openPublicacionModal(existente, marcandoPublicada){
       cierres: g('p_cierres') ? Number(g('p_cierres').value)||'' : (p.cierres||'')
     };
     if(!datos.titulo){ alert('Ponle de qué es.'); return; }
+    if(yaSalio) datos.etapa = 'Publicado';
+    else if(etapaDe(p)==='Publicado') datos.etapa = 'Programado';
     if(yaGuardada) Object.assign(existente, datos);
-    else marcaData().publicaciones.push(Object.assign({id:uid()}, datos));
+    else marcaData().publicaciones.push(Object.assign({}, p, {id:uid(), etapa: p.etapa || (p.formato ? 'Por grabar' : undefined)}, datos));
     saveData(); closeSheet(); renderMarca();
   };
 }
@@ -2451,7 +2615,8 @@ function opcionesDeAgregar(){
       { que:'Una entrega', nota:'tarea, proyecto, parcial', hacer:()=>openTaskModal() }
     ];
     if(sub==='marca') return [
-      { que:'Una publicación', nota:'programarla o anotarla', hacer:()=>openPublicacionModal() }
+      { que:'Una publicación', nota:'programarla o anotarla', hacer:()=>openPublicacionModal() },
+      { que:'Importar parrilla', nota:'tu Excel de contenido', hacer:()=>importarParrilla() }
     ];
     if(sub==='nexxa') return [{ que:'Un evento de Nexxa', nota:'', hacer:()=>openNexxaModal() }];
     if(sub==='trabajo') return [{ que:'Un cliente o empresa', nota:'', hacer:()=>openClientModal() }];
