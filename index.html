@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>Bitácora</title>
-<meta name="bitacora-build" content="20260915220725">
+<meta name="bitacora-build" content="20260915221043">
 <script>
 /* Modo claro u oscuro (D55). La primera vez sigue al teléfono; después manda el botón. */
 /* Arranca en claro. El oscuro se elige con el boton, no lo decide el
@@ -4688,6 +4688,23 @@ function diaDe(fecha){
   DATA.diario[fecha] = DATA.diario[fecha] || { sueno:[], animo:'', cerrado:false };
   return DATA.diario[fecha];
 }
+/* Las clases y las rutinas no son un evento guardado: se repiten. Para poder
+   marcarlas hechas sin inventar un evento cada semana, el estado se guarda en
+   el dia, por id de la cosa que se repite (D107: hecho, en progreso o nada). */
+function estadoRepetido(fecha, id){
+  const d = diaDe(fecha);
+  d.repetidos = d.repetidos || {};
+  return d.repetidos[id] || 'pendiente';
+}
+function ciclarRepetido(fecha, id){
+  const d = diaDe(fecha);
+  d.repetidos = d.repetidos || {};
+  const ahora = d.repetidos[id] || 'pendiente';
+  const sigue = ahora==='pendiente' ? 'progreso' : ahora==='progreso' ? 'hecho' : 'pendiente';
+  if(sigue==='pendiente') delete d.repetidos[id]; else d.repetidos[id] = sigue;
+  return sigue;
+}
+
 function minutosDormidos(fecha){
   return (diaDe(fecha).sueno || []).reduce((a,b)=>{
     const d = minutosDe(b.desde), h = finEnMinutos(b.desde, b.hasta);
@@ -4972,8 +4989,11 @@ function tiraDelDia(fecha, opciones){
       </div>`;
     }
     const b = f.b;
-    const hecho = b.ev && b.ev.status==='hecho';
-    const progreso = b.ev && b.ev.status==='progreso';
+    /* lo que se repite (clases, rutinas) guarda su estado en el dia */
+    const idRep = b.ev ? null : b.rutina ? 'rutina:'+b.rutina.id : b.materia ? 'materia:'+b.materia.id : null;
+    const estadoRep = idRep ? estadoRepetido(fecha, idRep) : null;
+    const hecho = b.ev ? b.ev.status==='hecho' : estadoRep==='hecho';
+    const progreso = b.ev ? b.ev.status==='progreso' : estadoRep==='progreso';
     const marca = b.ev ? `data-id="${b.ev.id}" data-sel-tipo="evento" data-sel-id="${b.ev.id}"`
       : b.rutina ? `data-rutina="${b.rutina.id}" data-sel-tipo="rutina" data-sel-id="${b.rutina.id}"`
       : b.materia ? `data-materia="${b.materia.id}" data-sel-tipo="materia" data-sel-id="${b.materia.id}"`
@@ -4985,8 +5005,9 @@ function tiraDelDia(fecha, opciones){
         <div class="nombre">${esc(b.titulo)}</div>
         ${b.lugar && b.lugar.trim() !== b.titulo.trim() ? `<div class="sitio">${esc(b.lugar)}</div>` : ''}
       </div>
-      ${b.ev ? `<button class="status-btn ${hecho?'hecho':progreso?'progreso':''}" data-action="cyclestatus" data-id="${b.ev.id}"></button>` : ''}
+      ${b.ev ? `<button class="status-btn ${hecho?'hecho':progreso?'progreso':''}" data-action="cyclestatus" data-id="${b.ev.id}" aria-label="Marcar hecho"></button>` : ''}
       ${b.pend ? `<button class="status-btn" data-action="hechoPend" data-pid="${b.pend.id}" aria-label="Marcar hecho"></button>` : ''}
+      ${idRep ? `<button class="status-btn ${hecho?'hecho':progreso?'progreso':''}" data-action="cicloRepetido" data-rep="${idRep}" data-fecha="${fecha}" aria-label="Marcar hecho"></button>` : ''}
     </div>`;
   }).join('');
 }
@@ -5001,6 +5022,13 @@ function engancharTira(caja){
   });
   caja.querySelectorAll('[data-pend]').forEach(el=>{
     el.onclick = ()=>{ const p = DATA.pendientes.find(x=>x.id===el.dataset.pend); if(p) openPendienteModal(p); };
+  });
+  caja.querySelectorAll('[data-action="cicloRepetido"]').forEach(b=>{
+    b.onclick = (ev)=>{
+      ev.stopPropagation();
+      ciclarRepetido(b.dataset.fecha, b.dataset.rep);
+      saveData(); renderAll();
+    };
   });
   caja.querySelectorAll('[data-action="hechoPend"]').forEach(b=>{
     b.onclick = (ev)=>{
