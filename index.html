@@ -317,18 +317,16 @@ body.con-barra .elegido .urg, body.con-barra .elegido .tag{visibility:hidden;}
 .saldo-card .lbl{font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; font-weight:700; display:flex; align-items:baseline; gap:8px;}
 .saldo-edad{text-transform:none; letter-spacing:0; font-weight:600; color:var(--text-muted); font-size:11.5px;}
 .saldo-num{font-size:32px; font-weight:600; margin-top:2px; letter-spacing:-.02em;}
-.saldo-card{cursor:pointer; border:none !important; background:none; padding:6px 2px 4px; margin-bottom:6px;}
+.saldo-card{cursor:pointer; background:var(--surface); border:1px solid var(--border); border-left:3px solid var(--c-dinero); border-radius:var(--radius); padding:13px 14px 14px; margin-bottom:12px;}
+/* cada lugar donde tiene plata: efectivo, Nequi, Daviplata, lo que agregue */
+.bolsillos{display:grid; grid-template-columns:repeat(auto-fit, minmax(92px, 1fr)); gap:7px; margin-top:12px;}
+.bolsillo{min-width:0; display:flex; flex-direction:column; align-items:flex-start; gap:1px; background:var(--surface-2); border:none; border-radius:10px; padding:9px 10px; color:var(--text); font:inherit; text-align:left; cursor:pointer;}
+.bolsillo .n{max-width:100%; font-size:11.5px; font-weight:600; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.bolsillo .m{font-size:14.5px; font-weight:600;}
+.bolsillo .m.vacio{color:var(--text-dim); font-weight:500;}
 .lista-avisos{margin:0 0 10px; padding-left:20px; font-size:13.5px; color:var(--text); line-height:1.5;}
 .lista-avisos li{margin:3px 0;}
 .deuda-card.saldada{opacity:.62;}
-/* la linea para anotar plata */
-.linea-plata{display:flex; align-items:center; gap:8px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:3px 5px 3px 13px; margin:0 0 4px;}
-.linea-plata:focus-within{border-color:var(--accent);}
-.linea-plata input{flex:1; min-width:0; border:none; background:none; color:var(--text); font:inherit; font-size:15px; padding:10px 0; outline:none;}
-.linea-plata button{flex:none; width:32px; height:32px; border:none; border-radius:8px; background:var(--accent); color:#fff; font-size:18px; display:flex; align-items:center; justify-content:center;}
-.linea-plata button:disabled{display:none;}
-.linea-lee{font-size:12px; color:var(--text-dim); min-height:17px; margin:0 4px 18px;}
-.linea-lee b{font-family:'Space Grotesk',sans-serif;}
 .quedaria{margin-top:6px; cursor:pointer;}
 .quedaria .det[hidden]{display:none;}
 .quedaria .fila{display:flex; justify-content:space-between; gap:10px; align-items:baseline;}
@@ -381,11 +379,13 @@ body.con-barra .elegido .urg, body.con-barra .elegido .tag{visibility:hidden;}
 .tabla-mini th{text-align:left; font-size:11px; color:var(--text-dim); font-weight:600; padding:4px 6px;}
 .tabla-mini td{padding:7px 6px; border-top:1px solid var(--border);}
 .tabla-mini td.num, .tabla-mini th.num{text-align:right; font-family:'Space Grotesk',sans-serif;}
-/* en Plata las secciones son una lista con lineas finas, no cajas (D118) */
-.pleg-lista{border-top:1px solid var(--border);}
-.pleg-lista .pleg{margin:0; border-bottom:1px solid var(--border);}
-.pleg-lista .pleg-head{background:none; border:none; border-radius:0; padding:14px 2px;}
-.pleg-lista .pleg-body{padding:0 0 10px;}
+/* En Plata cada seccion es un bloque con borde y aire alrededor: como lista
+   corrida se veia todo plano y no se distinguia donde empezaba cada cosa. */
+.pleg-lista{display:flex; flex-direction:column; gap:10px;}
+.pleg-lista .pleg{margin:0; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); overflow:hidden;}
+.pleg-lista .pleg-head{background:none; border:none; border-radius:0; padding:14px;}
+.pleg-lista .pleg.abierta .pleg-head{border-bottom:1px solid var(--border); background:var(--surface-2);}
+.pleg-lista .pleg-body{padding:2px 14px 8px;}
 .pleg-head:focus{outline:none;}
 .pleg-head:focus-visible{outline:2px solid var(--accent-soft); outline-offset:-2px;}
 /* adentro, cada cosa es una fila con linea fina, no una tarjeta */
@@ -703,7 +703,7 @@ let DATA = {
   pendientes: [],  // {id,listaId,titulo,urgencia,hecho,creado} — sin fecha a proposito
   cycle: { starts: [], avgLen: 28, periodLen: 5 },
   turnos: [],          // {id,lugar,hotel,fecha,entra,sale,confirmado,trasladoMin,estimado}
-  plata: { saldo:null, saldoFecha:'', tasaUSD:null, tasaFecha:'', topes:{} },
+  plata: { saldo:null, saldoFecha:'', tasaUSD:null, tasaFecha:'', topes:{}, bolsillos:[] },
   uni: { pasaCon:3.0, maxFallas:8, historial:[] },   // historial: {periodo, materias:[{name,nota}]}
   marca: { ideas:[], publicaciones:[] },             // marca personal (D73)
   diario: {},                                        // {fecha:{sueno:[],animo,cerrado}}
@@ -3864,6 +3864,43 @@ function engancharAvisos(){
 const CATEGORIAS_GASTO = ['Transporte','Comida fuera','Casa y servicios','Salud','Ropa y cuidado personal','Salidas y ocio','Datos y celular','Herramientas y cursos','Otros'];
 
 function tasaUSD(){ return Number(DATA.plata.tasaUSD) || null; }
+
+/* La plata no esta toda en el mismo lado: hay efectivo en la mano y hay plata
+   en Nequi y en Daviplata. Cada lugar tiene su propio numero, lo declara ella
+   igual que antes (D99) y arriba se ve la suma. */
+const BOLSILLOS_BASE = ['Efectivo','Nequi','Daviplata'];
+function bolsillos(){
+  const P = DATA.plata;
+  if(!Array.isArray(P.bolsillos) || !P.bolsillos.length){
+    P.bolsillos = BOLSILLOS_BASE.map(nombre=>({ id:uid(), nombre, saldo:null, fecha:'' }));
+    /* el saldo unico que tenia antes no se pierde: arranca como efectivo y ella lo corrige */
+    if(P.saldo!==null && P.saldo!==''){ P.bolsillos[0].saldo = Number(P.saldo); P.bolsillos[0].fecha = P.saldoFecha || todayStr(); }
+  }
+  return P.bolsillos;
+}
+function bolsillosPuestos(){ return bolsillos().filter(b=>b.saldo!==null && b.saldo!==''); }
+/* la suma de lo que declaro. null si no ha puesto ninguno todavia */
+function saldoTotal(){
+  const puestos = bolsillosPuestos();
+  return puestos.length ? puestos.reduce((a,b)=>a+Number(b.saldo), 0) : null;
+}
+/* la fecha del numero mas viejo: es la que manda para el "hace X dias" (D122) */
+function saldoFecha(){
+  const fechas = bolsillosPuestos().map(b=>b.fecha).filter(Boolean).sort();
+  return fechas[0] || '';
+}
+/* un paso de plata si mueve los numeros: no es adivinar nada, ella dijo de
+   donde a donde. Un lugar sin numero puesto se queda sin numero. */
+function moverEntreBolsillos(de, a, monto){
+  const tocar = (nombre, signo)=>{
+    const b = bolsillos().find(x=>x.nombre===nombre);
+    if(!b || b.saldo===null || b.saldo==='') return;
+    b.saldo = Number(b.saldo) + signo*Number(monto);
+    b.fecha = todayStr();
+  };
+  if(de && de!==a) tocar(de, -1);
+  if(a && a!==de) tocar(a, +1);
+}
 function enPesos(monto, moneda){
   if(moneda!=='USD') return Number(monto)||0;
   const t = tasaUSD();
@@ -3979,9 +4016,14 @@ function openMovimientoModalCon(pre, existente){
         <select id="m_categoria">${CATEGORIAS_GASTO.map(c=>`<option value="${esc(c)}" ${e.categoria===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
         <div class="helptext">De esto sale el presupuesto.</div></div>` : ''}
       ${esPrestamo ? `<div class="field"><label>¿Con quién?</label><input type="text" id="m_persona" value="${esc(e.persona)}" placeholder="Nombre"></div>` : ''}
-      ${e.type==='traslado' ? `<div class="helptext" style="margin:-8px 0 14px;">La misma plata cambiando de lugar: no suma ni resta en el mes.</div>` : ''}
-      <div class="field"><label>${e.type==='pago' ? '¿Qué hay que pagar?' : e.type==='traslado' ? '¿De dónde a dónde?' : 'En qué / de dónde'}</label>
-        <input type="text" id="m_titulo" value="${esc(e.title)}" placeholder="${e.type==='gasto'?'Ej: almuerzo, transporte':e.type==='traslado'?'Ej: Efectivo → Nequi':'Ej: turno de Infinity'}"></div>
+      ${e.type==='traslado' ? `
+      <div class="field-row">
+        <div class="field" style="flex:1;"><label>De</label><select id="m_de">${bolsillos().map(b=>`<option value="${esc(b.nombre)}" ${e.de===b.nombre?'selected':''}>${esc(b.nombre)}</option>`).join('')}</select></div>
+        <div class="field" style="flex:1;"><label>A</label><select id="m_a">${bolsillos().map(b=>`<option value="${esc(b.nombre)}" ${e.a===b.nombre?'selected':''}>${esc(b.nombre)}</option>`).join('')}</select></div>
+      </div>
+      <div class="helptext" style="margin:-8px 0 14px;">No suma ni resta en el mes: es la misma plata cambiando de lugar. Se baja de un lugar y se sube al otro.</div>` : `
+      <div class="field"><label>${e.type==='pago' ? '¿Qué hay que pagar?' : 'En qué / de dónde'}</label>
+        <input type="text" id="m_titulo" value="${esc(e.title)}" placeholder="${e.type==='gasto'?'Ej: almuerzo, transporte':'Ej: turno de Infinity'}"></div>`}
       <div class="field"><label>${e.type==='pago' ? 'Se vence el' : 'Cuándo'}</label><input type="date" id="m_fecha" value="${esc(e.date)}"></div>
       <div class="field"><label>Nota (opcional)</label><input type="text" id="m_nota" value="${esc(e.notes)}"></div>
       <div class="sheet-actions">
@@ -3994,7 +4036,8 @@ function openMovimientoModalCon(pre, existente){
       e.type = g('m_tipo').value;
       e.amount = g('m_monto').value;
       e.moneda = g('m_moneda').value;
-      e.title = g('m_titulo').value.trim();
+      if(g('m_titulo')) e.title = g('m_titulo').value.trim();
+      if(g('m_de')){ e.de = g('m_de').value; e.a = g('m_a').value; e.title = e.de + ' → ' + e.a; }
       e.date = g('m_fecha').value || todayStr();
       e.notes = g('m_nota').value.trim();
       if(g('m_categoria')) e.categoria = g('m_categoria').value;
@@ -4016,8 +4059,10 @@ function openMovimientoModalCon(pre, existente){
       /* lo que se guarda son pesos, con el original anotado al lado */
       const pesos = e.moneda==='USD' ? enPesos(e.amount,'USD') : Number(e.amount);
       if(pesos===null){ alert('Ponle la tasa del dólar primero: en Plata, abre Dólar.'); return; }
+      if(e.type==='traslado' && !e.de){ e.de = bolsillos()[0].nombre; e.a = bolsillos()[1] ? bolsillos()[1].nombre : ''; e.title = e.de + ' → ' + e.a; }
       const obj = {
         cat:'finanzas', type:e.type, amount:pesos, moneda:e.moneda,
+        de: e.de || '', a: e.a || '',
         montoOriginal: e.moneda==='USD' ? Number(e.amount) : null,
         categoria: e.type==='gasto' ? e.categoria : '',
         persona: e.persona || '', title:e.title, date:e.date, notes:e.notes,
@@ -4025,7 +4070,11 @@ function openMovimientoModalCon(pre, existente){
         status: e.type==='pago' ? 'pendiente' : 'hecho'
       };
       if(existente) Object.assign(existente, obj);
-      else DATA.events.push(Object.assign({id:uid(), creado:Date.now()}, obj));
+      else {
+        DATA.events.push(Object.assign({id:uid(), creado:Date.now()}, obj));
+        /* solo al anotarlo: si despues lo editas, los numeros ya se movieron */
+        if(obj.type==='traslado') moverEntreBolsillos(obj.de, obj.a, pesos);
+      }
       saveData(); closeSheet(); renderPlata();
     };
   }
@@ -4065,139 +4114,11 @@ function avisar(texto, alTocar){
   clearTimeout(t._reloj); t._reloj = setTimeout(()=>t.classList.remove('ver'), alTocar ? 4500 : 2600);
 }
 
-/* Anotar plata es escribir una linea, como en un chat: "almuerzo 15000",
-   "+80000 Infinity", "uber 12 mil ayer". De ahi sale si entro o salio, cuanto,
-   en que y cuando. La categoria se adivina por lo que ya anoto antes con esas
-   palabras, y si no, por palabras comunes; si no hay pista, Otros. Se puede
-   cambiar tocando el movimiento (D113: sigue quedando clasificado). */
-const PALABRAS_CATEGORIA = {
-  'Transporte': ['bus','buseta','uber','taxi','didi','indriver','cabify','transmilenio','sitp','tm','metro','pasaje','gasolina','parqueadero','peaje','moto','bicitaxi','colectivo','transporte'],
-  'Comida fuera': ['almuerzo','desayuno','cena','comida','cafe','café','tinto','restaurante','rappi','domicilio','hamburguesa','pizza','empanada','onces','snack','mecato','helado','pan','gaseosa','jugo','corrientazo','perro','arepa','postre','antojo'],
-  'Casa y servicios': ['arriendo','luz','agua','gas','internet','servicios','mercado','aseo','administracion','administración','hogar','casa','supermercado','d1','ara','exito','éxito'],
-  'Salud': ['farmacia','drogueria','droguería','medicina','medicamento','pastillas','medico','médico','cita','eps','examen','odontologo','odontólogo','dentista','salud','vitaminas'],
-  'Ropa y cuidado personal': ['ropa','zapatos','tenis','blusa','jean','pantalon','pantalón','uñas','unas','peluqueria','peluquería','corte','crema','maquillaje','perfume','shampoo','champu','cuidado','depilacion','depilación'],
-  'Salidas y ocio': ['cine','rumba','trago','cerveza','pola','salida','paseo','concierto','bar','discoteca','netflix','spotify','juego','fiesta','parche'],
-  'Datos y celular': ['datos','recarga','celular','minutos','claro','movistar','tigo','wom','plan de datos'],
-  'Herramientas y cursos': ['curso','canva','capcut','claude','chatgpt','udemy','libro','herramienta','pauta','ads','dominio','hosting','suscripcion','suscripción','app','software','clase']
-};
-/* Pasar plata de un lado a otro (efectivo que metes a Nequi, plata que sacas
-   del banco) no es ingreso ni gasto: la misma plata solo cambia de lugar. Se
-   anota como "paso" para que quede el registro sin descuadrar los totales. */
-const LUGARES_PLATA = {
-  'efectivo':'Efectivo', 'nequi':'Nequi', 'daviplata':'Daviplata', 'bancolombia':'Bancolombia',
-  'davivienda':'Davivienda', 'bbva':'BBVA', 'nu':'Nu', 'banco':'el banco', 'cuenta':'la cuenta',
-  'ahorros':'Ahorros', 'ahorro':'Ahorros', 'billetera':'Billetera', 'bolsillo':'Bolsillo', 'tarjeta':'Tarjeta'
-};
-const VERBOS_PASO = ['pase','paso','pasar','traslade','traslado','trasladar','meti','meter','guarde','guardar',
-  'saque','sacar','retire','retirar','consigne','consignar','deposite','depositar','mande','mandar','cargue','recargue'];
-const VERBOS_PASO_SACAR = ['saque','sacar','retire','retirar'];
-
-/* Devuelve {origen, destino} si la linea habla de mover plata de un lado a
-   otro, o null si no. */
-function leerPaso(bajo){
-  const lugares = Object.keys(LUGARES_PLATA);
-  const buscar = (re)=>{ const m = bajo.match(re); return m ? LUGARES_PLATA[m[1]] : ''; };
-  const re = lugares.join('|');
-  let origen  = buscar(new RegExp('\\b(?:de|desde)\\s+(?:mi\\s+|el\\s+|la\\s+)?(' + re + ')\\b'));
-  let destino = buscar(new RegExp('\\b(?:a|al|para|hacia|en)\\s+(?:mi\\s+|el\\s+|la\\s+)?(' + re + ')\\b'));
-  const verbo = VERBOS_PASO.find(v=>new RegExp('\\b'+v+'\\b').test(bajo)) || '';
-  if(!origen && !destino){
-    const suelto = bajo.match(new RegExp('\\b(' + re + ')\\b'));
-    if(suelto && verbo){ if(VERBOS_PASO_SACAR.includes(verbo)) origen = LUGARES_PLATA[suelto[1]]; else destino = LUGARES_PLATA[suelto[1]]; }
-  }
-  if(!origen && !destino) return null;
-  if(!verbo && !(origen && destino)) return null;
-  return { origen, destino };
-}
-
-const PALABRAS_INGRESO = ['me pagaron','pagaron','me dieron','me dio','me entro','me entró','entro','entró','ingreso','cobre','cobré','sueldo','nomina','nómina','quincena','propina','venta','vendi','vendí','infinity','asignar','movistar arena','cliente','abono','me consignaron','consignaron','transferencia de'];
-
-function sinTildes(t){ return String(t||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }
-
-function leerLineaDePlata(texto){
-  let t = ' ' + String(texto||'').trim() + ' ';
-  const bajo = sinTildes(t);
-  if(!bajo.trim()) return null;
-  let tipo = /^\s*\+/.test(t) ? 'ingreso' : /^\s*-/.test(t) ? 'gasto' : null;
-  const moneda = /\b(usd|us\$|dolares|dólares|dolar|dólar)\b|us\$/i.test(t) ? 'USD' : 'COP';
-  let fecha = todayStr();
-  if(/\bayer\b/.test(bajo)) fecha = fmtDate(addDays(new Date(), -1));
-  else if(/\bantier\b|\banteayer\b/.test(bajo)) fecha = fmtDate(addDays(new Date(), -2));
-
-  /* el monto: 15000 · 15.000 · 15 mil · 15k · 1,5 millones · 1.2M */
-  let monto = null, quitar = null;
-  const m = t.match(/(\d{1,3}(?:[.\s]\d{3})+|\d+(?:[.,]\d+)?)\s*(mil(?:es)?|k|lucas|millones|millon|millón|m)?(?![\w])/i);
-  if(m){
-    const unidad = (m[2]||'').toLowerCase();
-    let n;
-    if(/^\d{1,3}([.\s]\d{3})+$/.test(m[1])) n = Number(m[1].replace(/[.\s]/g,''));
-    else n = Number(m[1].replace(',', '.'));
-    if(['mil','miles','k','lucas'].includes(unidad)) n *= 1000;
-    if(['millones','millon','millón','m'].includes(unidad)) n *= 1000000;
-    monto = Math.round(n * (moneda==='USD' ? 100 : 1)) / (moneda==='USD' ? 100 : 1);
-    quitar = m[0];
-  }
-  let detalle = t;
-  if(quitar) detalle = detalle.replace(quitar, ' ');
-  detalle = detalle.replace(/^\s*[+-]/, ' ').replace(/\b(ayer|antier|anteayer|hoy)\b/gi,' ')
-    .replace(/\b(usd|dolares|dólares|dolar|dólar|pesos|en|de|por|el|la|un|una)\b/gi, w=>/^(en|de|por|el|la|un|una)$/i.test(w) ? ' '+w+' ' : ' ')
-    .replace(/us\$|\$/gi,' ').replace(/\s+/g,' ').trim()
-    .replace(/^(en|de|por|el|la|un|una)\s+/i,'').replace(/\s+(en|de|por)$/i,'');
-  const antesDeLimpiar = detalle;
-  detalle = detalle.replace(/^(me\s+(pagaron|entr[oó]|consignaron|transfirieron|dieron|dio|mandaron|enviaron|giraron)|ingreso|cobr[eé]|pago)\s*(de|por|en)?\s*/i, '').trim();
-  if(!tipo) tipo = /^(me\s+(pagaron|entr[oó]|consignaron|transfirieron|dieron|dio|mandaron|enviaron|giraron)|ingreso|cobr[eé])/i.test(antesDeLimpiar) ? 'ingreso' : null;
-  const paso = tipo ? null : leerPaso(bajo);
-  if(paso){
-    tipo = 'traslado';
-    detalle = paso.origen && paso.destino ? paso.origen + ' → ' + paso.destino
-            : paso.destino ? 'A ' + paso.destino : 'De ' + paso.origen;
-  }
-  if(!tipo) tipo = PALABRAS_INGRESO.some(w=>sinTildes(' '+detalle+' ').includes(' '+sinTildes(w)+' ') || sinTildes(detalle).startsWith(sinTildes(w))) ? 'ingreso' : 'gasto';
-
-  let categoria = '';
-  if(tipo==='gasto'){
-    const d = sinTildes(detalle);
-    const previo = DATA.events.filter(e=>e.cat==='finanzas' && e.type==='gasto' && e.categoria && e.title && sinTildes(e.title)===d)
-      .sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
-    if(previo) categoria = previo.categoria;
-    else {
-      const palabras = d.split(/[^a-z0-9ñ]+/).filter(Boolean);
-      const hit = Object.entries(PALABRAS_CATEGORIA).find(([c, lista])=> lista.some(w=> w.includes(' ') ? d.includes(sinTildes(w)) : palabras.includes(sinTildes(w))));
-      categoria = hit ? hit[0] : 'Otros';
-    }
-  }
-  if(tipo!=='traslado') detalle = detalle ? detalle.charAt(0).toUpperCase() + detalle.slice(1) : '';
-  return { tipo, monto, moneda, fecha, detalle, categoria };
-}
-
-function anotarLineaDePlata(inp){
-  const r = leerLineaDePlata(inp.value);
-  if(!r || !r.monto){ avisar('Escribe también cuánto: ej. almuerzo 15000'); return; }
-  const pesos = r.moneda==='USD' ? enPesos(r.monto,'USD') : r.monto;
-  if(pesos===null){ avisar('Ponle la tasa del dólar primero: abre Dólar abajo.'); return; }
-  const ev = { id:uid(), cat:'finanzas', type:r.tipo, amount:pesos, moneda:r.moneda,
-    montoOriginal: r.moneda==='USD' ? r.monto : null, categoria:r.categoria,
-    persona:'', title: r.detalle || (r.tipo==='gasto' ? r.categoria : r.tipo==='traslado' ? 'Paso de plata' : 'Ingreso'), date:r.fecha, notes:'', start:'', end:'', status:'hecho', creado:Date.now() };
-  DATA.events.push(ev);
-  inp.value = '';
-  saveData(); renderPlata();
-  const tope = r.tipo==='gasto' ? Number(DATA.plata.topes[r.categoria]) : 0;
-  avisar(r.tipo==='gasto'
-    ? `−${money(pesos)} · ${r.categoria}${tope ? ` (${money(gastosDelMes()[r.categoria]||0)} de ${money(tope)})` : ''} · tocar para cambiar`
-    : r.tipo==='traslado'
-    ? `${money(pesos)} · ${ev.title} · la misma plata, solo cambió de lugar`
-    : `+${money(pesos)} anotado · tocar para cambiar`, ()=>{
-      const e = DATA.events.find(x=>x.id===ev.id);
-      if(e) openMovimientoModal(Object.assign(e, { amount: e.montoOriginal || e.amount }));
-    });
-  const nueva = document.getElementById('lineaPlata'); if(nueva) nueva.focus();
-}
-
 /* Lo que quedaria si llega lo que esperas y pagas lo que debes (D05). Es un
    estimado y se presenta como tal (D36); el saldo sigue siendo el tuyo (D99). */
 function cuentaQuedaria(){
-  const P = DATA.plata;
-  if(P.saldo===null || P.saldo==='') return null;
+  const tengo = saldoTotal();
+  if(tengo===null) return null;
   const hoy = todayStr(), en30 = fmtDate(addDays(new Date(), 30));
   const recibir = porRecibir().reduce((a,x)=>a+x.monto, 0);
   const cobros = (DATA.suscripciones||[]).map(x=>({ x, f:proximoCobro(x) })).filter(o=>o.f && o.f<=en30)
@@ -4206,7 +4127,7 @@ function cuentaQuedaria(){
   const debes = (DATA.deudas||[]).filter(d=>!d.saldada && d.sentido!=='meDeben').reduce((a,d)=>a+Math.max(0,saldoDeuda(d)), 0);
   const cuotas = (DATA.installments||[]).reduce((a,i)=>a + Math.max(0, Number(i.total) - i.payments.reduce((s,p)=>s+Number(p.amount),0)), 0);
   const teDeben = (DATA.deudas||[]).filter(d=>!d.saldada && d.sentido==='meDeben').reduce((a,d)=>a+Math.max(0,saldoDeuda(d)), 0);
-  const total = Number(P.saldo) + recibir - cobros - pagos - debes - cuotas;
+  const total = tengo + recibir - cobros - pagos - debes - cuotas;
   return { total, recibir, cobros, pagos, debes, cuotas, teDeben };
 }
 
@@ -4221,20 +4142,23 @@ function renderPlata(){
   const P = DATA.plata;
   let html = '';
 
-  /* 1 · cuanto tienes ahora — lo declaras tu y nunca miente en silencio (D99, D122) */
+  /* 1 · cuanto tienes ahora, y en que lugar esta cada peso — lo declaras tu y
+     nunca miente en silencio (D99, D122) */
+  const tengo = saldoTotal();
+  const fechaSaldo = saldoFecha();
   html += `<div class="card saldo-card" id="saldoCard">
-    <div class="lbl">Tengo ahora <span class="saldo-edad">${P.saldoFecha ? esc(haceCuanto(P.saldoFecha)) : 'toca para ponerlo'}</span></div>
-    <div class="saldo-num mono">${P.saldo===null||P.saldo==='' ? '—' : money(P.saldo)}</div>
+    <div class="lbl">Tengo ahora <span class="saldo-edad">${fechaSaldo ? esc(haceCuanto(fechaSaldo)) : 'toca para ponerlo'}</span></div>
+    <div class="saldo-num mono">${tengo===null ? '—' : money(tengo)}</div>
+    <div class="bolsillos">${bolsillos().map(b=>`
+      <button class="bolsillo" data-bolsillo="${b.id}">
+        <span class="n">${esc(b.nombre)}</span>
+        <span class="m mono ${b.saldo===null||b.saldo===''?'vacio':''}">${b.saldo===null||b.saldo==='' ? 'poner' : money(b.saldo)}</span>
+      </button>`).join('')}</div>
     ${(q=>q && (q.recibir||q.cobros||q.pagos||q.debes||q.cuotas) ? `<div class="quedaria">
       <div class="fila" style="justify-content:flex-start; gap:6px;"><span style="font-size:13px; color:var(--text-muted);">Te quedaría aprox.</span><span class="n mono" style="color:${q.total<0?'var(--urgent)':'inherit'}">${q.total<0?'−':''}${money(Math.abs(q.total))}</span><span style="font-size:12px; color:var(--text-dim);">›</span></div>
       <div class="det" hidden>${[q.recibir&&`+ ${money(q.recibir)} por recibir`, q.cobros&&`− ${money(q.cobros)} cobros del mes`, q.pagos&&`− ${money(q.pagos)} pagos pendientes`, q.debes&&`− ${money(q.debes)} que debes`, q.cuotas&&`− ${money(q.cuotas)} en cuotas`].filter(Boolean).join('<br>')}${q.teDeben?`<br><span style="color:var(--text-dim)">Sin contar ${money(q.teDeben)} que te deben.</span>`:''}</div>
     </div>` : '')(cuentaQuedaria())}
   </div>
-  <div class="linea-plata">
-    <input id="lineaPlata" type="text" enterkeyhint="done" autocomplete="off" placeholder="Anotar gasto, ingreso o paso">
-    <button id="lineaPlataOk" aria-label="Anotar" disabled>↵</button>
-  </div>
-  <div class="linea-lee" id="lineaLee"></div>
   <div class="pleg-lista">`;
 
   /* 2 · lo demas va plegado: cerrado se ve el nombre y un resumen, y se abre
@@ -4378,24 +4302,10 @@ function renderPlata(){
   document.getElementById('saldoCard').onclick = (ev)=>{
     const q = ev.target.closest('.quedaria');
     if(q){ const d = q.querySelector('.det'); d.hidden = !d.hidden; return; }
+    const b = ev.target.closest('.bolsillo');
+    if(b){ openBolsilloModal(b.dataset.bolsillo); return; }
     openSaldoModal();
   };
-  const linea = document.getElementById('lineaPlata'), lee = document.getElementById('lineaLee'), ok = document.getElementById('lineaPlataOk');
-  linea.oninput = ()=>{
-    const r = leerLineaDePlata(linea.value);
-    ok.disabled = !(r && r.monto);
-    if(!linea.value.trim()){ lee.innerHTML = ''; return; }
-    if(!r || !r.monto){ lee.innerHTML = 'Falta cuánto…'; return; }
-    const dia = r.fecha===todayStr() ? 'hoy' : niceDateShort(r.fecha);
-    const cuanto = r.moneda==='USD' ? 'US$'+r.monto : money(r.monto);
-    lee.innerHTML = r.tipo==='gasto'
-      ? `<b style="color:var(--urgent)">−${cuanto}</b> · ${esc(r.categoria)}${r.detalle?' · '+esc(r.detalle):''} · ${dia}`
-      : r.tipo==='traslado'
-      ? `<b>${cuanto}</b> · ${esc(r.detalle)} · ${dia} · <span style="color:var(--text-dim)">no es gasto ni ingreso</span>`
-      : `<b style="color:var(--done)">+${cuanto}</b> · ingreso${r.detalle?' · '+esc(r.detalle):''} · ${dia}`;
-  };
-  linea.onkeydown = (ev)=>{ if(ev.key==='Enter'){ ev.preventDefault(); anotarLineaDePlata(linea); } };
-  ok.onclick = ()=>anotarLineaDePlata(linea);
   document.getElementById('tasaCard').onclick = openTasaModal;
   const _b_topesBtn = document.getElementById('topesBtn'); if(_b_topesBtn) _b_topesBtn.onclick = openTopesModal;
   const _b_addSusBtn = document.getElementById('addSusBtn'); if(_b_addSusBtn) _b_addSusBtn.onclick = ()=>openSuscripcionModal();
@@ -4438,15 +4348,64 @@ function renderPlata(){
 
 }
 
+/* un solo lugar: el camino corto, que es el de todos los dias */
+function openBolsilloModal(id){
+  const b = bolsillos().find(x=>x.id===id);
+  if(!b) return;
+  openSheet(`<h3>¿Cuánto tienes en ${esc(b.nombre)}?</h3>
+    <div class="field"><label>Lo que hay hoy en ${esc(b.nombre)}</label><input type="number" id="f_bol" inputmode="numeric" value="${b.saldo??''}" placeholder="$"></div>
+    <div class="helptext">${b.fecha ? 'Lo pusiste ' + esc(haceCuanto(b.fecha)) + '.' : ''} Bitácora no lo calcula sola: lo corriges cuando te des cuenta.</div>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" id="verTodos">Ver todos</button>
+      <button class="btn btn-primary" id="saveBol">Guardar</button>
+    </div>`);
+  document.getElementById('verTodos').onclick = ()=>{ closeSheet(); openSaldoModal(); };
+  document.getElementById('saveBol').onclick = ()=>{
+    const v = document.getElementById('f_bol').value;
+    b.saldo = v==='' ? null : Number(v)||0;
+    b.fecha = v==='' ? '' : todayStr();
+    DATA.plata.saldo = saldoTotal(); DATA.plata.saldoFecha = saldoFecha();
+    saveData(); closeSheet(); renderPlata();
+  };
+}
+
+/* todos los lugares de una, para cuadrar de vez en cuando y para agregar o
+   quitar lugares */
 function openSaldoModal(){
-  const P = DATA.plata;
+  const lista = bolsillos();
   openSheet(`<h3>¿Cuánto tienes ahora?</h3>
-    <div class="field"><label>Lo que tienes hoy</label><input type="number" id="f_saldo" inputmode="numeric" value="${P.saldo??''}" placeholder="$"></div>
-    <div class="helptext">Bitácora no lo calcula sola. Si se desfasa no pasa nada: lo corriges cuando te des cuenta.</div>
+    <div class="helptext" style="margin:-4px 0 14px;">Un renglón por lugar. Bitácora no lo calcula sola: si se desfasa, lo corriges cuando te des cuenta.</div>
+    ${lista.map(b=>`<div class="field-row" style="align-items:flex-end;">
+      <div class="field" style="flex:1; margin-bottom:12px;"><label>${esc(b.nombre)}</label>
+        <input type="number" inputmode="numeric" data-saldo="${b.id}" value="${b.saldo??''}" placeholder="$"></div>
+      <button class="small-btn" data-quitar="${b.id}" style="margin-bottom:24px;">Quitar</button>
+    </div>`).join('')}
+    <div class="field"><label>Agregar otro lugar</label>
+      <input type="text" id="f_nuevoLugar" placeholder="Ej: Bancolombia, la alcancía"></div>
     <div class="sheet-actions"><button class="btn btn-primary" id="saveSaldo">Guardar</button></div>`);
+
+  /* lo escrito no se pierde al quitar un lugar */
+  function leerTodo(){
+    sheet.querySelectorAll('[data-saldo]').forEach(inp=>{
+      const b = lista.find(x=>x.id===inp.dataset.saldo); if(!b) return;
+      const antes = b.saldo;
+      b.saldo = inp.value==='' ? null : Number(inp.value)||0;
+      if(b.saldo!==antes) b.fecha = b.saldo===null ? '' : todayStr();
+    });
+    const nuevo = document.getElementById('f_nuevoLugar').value.trim();
+    if(nuevo && !lista.some(b=>b.nombre.toLowerCase()===nuevo.toLowerCase())){
+      lista.push({ id:uid(), nombre:nuevo, saldo:null, fecha:'' });
+    }
+  }
+  sheet.querySelectorAll('[data-quitar]').forEach(b=>b.onclick = ()=>{
+    leerTodo();
+    DATA.plata.bolsillos = lista.filter(x=>x.id!==b.dataset.quitar);
+    closeSheet(); openSaldoModal();
+  });
   document.getElementById('saveSaldo').onclick = ()=>{
-    P.saldo = Number(document.getElementById('f_saldo').value)||0;
-    P.saldoFecha = todayStr();
+    leerTodo();
+    DATA.plata.bolsillos = lista;
+    DATA.plata.saldo = saldoTotal(); DATA.plata.saldoFecha = saldoFecha();
     saveData(); closeSheet(); renderPlata();
   };
 }
