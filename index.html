@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>Bitácora</title>
-<meta name="bitacora-build" content="20260915230632">
+<meta name="bitacora-build" content="20260915231105">
 <script>
 /* Modo claro u oscuro (D55). La primera vez sigue al teléfono; después manda el botón. */
 /* Arranca en claro. El oscuro se elige con el boton, no lo decide el
@@ -179,6 +179,27 @@ button{font-family:inherit;}
 .hechas-lista{opacity:.75;}
 .hechas-lista .bloque{padding:8px 2px;}
 .todo-listo{padding:14px 2px; font-size:14px; color:var(--text-muted);}
+
+/* la semana: un dia por renglon, para que quepa en el telefono */
+/* hidden tiene que ganarle a cualquier display de clase */
+[hidden]{display:none !important;}
+.cal-modos{display:flex; gap:6px; margin:0 0 12px;}
+.cal-modo{background:var(--surface-2); border:none; color:var(--text-muted); font:inherit; font-size:13px; font-weight:600; padding:5px 14px; border-radius:20px;}
+.cal-modo.activa{background:var(--accent); color:#fff;}
+.cal-semana{display:flex; flex-direction:column; gap:6px; margin-bottom:8px;}
+.dia-sem{display:grid; grid-template-columns:44px minmax(0,1fr) auto; gap:10px; align-items:center; width:100%; text-align:left; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:10px 12px; color:var(--text); font:inherit; cursor:pointer;}
+.dia-sem.hoy{border-color:var(--accent);}
+.dia-sem.elegido{background:var(--accent-soft); border-color:var(--accent);}
+.dia-sem .fecha{display:flex; flex-direction:column; align-items:center; line-height:1.1;}
+.dia-sem .fecha b{font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text-dim); letter-spacing:.04em;}
+.dia-sem .fecha .num{font-size:18px; font-weight:600; font-variant-numeric:tabular-nums;}
+.dia-sem.hoy .fecha .num{color:var(--accent);}
+.dia-sem .chips{display:flex; flex-wrap:wrap; gap:4px;}
+.chip-bloque{max-width:100%; font-size:11.5px; font-weight:500; padding:2px 8px; border-radius:20px; background:color-mix(in srgb, var(--c) 14%, transparent); color:var(--c); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.chip-bloque.mas{background:var(--surface-2); color:var(--text-muted);}
+.dia-sem .vacio{font-size:12.5px; color:var(--text-dim);}
+.dia-sem .libre{font-size:11.5px; color:var(--text-muted); text-align:right; white-space:nowrap;}
+.turno-pin{display:block; font-size:10.5px; font-weight:700; color:var(--c-trabajo); text-transform:uppercase; letter-spacing:.04em;}
 
 /* el hueco es espacio, no un renglon mas (D108) */
 .hueco{margin:0; padding:8px 0 8px 2px; font-size:12.5px; color:var(--text-dim); display:flex; align-items:center; gap:12px; flex-wrap:wrap; min-height:26px;}
@@ -640,7 +661,12 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
       <h2 id="calTitle">—</h2>
       <button id="calNext">›</button>
     </div>
+    <div class="cal-modos">
+      <button class="cal-modo activa" data-modo="mes">Mes</button>
+      <button class="cal-modo" data-modo="semana">Semana</button>
+    </div>
     <div class="cal-grid" id="calGrid"></div>
+    <div class="cal-semana" id="calSemana" hidden></div>
     <div class="cal-daylist" id="calDayList"></div>
     <div id="choquesSemana"></div>
     <div class="section-title" style="margin-top:28px;">
@@ -1240,7 +1266,16 @@ function renderHoy(){
 ============================================================ */
 let calDate = new Date();
 let calSelected = null;
+/* Mes o semana (D103). En el mes se ve donde cae cada cosa; en la semana se
+   ve si te cabe un turno, que es la pregunta que de verdad tiene cuando le
+   avisan con uno o dos dias (D24). */
+var CAL_MODO = 'mes';
+try{ CAL_MODO = localStorage.getItem('calModo') || 'mes'; }catch(e){}
+
 function renderCalendar(){
+  if(CAL_MODO === 'semana') return renderCalSemana();
+  document.getElementById('calGrid').hidden = false;
+  document.getElementById('calSemana').hidden = true;
   document.getElementById('calTitle').textContent = MONTHS[calDate.getMonth()] + ' ' + calDate.getFullYear();
   const first = new Date(calDate.getFullYear(), calDate.getMonth(), 1);
   const lastDay = new Date(calDate.getFullYear(), calDate.getMonth()+1, 0).getDate();
@@ -1270,6 +1305,43 @@ function renderCalendar(){
   if(!calSelected) calSelected = t;
   renderCalDayList();
 }
+/* La semana, un dia por renglon: lo que tiene, cuanto queda libre y donde
+   esta el hueco mas grande. Siete columnas no caben en un telefono. */
+function renderCalSemana(){
+  const grid = document.getElementById('calGrid'), caja = document.getElementById('calSemana');
+  grid.hidden = true; caja.hidden = false;
+  const hoy = todayStr();
+  if(!calSelected) calSelected = hoy;
+  const lunes = lunesDe(calSelected);
+  const dias = diasEntre(lunes, fmtDate(addDays(parseDate(lunes), 6)));
+
+  document.getElementById('calTitle').textContent =
+    niceDateShort(lunes) + ' – ' + niceDateShort(dias[6]);
+
+  caja.innerHTML = dias.map(f=>{
+    const { bloques, ocupado, libre } = resumenDelDia(f);
+    const d = parseDate(f);
+    const turno = (DATA.turnos||[]).find(t=>t.fecha===f);
+    return `<button class="dia-sem ${f===hoy?'hoy':''} ${f===calSelected?'elegido':''}" data-dia="${f}">
+      <span class="fecha">
+        <b>${DOW_SHORT[d.getDay()]}</b>
+        <span class="num">${d.getDate()}</span>
+      </span>
+      <span class="cuerpo">
+        ${bloques.length
+          ? `<span class="chips">${bloques.slice(0,4).map(b=>`<span class="chip-bloque" style="--c:${b.color}">${esc(b.start)} ${esc(b.titulo)}</span>`).join('')}${bloques.length>4?`<span class="chip-bloque mas">+${bloques.length-4}</span>`:''}</span>`
+          : `<span class="vacio">Libre entero</span>`}
+      </span>
+      <span class="libre">${bloques.length ? libres(libre) : ''}${turno ? '<span class="turno-pin">turno</span>' : ''}</span>
+    </button>`;
+  }).join('');
+
+  caja.querySelectorAll('[data-dia]').forEach(b=>b.onclick = ()=>{
+    calSelected = b.dataset.dia; renderCalSemana(); renderCalDayList();
+  });
+  renderCalDayList();
+}
+
 function renderCalDayList(){
   const box = document.getElementById('calDayList');
   if(!calSelected){ box.innerHTML=''; return; }
@@ -1298,8 +1370,27 @@ function sueltoPendiente(p){
     ${l ? `<span class="de">${esc(l.nombre)}</span>` : ''}
   </div>`;
 }
-document.getElementById('calPrev').onclick = ()=>{ calDate.setMonth(calDate.getMonth()-1); renderCalendar(); };
-document.getElementById('calNext').onclick = ()=>{ calDate.setMonth(calDate.getMonth()+1); renderCalendar(); };
+/* Las flechas mueven un mes o una semana, segun donde este parada. */
+function moverCalendario(pasos){
+  if(CAL_MODO === 'semana'){
+    calSelected = fmtDate(addDays(parseDate(calSelected || todayStr()), pasos * 7));
+    calDate = parseDate(calSelected);
+    renderCalSemana();
+  } else {
+    calDate.setMonth(calDate.getMonth() + pasos);
+    renderCalendar();
+  }
+}
+document.getElementById('calPrev').onclick = ()=>moverCalendario(-1);
+document.getElementById('calNext').onclick = ()=>moverCalendario(1);
+document.querySelectorAll('.cal-modo').forEach(b=>b.onclick = ()=>{
+  CAL_MODO = b.dataset.modo;
+  try{ localStorage.setItem('calModo', CAL_MODO); }catch(e){}
+  document.querySelectorAll('.cal-modo').forEach(x=>x.classList.toggle('activa', x.dataset.modo===CAL_MODO));
+  if(CAL_MODO==='mes' && calSelected) calDate = parseDate(calSelected);
+  renderCalendar();
+});
+document.querySelectorAll('.cal-modo').forEach(x=>x.classList.toggle('activa', x.dataset.modo===CAL_MODO));
 
 /* ============================================================
    CYCLE
