@@ -332,6 +332,8 @@ body.con-barra .elegido .urg, body.con-barra .elegido .tag{visibility:hidden;}
 .quedaria .fila{display:flex; justify-content:space-between; gap:10px; align-items:baseline;}
 .quedaria .n{font-size:14px; font-weight:600;}
 .quedaria .det{font-size:12.5px; color:var(--text-muted); margin-top:5px; line-height:1.5;}
+.quedaria .por-que{font-size:12px; color:var(--text-dim); margin-top:2px;}
+.quedaria .por-que b{color:var(--accent); font-weight:600;}
 .toast{position:fixed; left:50%; bottom:calc(84px + env(safe-area-inset-bottom,0px)); transform:translate(-50%, 20px); background:var(--text); color:var(--surface); font-size:14px; font-weight:600; padding:11px 16px; border-radius:12px; opacity:0; transition:opacity .2s, transform .2s; z-index:200; max-width:calc(100% - 32px); text-align:center; pointer-events:none;}
 .toast.ver{opacity:1; transform:translate(-50%, 0);}
 /* secciones plegables: cerradas muestran solo nombre y resumen */
@@ -4155,8 +4157,9 @@ function renderPlata(){
         <span class="m mono ${b.saldo===null||b.saldo===''?'vacio':''}">${b.saldo===null||b.saldo==='' ? 'poner' : money(b.saldo)}</span>
       </button>`).join('')}</div>
     ${(q=>q && (q.recibir||q.cobros||q.pagos||q.debes||q.cuotas) ? `<div class="quedaria">
-      <div class="fila" style="justify-content:flex-start; gap:6px;"><span style="font-size:13px; color:var(--text-muted);">Te quedaría aprox.</span><span class="n mono" style="color:${q.total<0?'var(--urgent)':'inherit'}">${q.total<0?'−':''}${money(Math.abs(q.total))}</span><span style="font-size:12px; color:var(--text-dim);">›</span></div>
-      <div class="det" hidden>${[q.recibir&&`+ ${money(q.recibir)} por recibir`, q.cobros&&`− ${money(q.cobros)} cobros del mes`, q.pagos&&`− ${money(q.pagos)} pagos pendientes`, q.debes&&`− ${money(q.debes)} que debes`, q.cuotas&&`− ${money(q.cuotas)} en cuotas`].filter(Boolean).join('<br>')}${q.teDeben?`<br><span style="color:var(--text-dim)">Sin contar ${money(q.teDeben)} que te deben.</span>`:''}</div>
+      <div class="fila" style="justify-content:flex-start; gap:6px; flex-wrap:wrap;"><span style="font-size:13px; color:var(--text-muted);">Si pagas todo lo que debes, te queda</span><span class="n mono" style="color:${q.total<0?'var(--urgent)':'inherit'}">${q.total<0?'−':''}${money(Math.abs(q.total))}</span></div>
+      <div class="por-que">${q.total<0 ? 'Es un estimado: hoy debes más de lo que tienes.' : 'Es un estimado, no la plata que tienes.'} <b>Ver de dónde sale ›</b></div>
+      <div class="det" hidden><b>${money(saldoTotal()||0)}</b> que tienes ahora<br>${[q.recibir&&`+ ${money(q.recibir)} por recibir`, q.cobros&&`− ${money(q.cobros)} cobros del mes`, q.pagos&&`− ${money(q.pagos)} pagos pendientes`, q.debes&&`− ${money(q.debes)} que debes`, q.cuotas&&`− ${money(q.cuotas)} en cuotas`].filter(Boolean).join('<br>')}${q.teDeben?`<br><span style="color:var(--text-dim)">Sin contar ${money(q.teDeben)} que te deben.</span>`:''}</div>
     </div>` : '')(cuentaQuedaria())}
   </div>
   <div class="pleg-lista">`;
@@ -4301,7 +4304,12 @@ function renderPlata(){
   bindItemClicks();
   document.getElementById('saldoCard').onclick = (ev)=>{
     const q = ev.target.closest('.quedaria');
-    if(q){ const d = q.querySelector('.det'); d.hidden = !d.hidden; return; }
+    if(q){
+      const d = q.querySelector('.det'), pq = q.querySelector('.por-que');
+      d.hidden = !d.hidden;
+      if(pq) pq.hidden = !d.hidden;
+      return;
+    }
     const b = ev.target.closest('.bolsillo');
     if(b){ openBolsilloModal(b.dataset.bolsillo); return; }
     openSaldoModal();
