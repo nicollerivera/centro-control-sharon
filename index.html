@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>Bitácora</title>
-<meta name="bitacora-build" content="20260915220334">
+<meta name="bitacora-build" content="20260915220725">
 <script>
 /* Modo claro u oscuro (D55). La primera vez sigue al teléfono; después manda el botón. */
 /* Arranca en claro. El oscuro se elige con el boton, no lo decide el
@@ -318,6 +318,10 @@ body.con-barra .elegido .urg, body.con-barra .elegido .tag{visibility:hidden;}
 .client-card .stats{display:flex; gap:16px; margin-top:10px; flex-wrap:wrap;}
 .client-card .stat b{display:block; font-size:16px; font-family:'Space Grotesk',sans-serif;}
 .client-card .stat span{font-size:11px; color:var(--text-dim);}
+/* el de borrar es una canequita, no una palabra: pesa menos en la fila */
+.small-btn.icono{display:inline-flex; align-items:center; justify-content:center; padding:5px 9px; color:var(--text-dim);}
+.small-btn.icono svg{width:15px; height:15px;}
+.small-btn.icono:active{color:var(--urgent);}
 .small-btn{background:var(--surface-2); border:none; color:var(--text-muted); font-size:12px; font-weight:600; padding:5px 10px; border-radius:8px;}
 
 /* ---------- plata ---------- */
@@ -4810,7 +4814,9 @@ function renderCierre(){
           <button class="small-btn" data-hacer="hecha">Hecha</button>
           <button class="small-btn" data-hacer="manana">Mañana</button>
           <button class="small-btn" data-hacer="otro">Otro día</button>
-          <button class="small-btn" data-hacer="borrar">Borrar</button>
+          <button class="small-btn icono" data-hacer="borrar" aria-label="Borrar" title="Borrar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/><path d="M10 11v5M14 11v5"/></svg>
+          </button>
         </div>
       </div>`).join('')}
     <button class="btn btn-ghost" style="margin-top:10px;" id="cerrarDia">Dejarlo así</button>
