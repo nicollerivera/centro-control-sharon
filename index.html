@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>Bitácora</title>
-<meta name="bitacora-build" content="20260915225114">
+<meta name="bitacora-build" content="20260915225436">
 <script>
 /* Modo claro u oscuro (D55). La primera vez sigue al teléfono; después manda el botón. */
 /* Arranca en claro. El oscuro se elige con el boton, no lo decide el
@@ -3171,7 +3171,8 @@ function renderYo(){
 function openCycleSetup(){
   const anotados = [...DATA.cycle.starts].sort().reverse();
   openSheet(`<h3>Configurar ciclo</h3>
-    <div class="field"><label>Agregar un inicio</label><input type="date" id="f_lastperiod" value="${esc(todayStr())}"></div>
+    <div class="field"><label>Agregar un inicio (opcional)</label><input type="date" id="f_lastperiod" value="">
+      <div class="helptext">Déjalo vacío si solo vienes a cambiar los días o a borrar algo.</div></div>
     <div class="field-row"><div class="field"><label>Duración del ciclo (días)</label><input type="number" id="f_cyclen" value="${esc(DATA.cycle.avgLen||28)}"></div><div class="field"><label>Duración del período (días)</label><input type="number" id="f_perlen" value="${esc(DATA.cycle.periodLen||5)}"></div></div>
     ${anotados.length ? `<div class="field"><label>Inicios anotados</label>
       ${anotados.map(f=>`<div class="fila-p" style="cursor:default;">
