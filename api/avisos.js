@@ -18,15 +18,29 @@ export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (!autorizado(req)) return res.status(401).json({ error: 'No autorizado' });
 
-  const { VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY } = process.env;
+  /* Las llaves se pegan a mano en Vercel y llegan con un salto de linea, un
+     espacio o el "=" del final: web-push las rechaza y se caia todo el envio.
+     Se limpian antes de usarlas en vez de pedirle que las pegue de nuevo. */
+  const limpiarLlave = (k) =>
+    String(k || '').trim().replace(/\s+/g, '').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const VAPID_PUBLIC_KEY = limpiarLlave(process.env.VAPID_PUBLIC_KEY);
+  const VAPID_PRIVATE_KEY = limpiarLlave(process.env.VAPID_PRIVATE_KEY);
   if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
     return res.status(500).json({ error: 'Faltan las llaves VAPID' });
   }
-  webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT || 'mailto:nicollerivera282016@gmail.com',
-    VAPID_PUBLIC_KEY,
-    VAPID_PRIVATE_KEY
-  );
+  try {
+    webpush.setVapidDetails(
+      process.env.VAPID_SUBJECT || 'mailto:nicollerivera282016@gmail.com',
+      VAPID_PUBLIC_KEY,
+      VAPID_PRIVATE_KEY
+    );
+  } catch (err) {
+    console.error('[avisos] llaves VAPID invalidas', err?.message);
+    return res.status(500).json({
+      error: 'Las llaves VAPID de Vercel no sirven: hay que generarlas de nuevo con "npx web-push generate-vapid-keys".',
+      detalle: err?.message,
+    });
+  }
 
   try {
     if (enSilencio()) return res.status(200).json({ ok: true, motivo: 'silencio' });
