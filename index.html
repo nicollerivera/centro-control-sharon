@@ -218,6 +218,10 @@ button{font-family:inherit;}
 .elegido::after{content:'✓'; position:absolute; top:50%; right:8px; transform:translateY(-50%);
   width:20px; height:20px; border-radius:50%; background:var(--accent); color:#fff;
   font-size:12px; line-height:20px; text-align:center; font-weight:700;}
+/* mantener presionado tiene que ser un gesto de la app, no del navegador:
+   sin esto el telefono empieza a seleccionar el texto y cancela el toque */
+[data-sel-id]{-webkit-user-select:none; user-select:none; -webkit-touch-callout:none;}
+[data-sel-id] input, [data-sel-id] textarea{-webkit-user-select:text; user-select:text;}
 .barra-sel{position:fixed; left:0; right:0; z-index:60; display:flex; align-items:center; gap:12px;
   padding:12px 16px calc(12px + env(safe-area-inset-bottom)); background:var(--surface);
   border-top:1px solid var(--border); box-shadow:0 -6px 20px rgba(0,0,0,.08);
@@ -914,7 +918,7 @@ function weekdayItems(dayIdx){
     /* si ya cargo las materias de ese dia, el bloque generico de Universidad
        sobra: seria la misma cosa dos veces */
     if(r.auto==='universidad' && hayClases) return;
-    items.push({name:r.title, start:r.start, end:r.end, color:CATS[r.cat].color, tag:CATS[r.cat].label.toLowerCase(), ref:r});
+    items.push({name:r.title, start:r.start, end:r.end, color:catDe(r.cat).color, tag:catDe(r.cat).label.toLowerCase(), ref:r});
   });
   return items.sort(porHora);
 }
@@ -932,6 +936,15 @@ const CATS = {
   finanzas:{label:'Finanzas', color:'var(--c-fin)', emoji:'💰'},
   personal:{label:'Personal', color:'var(--c-personal)', emoji:'🩺'},
 };
+
+/* Si algo quedo guardado con un area que ya no existe, no puede tumbar la
+   pantalla: se pinta con un area neutra y se sigue. */
+function catDe(k){ return CATS[k] || { label:'Otro', color:'var(--text-dim)', emoji:'•' }; }
+
+/* La plata no se pasea por el calendario (D14): un gasto que ya hiciste no es
+   algo que tengas que hacer ese dia. Un pago pendiente si se queda, porque es
+   algo por hacer con fecha. */
+function esMovimientoDePlata(e){ return e.cat==='finanzas' && e.type!=='pago'; }
 
 /* ============================================================
    LINKED EVENTS (sync entre secciones y calendario)
@@ -1018,7 +1031,7 @@ function renderHeader(){
    ITEM RENDER (genérico, usado en Hoy / Mes / Tareas)
 ============================================================ */
 function itemHTML(e){
-  const cat = CATS[e.cat];
+  const cat = catDe(e.cat);
   const isUrgent = e.status!=='hecho' && daysBetween(todayStr(), e.date)>=0 && daysBetween(todayStr(), e.date)<=2;
   let metaParts = [];
   if(e.start) metaParts.push(e.start + (e.end? '–'+e.end : ''));
@@ -1201,9 +1214,9 @@ function renderCalendar(){
   for(let day=1; day<=lastDay; day++){
     const d = new Date(calDate.getFullYear(), calDate.getMonth(), day);
     const ds = fmtDate(d);
-    const dayEvents = DATA.events.filter(e=>e.date===ds);
+    const dayEvents = DATA.events.filter(e=>e.date===ds && !esMovimientoDePlata(e));
     const wdItems = weekdayItems(d.getDay());
-    let dotColors = [...new Set([...dayEvents.map(e=>CATS[e.cat].color), ...pendientesConFecha(ds).map(colorDeLista)])];
+    let dotColors = [...new Set([...dayEvents.map(e=>catDe(e.cat).color), ...pendientesConFecha(ds).map(colorDeLista)])];
     wdItems.forEach(it=>{ if(!dotColors.includes(it.color)) dotColors.push(it.color); });
     dotColors = dotColors.slice(0,3);
     const isCycleLog = DATA.cycle.starts.some(s=>{ const diff = daysBetween(s, ds); return diff>=0 && diff < DATA.cycle.periodLen; });
@@ -1224,7 +1237,7 @@ function renderCalDayList(){
   if(!calSelected){ box.innerHTML=''; return; }
   const ds = calSelected;
   const { bloques, ocupado, libre } = resumenDelDia(ds);
-  const sinHora = DATA.events.filter(e=>e.date===ds && !e.start);
+  const sinHora = DATA.events.filter(e=>e.date===ds && !e.start && !esMovimientoDePlata(e));
   const lugarDia = acomodarDia(ds).lugar;
   const pendSinHora = pendientesConFecha(ds).filter(p=>!p.hora && !lugarDia[p.id]);
 
@@ -1281,7 +1294,7 @@ function renderAgendadoPendiente(){
   pending.forEach(e=>{ (groups[e.cat] = groups[e.cat]||[]).push(e); });
   let html = '';
   Object.entries(groups).forEach(([cat,list])=>{
-    html += `<div class="subject-group-head" style="color:${CATS[cat].color}">${CATS[cat].emoji} ${CATS[cat].label} <span style="color:var(--text-dim); font-weight:500;">· ${list.length}</span></div>`;
+    html += `<div class="subject-group-head" style="color:${catDe(cat).color}">${catDe(cat).emoji} ${catDe(cat).label} <span style="color:var(--text-dim); font-weight:500;">· ${list.length}</span></div>`;
     html += list.map(itemHTML).join('');
   });
   const prox = pending[0].date;
@@ -1855,9 +1868,9 @@ function renderRutinas(){
   const rs = [...DATA.routines].sort((a,b)=>Math.min(...a.days)-Math.min(...b.days));
   box.innerHTML = `<div class="helptext" style="margin-top:0;">Lo que se repite cada semana: clases, Joel, gym, lo que sea. Tócalo para cambiarle días u horas — si rotas, esto se mueve contigo. Y dile qué tan firme es: de eso depende si un turno encima te sale en rojo o no.</div>
     ${rs.length ? rs.map(r=>`
-      <div class="subject-row rutina-row" data-id="${r.id}" data-sel-tipo="rutina" data-sel-id="${r.id}" style="border-left-color:${CATS[r.cat].color}; cursor:pointer;">
+      <div class="subject-row rutina-row" data-id="${r.id}" data-sel-tipo="rutina" data-sel-id="${r.id}" style="border-left-color:${catDe(r.cat).color}; cursor:pointer;">
         <div class="info">
-          <div class="name">${CATS[r.cat].emoji} ${esc(r.title)} ${flexPill(r)}</div>
+          <div class="name">${catDe(r.cat).emoji} ${esc(r.title)} ${flexPill(r)}</div>
           <div class="time">${r.days.map(d=>DOW_SHORT[d]).join(' · ')} ${r.start?'· '+esc(r.start)+(r.end?'–'+esc(r.end):''):''}</div>
         </div>
       </div>`).join('') : '<div class="empty-card">Aún no tienes rutinas o patrones semanales.</div>'}`;
@@ -3115,16 +3128,16 @@ function renderYo(){
   const maxMin = Math.max(1, ...catEntries.map(c=>c[1]));
   const tsBox = document.getElementById('timeSummary');
   if(catEntries.length){
-    tsBox.innerHTML = `<div class="bar-chart">${catEntries.map(([cat,min])=>`<div class="bar-col"><div class="bar" style="height:${Math.max(6,(min/maxMin)*95)}px; background:${CATS[cat].color}"></div><div class="lbl">${CATS[cat].emoji}</div></div>`).join('')}</div>
+    tsBox.innerHTML = `<div class="bar-chart">${catEntries.map(([cat,min])=>`<div class="bar-col"><div class="bar" style="height:${Math.max(6,(min/maxMin)*95)}px; background:${catDe(cat).color}"></div><div class="lbl">${catDe(cat).emoji}</div></div>`).join('')}</div>
     <div style="margin-top:12px; font-size:13px; color:var(--text-muted);">Total registrado: <b style="color:var(--text)">${Math.round(weekEvents.reduce((a,e)=>a+Number(e.actualMin),0)/60*10)/10}h</b> esta semana</div>`;
   } else {
     tsBox.innerHTML = `<div style="font-size:13px; color:var(--text-dim); text-align:center; padding:10px 0;">Marca cosas como "hechas" y registra minutos (o usa "Registrar tiempo" en Personal) para ver aquí en qué se te va el tiempo.</div>`;
   }
   const insightsBox = document.getElementById('insights');
   let insights = [];
-  if(catEntries.length){ const top = CATS[catEntries[0][0]]; insights.push(`<div class="insight"><div class="ico">${top.emoji}</div><div class="txt">Esta semana, la mayoría de tu tiempo se fue en <b>${top.label}</b>.</div></div>`); }
+  if(catEntries.length){ const top = catDe(catEntries[0][0]); insights.push(`<div class="insight"><div class="ico">${top.emoji}</div><div class="txt">Esta semana, la mayoría de tu tiempo se fue en <b>${top.label}</b>.</div></div>`); }
   const overEst = DATA.events.filter(e=>e.status==='hecho' && e.estMin && e.actualMin && e.actualMin > e.estMin*1.3);
-  if(overEst.length){ insights.push(`<div class="insight"><div class="ico">⏱</div><div class="txt">Sueles subestimar tareas de <b>${CATS[overEst[overEst.length-1].cat].label}</b> — tomaron más tiempo del planeado.</div></div>`); }
+  if(overEst.length){ insights.push(`<div class="insight"><div class="ico">⏱</div><div class="txt">Sueles subestimar tareas de <b>${catDe(overEst[overEst.length-1].cat).label}</b> — tomaron más tiempo del planeado.</div></div>`); }
   const overdueCount = DATA.events.filter(e=>e.status!=='hecho' && e.date<todayStr()).length;
   if(overdueCount>0){ insights.push(`<div class="insight"><div class="ico">📌</div><div class="txt">Tienes <b>${overdueCount}</b> pendiente${overdueCount>1?'s':''} atrasado${overdueCount>1?'s':''}. Revísalos en Tareas.</div></div>`); }
   insightsBox.innerHTML = insights.length ? insights.join('') : '<div class="empty-card">Aún no hay suficientes datos para mostrar patrones.</div>';
@@ -5164,9 +5177,18 @@ function borrarSeleccionados(){
     alternar(el.dataset.selId);
   }, true);
 
-  /* El menu del navegador al mantener presionado estorba el gesto. */
+  /* El menu del navegador al mantener presionado estorba el gesto. Y si el
+     navegador se adelanta y lo dispara igual, ese mismo evento sirve para
+     entrar a seleccionar: asi el gesto nunca se queda sin hacer nada. */
   document.addEventListener('contextmenu', (ev)=>{
-    if(ev.target.closest('[data-sel-id]')) ev.preventDefault();
+    const el = ev.target.closest('[data-sel-id]');
+    if(!el) return;
+    ev.preventDefault();
+    cancelar();
+    sinClic = true;
+    if(seleccionando() && el.dataset.selTipo !== SELECCION.tipo) return;
+    if(seleccionando()) alternar(el.dataset.selId);
+    else entrarSeleccion(el.dataset.selTipo, el.dataset.selId);
   });
 
   addEventListener('keydown', (ev)=>{ if(ev.key==='Escape' && seleccionando()) salirSeleccion(); });
