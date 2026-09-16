@@ -2451,7 +2451,7 @@ function renderMaterias(){
         </div>
         ${e.total && e.total!==100 ? `<div class="helptext" style="margin:2px 0 6px 14px; color:var(--ambar);">Los porcentajes suman ${Math.round(e.total)}%, no 100%.</div>` : ''}
         ${tasks.map(t=>`
-          <div class="module-row" data-id="${t.id}" style="margin-left:14px;">
+          <div class="module-row" data-id="${t.id}" data-sel-tipo="entrega" data-sel-id="${t.id}" style="margin-left:14px;">
             <button class="module-check" data-action="toggleTask" data-id="${t.id}"></button>
             <div style="flex:1; min-width:0;"><div class="mname">${esc(t.name)}</div><div class="meta" style="margin-top:2px;">${esc(t.type)}${t.date?' · '+niceDateShort(t.date):''}</div></div>
           </div>`).join('')}
@@ -2470,7 +2470,7 @@ function renderMaterias(){
     entregas.map(t=>{
     const dias = daysBetween(todayStr(), t.date);
     const cuando = dias<0 ? 'Atrasada' : dias===0 ? 'Hoy' : dias===1 ? 'Mañana' : niceDate(t.date);
-    return `<div class="item" style="border-left-color:var(--c-uni);">
+    return `<div class="item" data-sel-tipo="entrega" data-sel-id="${t.id}" style="border-left-color:var(--c-uni);">
       <div class="body"><div class="row1"><div class="title">${esc(t.name)}</div>
         <span class="tag" style="background:${dias<=1?'var(--urgent-soft)':'var(--accent-soft)'}; color:${dias<=1?'var(--urgent)':'var(--accent)'};">${esc(cuando)}</span></div>
       <div class="meta"><span>${esc(t.subject||'General')}${t.type?' · '+esc(t.type):''}</span></div></div>
@@ -5024,6 +5024,13 @@ const BORRABLES = {
     borrar: ids => {
       ids.forEach(id=>removeLinkedEvent('turno', id));
       DATA.turnos = (DATA.turnos||[]).filter(t=>!ids.has(t.id));
+    }
+  },
+  entrega: {
+    uno:'entrega', varios:'entregas',
+    borrar: ids => {
+      ids.forEach(id=>removeLinkedEvent('academicTask', id));
+      DATA.academicTasks = (DATA.academicTasks||[]).filter(t=>!ids.has(t.id));
     }
   },
   movimiento: {
