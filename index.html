@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>Bitácora</title>
-<meta name="bitacora-build" content="20260915221550">
+<meta name="bitacora-build" content="20260915221945">
 <script>
 /* Modo claro u oscuro (D55). La primera vez sigue al teléfono; después manda el botón. */
 /* Arranca en claro. El oscuro se elige con el boton, no lo decide el
@@ -171,6 +171,14 @@ button{font-family:inherit;}
 .bloque .sitio{font-size:12.5px; color:var(--text-muted); margin-top:2px;}
 .bloque.hecho .nombre{color:var(--text-dim); text-decoration:line-through;}
 .bloque .status-btn{width:24px; height:24px; margin:0;}
+
+/* lo hecho, guardado en una linea discreta al final del dia */
+.linea-hechas{display:flex; align-items:center; gap:7px; margin:6px 0 0; padding:7px 2px; background:none; border:none; color:var(--done); font:inherit; font-size:12.5px; font-weight:600; cursor:pointer;}
+.linea-hechas svg{width:14px; height:14px;}
+.linea-hechas.abierta{color:var(--text-muted);}
+.hechas-lista{opacity:.75;}
+.hechas-lista .bloque{padding:8px 2px;}
+.todo-listo{padding:14px 2px; font-size:14px; color:var(--text-muted);}
 
 /* el hueco es espacio, no un renglon mas (D108) */
 .hueco{margin:0; padding:7px 0 7px 2px; font-size:12px; color:var(--text-dim); display:flex; align-items:center; gap:9px; flex-wrap:wrap; min-height:26px;}
@@ -3445,7 +3453,7 @@ function bloquesDelDia(fecha, exceptoTurnoId){
     if(e.date!==fecha || !e.start || e.status==='hecho') return;
     if(e.linkedType==='turno' && e.linkedId===exceptoTurnoId) return;
     if(e.cat==='nexxa' && e.noVoy) return;        // si no vas, no te ocupa el tiempo (D129)
-    out.push({ titulo:e.title, desde:minutosDe(e.start), hasta:finEnMinutos(e.start, e.end||e.start), fuente:'evento', flex:flexDe(e), ref:e });
+    out.push({ titulo:e.title, desde:minutosDe(e.start), hasta: e.end ? finEnMinutos(e.start, e.end) : minutosDe(e.start), fuente:'evento', flex:flexDe(e), ref:e });
   });
   (DATA.routines||[]).forEach(r=>{
     if(!r.days || !r.days.includes(dow) || !r.start) return;
@@ -4911,11 +4919,11 @@ function bloquesFijos(fecha){
      dice mas. El ingles del SENA y la clase con Leslie son a otras horas, asi
      que no les pasa. */
   const clases = items.filter(c=>c.materia)
-    .map(c=>({ d:minutosDe(c.start), h:finEnMinutos(c.start, c.end||c.start) }))
+    .map(c=>({ d:minutosDe(c.start), h: c.end ? finEnMinutos(c.start, c.end) : minutosDe(c.start) }))
     .filter(k=>k.d!==null && k.h!==null);
   items.forEach(c=>{
     if(!c.materia && clases.length){
-      const d = minutosDe(c.start), h = finEnMinutos(c.start, c.end||c.start);
+      const d = minutosDe(c.start), h = c.end ? finEnMinutos(c.start, c.end) : minutosDe(c.start);
       if(d!==null && h!==null && clases.some(k=>k.d >= d && k.h <= h)) return;
     }
     out.push({ titulo:c.name, start:c.start, end:c.end, color:c.color,
@@ -4931,7 +4939,7 @@ function bloquesFijos(fecha){
 /* Dos bloques encimados no ocupan el doble: se unen antes de contar. */
 function ocupadoDelDia(bloques){
   const tramos = bloques
-    .map(b=>({ desde: minutosDe(b.start), hasta: finEnMinutos(b.start, b.end || b.start) }))
+    .map(b=>({ desde: minutosDe(b.start), hasta: b.end ? finEnMinutos(b.start, b.end) : minutosDe(b.start) }))
     .filter(t=>t.desde !== null && t.hasta !== null && t.hasta > t.desde)
     .sort((a,b)=>a.desde - b.desde);
   const unidos = [];
@@ -4989,7 +4997,14 @@ function tiraDelDia(fecha, opciones){
     ...huecos.map(h=>({ orden: h.desde, tipo:'hueco', h }))
   ].sort((x,y)=> x.orden - y.orden);
 
-  return filas.map(f=>{
+  /* lo hecho no se queda estorbando en la lista, pero tampoco desaparece: se
+     guarda en una linea que se abre, para que igual se vea lo que avanzo (D03) */
+  const estaHecho = (b)=> b.ev ? b.ev.status==='hecho'
+    : estadoRepetido(fecha, b.rutina ? 'rutina:'+b.rutina.id : b.materia ? 'materia:'+b.materia.id : '') === 'hecho';
+  const porHacer = filas.filter(f=> f.tipo!=='bloque' || !estaHecho(f.b));
+  const yaHechas = filas.filter(f=> f.tipo==='bloque' && estaHecho(f.b));
+
+  const pintar = (lista)=> lista.map(f=>{
     if(f.tipo === 'hueco'){
       const min = f.h.hasta - f.h.desde;
       const esElMejor = mejor && f.h.desde === mejor.desde;
@@ -5021,6 +5036,14 @@ function tiraDelDia(fecha, opciones){
       ${idRep ? `<button class="status-btn ${hecho?'hecho':progreso?'progreso':''}" data-action="cicloRepetido" data-rep="${idRep}" data-fecha="${fecha}" aria-label="Marcar hecho"></button>` : ''}
     </div>`;
   }).join('');
+
+  const n = yaHechas.length;
+  return pintar(porHacer)
+    + (porHacer.every(f=>f.tipo==='hueco') && n ? `<div class="todo-listo">Ya hiciste todo lo de hoy.</div>` : '')
+    + (n ? `<button class="linea-hechas" data-abrir-hechas>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+        <span>${n===1 ? '1 hecha' : n + ' hechas'}</span>
+      </button><div class="hechas-lista" hidden>${pintar(yaHechas)}</div>` : '');
 }
 
 /* Los bloques y huecos de un dia se tocan igual en todos lados. */
@@ -5033,6 +5056,13 @@ function engancharTira(caja){
   });
   caja.querySelectorAll('[data-pend]').forEach(el=>{
     el.onclick = ()=>{ const p = DATA.pendientes.find(x=>x.id===el.dataset.pend); if(p) openPendienteModal(p); };
+  });
+  caja.querySelectorAll('[data-abrir-hechas]').forEach(b=>{
+    b.onclick = ()=>{
+      const lista = b.nextElementSibling;
+      lista.hidden = !lista.hidden;
+      b.classList.toggle('abierta', !lista.hidden);
+    };
   });
   caja.querySelectorAll('[data-action="cicloRepetido"]').forEach(b=>{
     b.onclick = (ev)=>{
