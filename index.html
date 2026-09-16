@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>Bitácora</title>
-<meta name="bitacora-build" content="20260915221945">
+<meta name="bitacora-build" content="20260915222422">
 <script>
 /* Modo claro u oscuro (D55). La primera vez sigue al teléfono; después manda el botón. */
 /* Arranca en claro. El oscuro se elige con el boton, no lo decide el
@@ -25,7 +25,7 @@ try{
 <meta name="theme-color" content="#101218" media="(prefers-color-scheme: dark)">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
   /* Tokens tomados tal cual del lienzo de pantallas. Modo claro. */
@@ -108,7 +108,7 @@ body{
   overscroll-behavior-y:none;
 }
 h1,h2,h3,.display{font-family:'Bricolage Grotesque','Helvetica Neue',Arial,sans-serif; letter-spacing:-0.01em;}
-.mono,.hora,.monto{font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace; font-variant-numeric:tabular-nums;}
+.mono,.hora,.monto{font-variant-numeric:tabular-nums; letter-spacing:-0.01em;}
 button{font-family:inherit;}
 .app{max-width:560px; margin:0 auto; position:relative;}
 
@@ -162,9 +162,9 @@ button{font-family:inherit;}
 .vence-fila .cuando{flex:none; font-size:12px; color:var(--text-muted); font-weight:600;}
 
 /* un bloque: hora, nombre, lugar y el circulo. Nada mas (D105) */
-.bloque{display:flex; align-items:center; gap:11px; padding:11px 2px; }
-.bloque .hora{flex:none; width:46px; font-size:13px; font-weight:600; color:var(--text); line-height:1.25;}
-.bloque .hora .hasta{display:block; font-size:11px; font-weight:400; color:var(--text-dim);}
+.bloque{display:flex; align-items:center; gap:12px; padding:13px 2px;}
+.bloque .hora{flex:none; width:52px; font-size:14px; font-weight:600; color:var(--text-muted); line-height:1.3;}
+.bloque .hora .hasta{display:block; font-size:12px; font-weight:400; color:var(--text-dim);}
 .bloque .raya{flex:none; width:3px; align-self:stretch; border-radius:3px; min-height:26px;}
 .bloque .cuerpo{flex:1; min-width:0;}
 .bloque .nombre{font-size:15px; font-weight:600; line-height:1.3;}
@@ -181,8 +181,9 @@ button{font-family:inherit;}
 .todo-listo{padding:14px 2px; font-size:14px; color:var(--text-muted);}
 
 /* el hueco es espacio, no un renglon mas (D108) */
-.hueco{margin:0; padding:7px 0 7px 2px; font-size:12px; color:var(--text-dim); display:flex; align-items:center; gap:9px; flex-wrap:wrap; min-height:26px;}
-.hueco .rango{flex:none; width:96px; font-size:11.5px; color:var(--text-muted); font-weight:500;}
+.hueco{margin:0; padding:8px 0 8px 2px; font-size:12.5px; color:var(--text-dim); display:flex; align-items:center; gap:12px; flex-wrap:wrap; min-height:26px;}
+.hueco .linea{flex:none; width:52px; display:flex; justify-content:center;}
+.hueco .linea::before{content:''; width:2px; height:18px; border-radius:2px; background:repeating-linear-gradient(to bottom, var(--border) 0 3px, transparent 3px 6px);}
 .cabe{color:var(--accent); font-weight:600;}
 
 /* lo que no tiene hora, en el mismo idioma que lo demas */
@@ -5001,15 +5002,26 @@ function tiraDelDia(fecha, opciones){
      guarda en una linea que se abre, para que igual se vea lo que avanzo (D03) */
   const estaHecho = (b)=> b.ev ? b.ev.status==='hecho'
     : estadoRepetido(fecha, b.rutina ? 'rutina:'+b.rutina.id : b.materia ? 'materia:'+b.materia.id : '') === 'hecho';
-  const porHacer = filas.filter(f=> f.tipo!=='bloque' || !estaHecho(f.b));
+  /* si el bloque del medio ya esta hecho, los dos huecos que quedaban a sus
+     lados son un solo rato libre: se juntan en vez de salir dos veces */
+  const porHacer = [];
+  filas.filter(f=> f.tipo!=='bloque' || !estaHecho(f.b)).forEach(f=>{
+    const ultimo = porHacer[porHacer.length-1];
+    if(f.tipo==='hueco' && ultimo && ultimo.tipo==='hueco'){
+      ultimo.h = { desde: Math.min(ultimo.h.desde, f.h.desde), hasta: Math.max(ultimo.h.hasta, f.h.hasta) };
+      return;
+    }
+    porHacer.push(f.tipo==='hueco' ? { ...f, h:{ ...f.h } } : f);
+  });
   const yaHechas = filas.filter(f=> f.tipo==='bloque' && estaHecho(f.b));
 
   const pintar = (lista)=> lista.map(f=>{
     if(f.tipo === 'hueco'){
       const min = f.h.hasta - f.h.desde;
       const esElMejor = mejor && f.h.desde === mejor.desde;
+      /* el hueco se ve como aire entre bloques, no como otro renglon (D108) */
       return `<div class="hueco">
-        <span class="rango mono">${hhmm(f.h.desde)}–${hhmm(f.h.hasta)}</span>
+        <span class="linea"></span>
         <span>${libres(min)}</span>
         ${esElMejor && cabe && min >= 60 ? `<span class="cabe">cabe: ${esc(cabe.titulo)}</span>` : ''}
       </div>`;
