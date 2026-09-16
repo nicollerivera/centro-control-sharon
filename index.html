@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>Bitácora</title>
-<meta name="bitacora-build" content="20260915225436">
+<meta name="bitacora-build" content="20260915230632">
 <script>
 /* Modo claro u oscuro (D55). La primera vez sigue al teléfono; después manda el botón. */
 /* Arranca en claro. El oscuro se elige con el boton, no lo decide el
@@ -358,6 +358,25 @@ body.con-barra .elegido .urg, body.con-barra .elegido .tag{visibility:hidden;}
 .quedaria .por-que b{color:var(--accent); font-weight:600;}
 .toast{position:fixed; left:50%; bottom:calc(84px + env(safe-area-inset-bottom,0px)); transform:translate(-50%, 20px); background:var(--text); color:var(--surface); font-size:14px; font-weight:600; padding:11px 16px; border-radius:12px; opacity:0; transition:opacity .2s, transform .2s; z-index:200; max-width:calc(100% - 32px); text-align:center; pointer-events:none;}
 .toast.ver{opacity:1; transform:translate(-50%, 0);}
+/* el resumen de la semana: primero el veredicto en palabras, despues los
+   numeros con su comparacion, y al final lo que no cabe en un numero */
+.resumen{padding:14px 16px 16px;}
+.res-tabs{display:flex; align-items:center; gap:6px; flex-wrap:wrap;}
+.res-tab{background:var(--surface-2); border:none; color:var(--text-muted); font:inherit; font-size:13px; font-weight:600; padding:5px 12px; border-radius:20px;}
+.res-tab.activa{background:var(--accent); color:#fff;}
+.res-rango{margin-left:auto; font-size:12px; color:var(--text-dim);}
+.veredicto{margin-top:14px; font-size:16px; line-height:1.45; font-weight:500;}
+.veredicto.bien{color:var(--done);}
+.res-filas{margin-top:14px; border-top:1px solid var(--border);}
+.fila-res{display:grid; grid-template-columns:1fr auto auto; gap:10px; align-items:baseline; padding:9px 0; border-bottom:1px solid var(--border);}
+.fila-res .que{font-size:14.5px; color:var(--text-muted);}
+.fila-res .val{font-size:15.5px; font-weight:600; font-variant-numeric:tabular-nums;}
+.fila-res .dif{font-size:12px; color:var(--text-dim); min-width:84px; text-align:right; font-variant-numeric:tabular-nums;}
+.fila-res .dif.sube{color:var(--done);} .fila-res .dif.baja{color:var(--ambar);}
+.res-notas{margin-top:12px;}
+.res-notas p{margin:5px 0; font-size:14px; color:var(--text-muted);}
+.res-notas b{color:var(--text);}
+
 /* secciones plegables: cerradas muestran solo nombre y resumen */
 .pleg{margin-bottom:8px;}
 .pleg-head{display:flex; align-items:center; gap:10px; width:100%; text-align:left; padding:14px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); font:inherit; cursor:pointer;}
@@ -661,6 +680,8 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 
   <!-- ===== YO ===== -->
   <div class="view" id="view-yo">
+    <div class="section-title">Tu semana</div>
+    <div id="resumenBox"></div>
     <div class="section-title">Ciclo</div>
     <div id="cycleBox"></div>
     <div class="section-title">Tu tiempo esta semana</div>
@@ -2978,7 +2999,7 @@ function openClientModal(){
     const name = document.getElementById('f_cname').value.trim();
     if(!name){ alert('Ponle un nombre'); return; }
     const payType = typeSel.value;
-    const obj = { id:uid(), name, payType, origen: document.getElementById('f_corigen').value };
+    const obj = { id:uid(), name, payType, origen: document.getElementById('f_corigen').value, creado: todayStr() };
     if(payType==='salario_min'){ obj.baseSalario = document.getElementById('f_basesal').value||1750000; obj.auxTransporte = document.getElementById('f_auxtrans').value||250000; obj.recargoDominical = document.getElementById('f_recargo').value||75; }
     else { obj.rate = document.getElementById('f_rate').value||0; }
     DATA.workClients.push(obj); saveData(); closeSheet(); renderTrabajo();
@@ -3119,9 +3140,186 @@ function openPersonalModal(existing){
 }
 
 /* ============================================================
+   EL RESUMEN QUE TE DEVUELVE LA SEMANA (D40, D83)
+   Todo lo que anota durante la semana no sirve de nada si no vuelve
+   convertido en algo. Esto lo cuenta en palabras, no en tablas: horas
+   trabajadas, horas estudiadas, en que estuvo, clientes que trajo la marca,
+   horas dormidas, la plata y un veredicto. Dos voces (D53): seca cuando no
+   cumplio, efusiva y con su nombre cuando de verdad logro algo.
+============================================================ */
+
+/* la semana empieza el lunes (D132) */
+function lunesDe(fecha){
+  const d = parseDate(fecha), dow = d.getDay();
+  return fmtDate(addDays(d, dow===0 ? -6 : 1-dow));
+}
+function diasEntre(desde, hasta){
+  const out = []; let f = desde;
+  while(f <= hasta){ out.push(f); f = fmtDate(addDays(parseDate(f), 1)); }
+  return out;
+}
+
+/* Minutos de una cosa que se repite y quedo marcada hecha ese dia. */
+function minutosRepetidosDe(fecha){
+  const marcados = (diaDe(fecha).repetidos) || {};
+  const out = {};
+  Object.keys(marcados).forEach(clave=>{
+    if(marcados[clave] !== 'hecho') return;
+    const [tipo, id] = clave.split(':');
+    let ref = null, cat = 'personal';
+    if(tipo==='materia'){ ref = (DATA.subjects||[]).find(x=>x.id===id); cat = 'universidad'; }
+    if(tipo==='rutina'){ ref = (DATA.routines||[]).find(x=>x.id===id); cat = ref ? ref.cat : 'personal'; }
+    if(!ref || !ref.start || !ref.end) return;
+    out[cat] = (out[cat]||0) + Math.round(horasFromRange(ref.start, ref.end) * 60);
+  });
+  return out;
+}
+
+function resumenDe(desde, hasta){
+  const dias = diasEntre(desde, hasta);
+  const enRango = f => f >= desde && f <= hasta;
+
+  /* horas trabajadas: los turnos mandan, porque es lo que de verdad hizo */
+  let minTrabajo = 0;
+  (DATA.turnos||[]).filter(t=>enRango(t.fecha) && t.entra && t.sale)
+    .forEach(t=>{ minTrabajo += Math.round(horasFromRange(t.entra, t.sale) * 60); });
+
+  /* minutos por area: lo marcado hecho, sea evento o cosa que se repite */
+  const porArea = {};
+  const sumar = (cat, min)=>{ if(min>0) porArea[cat] = (porArea[cat]||0) + min; };
+  DATA.events.filter(e=>enRango(e.date) && e.status==='hecho').forEach(e=>{
+    const min = Number(e.actualMin) || (e.start && e.end ? Math.round(horasFromRange(e.start, e.end)*60) : 0);
+    sumar(e.cat, min);
+  });
+  dias.forEach(f=>{ const m = minutosRepetidosDe(f); Object.keys(m).forEach(c=>sumar(c, m[c])); });
+  sumar('trabajo', minTrabajo);
+
+  const minEstudio = porArea['universidad'] || 0;
+  const minDormido = dias.reduce((a,f)=>a + minutosDormidos(f), 0);
+
+  /* lo que hizo y lo que no */
+  /* un gasto anotado no es una cosa que hizo: la plata no cuenta aca */
+  const hechas = DATA.events.filter(e=>enRango(e.date) && e.status==='hecho' && e.cat!=='finanzas').length
+    + (DATA.pendientes||[]).filter(p=>p.hecho && enRango(p.fecha||'')).length;
+  const quedaron = DATA.events.filter(e=>enRango(e.date) && e.status!=='hecho' && e.cat!=='finanzas').length;
+
+  /* publicaciones y clientes que trajo la marca (D82) */
+  const M = marcaData();
+  const publicadas = (M.publicaciones||[]).filter(p=>p.etapa==='Publicado' && enRango(p.fecha||'')).length;
+  const deMarca = clientesDeLaMarca();
+  const clientesNuevos = deMarca.filter(c=>c.creado && enRango(c.creado)).length;
+
+  /* plata del rango */
+  const movs = DATA.events.filter(e=>e.cat==='finanzas' && enRango(e.date));
+  const entro = movs.filter(e=>e.type==='ingreso').reduce((a,e)=>a+Number(e.amount||0),0);
+  const salio = movs.filter(e=>e.type==='gasto').reduce((a,e)=>a+Number(e.amount||0),0);
+
+  const focoEntradas = Object.entries(porArea).sort((a,b)=>b[1]-a[1]);
+  return { desde, hasta, dias, minTrabajo, minEstudio, minDormido, porArea,
+    foco: focoEntradas[0] || null, hechas, quedaron, publicadas,
+    clientesNuevos, clientesMarca: deMarca.length, entro, salio };
+}
+
+/* La comparacion contra el periodo anterior: sin esto son numeros sueltos. */
+function compararConAntes(r, largoDias){
+  const finAntes = fmtDate(addDays(parseDate(r.desde), -1));
+  const iniAntes = fmtDate(addDays(parseDate(finAntes), -(largoDias-1)));
+  return resumenDe(iniAntes, finAntes);
+}
+
+function horasTexto(min){
+  if(!min) return '0 h';
+  const h = Math.floor(min/60), m = min%60;
+  return h ? h + ' h' + (m ? ' ' + m : '') : m + ' min';
+}
+
+/* El veredicto. Efusiva solo cuando de verdad logro algo (D53). */
+function veredictoDe(r, antes, periodo){
+  const P = periodo === 'mes' ? 'mes' : 'semana';
+  const laP = P === 'mes' ? 'el mes' : 'la semana';
+  const masTrabajo = r.minTrabajo > antes.minTrabajo;
+  const durmioBien = r.minDormido >= r.dias.length * 7 * 60;
+  const cumplio = r.hechas > 0 && r.quedaron <= 2;
+  if(cumplio && durmioBien)
+    return { tono:'bien', texto:`¡Increíble ${P}, Sharon! 🎉 Cumpliste casi todo y además dormiste. Eso segundo es lo difícil.` };
+  if(cumplio)
+    return { tono:'bien', texto: r.quedaron
+      ? `${P==='mes'?'Buen mes':'Buena semana'}, Sharon. Cerraste ${r.hechas} ${r.hechas===1?'cosa':'cosas'} y solo ${r.quedaron} ${r.quedaron===1?'quedó':'quedaron'} colgando.`
+      : `¡${P==='mes'?'Mes limpio':'Semana limpia'}, Sharon! 🎉 Cerraste ${r.hechas} ${r.hechas===1?'cosa':'cosas'} y no quedó nada pendiente.` };
+  if(r.quedaron > 6)
+    return { tono:'seco', texto:`Quedaron ${r.quedaron} cosas sin hacer. O fue ${P==='mes'?'un mes pesado':'una semana pesada'}, o estás cargando ${laP} con más de lo que cabe.` };
+  if(!r.minDormido)
+    return { tono:'seco', texto:`No registraste sueño en todo ${P==='mes'?'el mes':'la semana'}, así que de descanso no te puedo decir nada.` };
+  if(masTrabajo && r.minEstudio < antes.minEstudio)
+    return { tono:'seco', texto:`Trabajaste más que ${P==='mes'?'el mes pasado':'la semana pasada'} y estudiaste menos. Pasa, pero que no se vuelva la norma en bimestre.` };
+  return { tono:'seco', texto:`${P==='mes'?'Mes normal':'Semana normal'}: ${r.hechas} ${r.hechas===1?'cosa hecha':'cosas hechas'} y ${r.quedaron} sin hacer.` };
+}
+
+/* Una fila del resumen: el numero, que es, y como va contra antes. */
+function filaResumen(que, valor, antes, formato){
+  const dif = valor - antes;
+  const pinta = dif === 0 ? '' : dif > 0 ? 'sube' : 'baja';
+  const flecha = dif === 0 ? 'igual que antes' : (dif > 0 ? '+' : '−') + formato(Math.abs(dif));
+  return `<div class="fila-res">
+    <span class="que">${esc(que)}</span>
+    <span class="val">${esc(formato(valor))}</span>
+    <span class="dif ${pinta}">${esc(flecha)}</span>
+  </div>`;
+}
+
+var RESUMEN_VISTA = 'semana';
+function renderResumen(){
+  const caja = document.getElementById('resumenBox');
+  if(!caja) return;
+  const hoy = todayStr();
+  const esMes = RESUMEN_VISTA === 'mes';
+
+  const desde = esMes ? hoy.slice(0,8) + '01' : lunesDe(hoy);
+  const hasta = esMes ? fmtDate(new Date(parseDate(hoy).getFullYear(), parseDate(hoy).getMonth()+1, 0)) : fmtDate(addDays(parseDate(desde), 6));
+  const r = resumenDe(desde, hasta);
+  const antes = compararConAntes(r, r.dias.length);
+  const v = veredictoDe(r, antes, esMes ? 'mes' : 'semana');
+
+  const rotulo = esMes ? 'Este mes' : (desde === lunesDe(hoy) ? 'Esta semana' : 'La semana');
+  const nada = !r.minTrabajo && !r.minEstudio && !r.minDormido && !r.hechas && !r.entro && !r.salio;
+
+  caja.innerHTML = `<div class="card resumen">
+    <div class="res-tabs">
+      <button class="res-tab ${esMes?'':'activa'}" data-res="semana">Semana</button>
+      <button class="res-tab ${esMes?'activa':''}" data-res="mes">Mes</button>
+      <span class="res-rango">${esc(niceDateShort(desde))} – ${esc(niceDateShort(hasta))}</span>
+    </div>
+    ${nada ? `<div class="helptext" style="margin:14px 0 0;">Todavía no hay nada anotado en ${rotulo.toLowerCase()}. Esto se llena solo con lo que vas marcando.</div>` : `
+    <div class="veredicto ${v.tono}">${esc(v.texto)}</div>
+    <div class="res-filas">
+      ${filaResumen('Trabajaste', r.minTrabajo, antes.minTrabajo, horasTexto)}
+      ${filaResumen('Estudiaste', r.minEstudio, antes.minEstudio, horasTexto)}
+      ${filaResumen('Dormiste', r.minDormido, antes.minDormido, horasTexto)}
+      ${filaResumen('Entró', r.entro, antes.entro, money)}
+      ${filaResumen('Salió', r.salio, antes.salio, money)}
+    </div>
+    <div class="res-notas">
+      ${r.foco ? `<p>Donde más se te fue el tiempo: <b>${esc(catDe(r.foco[0]).label)}</b>, ${esc(horasTexto(r.foco[1]))}.</p>` : ''}
+      ${r.publicadas ? `<p>Publicaste <b>${r.publicadas}</b> ${r.publicadas===1?'pieza':'piezas'} de marca personal.</p>` : ''}
+      ${r.clientesNuevos ? `<p><b>${r.clientesNuevos}</b> ${r.clientesNuevos===1?'cliente llegó':'clientes llegaron'} por la marca personal.</p>`
+        : r.clientesMarca ? `<p>La marca personal te ha traído <b>${r.clientesMarca}</b> ${r.clientesMarca===1?'cliente':'clientes'} en total.</p>` : ''}
+      ${r.quedaron ? `<p><b>${r.quedaron}</b> ${r.quedaron===1?'cosa quedó':'cosas quedaron'} sin hacer.</p>` : ''}
+    </div>`}
+  </div>`;
+
+  caja.querySelectorAll('[data-res]').forEach(b=>b.onclick = ()=>{
+    RESUMEN_VISTA = b.dataset.res;
+    try{ localStorage.setItem('resumenVista', RESUMEN_VISTA); }catch(e){}
+    renderResumen();
+  });
+}
+try{ RESUMEN_VISTA = localStorage.getItem('resumenVista') || 'semana'; }catch(e){}
+
+/* ============================================================
    RENDER: YO
 ============================================================ */
 function renderYo(){
+  renderResumen();
   const box = document.getElementById('cycleBox');
   const starts = [...DATA.cycle.starts].sort();
   if(!starts.length){

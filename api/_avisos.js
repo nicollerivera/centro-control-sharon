@@ -8,6 +8,7 @@
    - Nunca se le avisa de recoger a Joel ni de entrar o salir de un turno (D49).
    - Ademas de los tres, las clases avisan justo antes de empezar y los
      examenes el mismo dia (decision nueva de Sharon; cambia D45 en ese punto).
+   - El resumen de la semana avisa el domingo 9:30 pm (D83).
    - Silencio de 11 pm a 6 am, sin excepciones, ni en noches de turno (D46).
    - Los tres llegan el dia anterior (D85).
    - Tope de 8 al dia (D87).
@@ -215,6 +216,18 @@ export function avisosDeAhora(data, ahora = new Date()) {
       ir: 'hoy',
     });
   });
+
+  /* el resumen de la semana: domingo 9:30 pm, antes del silencio (D83) */
+  const d = new Date(ahora.getTime() - 5 * 3600 * 1000);
+  if (d.getUTCDay() === 0 && min >= 21 * 60 + 30 && min < 22 * 60 + 30) {
+    out.push({
+      tipo: 'resumen',
+      clave: hoy + ':resumen-semana',
+      titulo: 'Tu semana, Sharon',
+      cuerpo: 'Ya está lista en Yo: horas, plata y el veredicto.',
+      ir: 'yo',
+    });
+  }
 
   /* los examenes del dia: se avisan una vez, en la primera corrida del dia */
   (data.academicTasks || []).forEach((t) => {
