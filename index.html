@@ -1020,7 +1020,7 @@ function itemHTML(e){
   let metaParts = [];
   if(e.start) metaParts.push(e.start + (e.end? '–'+e.end : ''));
   if(e.date !== todayStr()) metaParts.push(niceDateShort(e.date));
-  if(e.cat==='finanzas' && e.amount) metaParts.push((e.type==='ingreso'||e.type==='prestamo_recibido' ?'+':'-') + money(e.amount));
+  if(e.cat==='finanzas' && e.amount) metaParts.push(e.type==='traslado' ? money(e.amount) : (e.type==='ingreso'||e.type==='prestamo_recibido' ?'+':'-') + money(e.amount));
   if(e.persona) metaParts.push('con ' + e.persona);
   return `<div class="item ${e.status==='hecho'?'done':''}" data-id="${e.id}" data-sel-tipo="evento" data-sel-id="${e.id}" style="border-left-color:${cat.color}">
     <button class="status-btn ${e.status==='progreso'?'progreso':e.status==='hecho'?'hecho':''}" data-action="cyclestatus" data-id="${e.id}"></button>
@@ -3942,6 +3942,7 @@ function gastosDelMes(){
 const TIPOS_MOV = {
   gasto:            'Gasto',
   ingreso:          'Ingreso',
+  traslado:         'Paso de plata (de un lado a otro)',
   pago:             'Pago pendiente',
   prestamo_dado:    'Le presté a alguien',
   prestamo_recibido:'Me prestaron'
@@ -3973,8 +3974,9 @@ function openMovimientoModalCon(pre, existente){
         <select id="m_categoria">${CATEGORIAS_GASTO.map(c=>`<option value="${esc(c)}" ${e.categoria===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
         <div class="helptext">De esto sale el presupuesto.</div></div>` : ''}
       ${esPrestamo ? `<div class="field"><label>¿Con quién?</label><input type="text" id="m_persona" value="${esc(e.persona)}" placeholder="Nombre"></div>` : ''}
-      <div class="field"><label>${e.type==='pago' ? '¿Qué hay que pagar?' : 'En qué / de dónde'}</label>
-        <input type="text" id="m_titulo" value="${esc(e.title)}" placeholder="${e.type==='gasto'?'Ej: almuerzo, transporte':'Ej: turno de Infinity'}"></div>
+      ${e.type==='traslado' ? `<div class="helptext" style="margin:-8px 0 14px;">La misma plata cambiando de lugar: no suma ni resta en el mes.</div>` : ''}
+      <div class="field"><label>${e.type==='pago' ? '¿Qué hay que pagar?' : e.type==='traslado' ? '¿De dónde a dónde?' : 'En qué / de dónde'}</label>
+        <input type="text" id="m_titulo" value="${esc(e.title)}" placeholder="${e.type==='gasto'?'Ej: almuerzo, transporte':e.type==='traslado'?'Ej: Efectivo → Nequi':'Ej: turno de Infinity'}"></div>
       <div class="field"><label>${e.type==='pago' ? 'Se vence el' : 'Cuándo'}</label><input type="date" id="m_fecha" value="${esc(e.date)}"></div>
       <div class="field"><label>Nota (opcional)</label><input type="text" id="m_nota" value="${esc(e.notes)}"></div>
       <div class="sheet-actions">
@@ -4073,7 +4075,37 @@ const PALABRAS_CATEGORIA = {
   'Datos y celular': ['datos','recarga','celular','minutos','claro','movistar','tigo','wom','plan de datos'],
   'Herramientas y cursos': ['curso','canva','capcut','claude','chatgpt','udemy','libro','herramienta','pauta','ads','dominio','hosting','suscripcion','suscripción','app','software','clase']
 };
-const PALABRAS_INGRESO = ['me pagaron','pagaron','me entro','me entró','entro','entró','ingreso','cobre','cobré','sueldo','nomina','nómina','quincena','propina','venta','vendi','vendí','infinity','asignar','movistar arena','cliente','abono','me consignaron','consignaron','transferencia de'];
+/* Pasar plata de un lado a otro (efectivo que metes a Nequi, plata que sacas
+   del banco) no es ingreso ni gasto: la misma plata solo cambia de lugar. Se
+   anota como "paso" para que quede el registro sin descuadrar los totales. */
+const LUGARES_PLATA = {
+  'efectivo':'Efectivo', 'nequi':'Nequi', 'daviplata':'Daviplata', 'bancolombia':'Bancolombia',
+  'davivienda':'Davivienda', 'bbva':'BBVA', 'nu':'Nu', 'banco':'el banco', 'cuenta':'la cuenta',
+  'ahorros':'Ahorros', 'ahorro':'Ahorros', 'billetera':'Billetera', 'bolsillo':'Bolsillo', 'tarjeta':'Tarjeta'
+};
+const VERBOS_PASO = ['pase','paso','pasar','traslade','traslado','trasladar','meti','meter','guarde','guardar',
+  'saque','sacar','retire','retirar','consigne','consignar','deposite','depositar','mande','mandar','cargue','recargue'];
+const VERBOS_PASO_SACAR = ['saque','sacar','retire','retirar'];
+
+/* Devuelve {origen, destino} si la linea habla de mover plata de un lado a
+   otro, o null si no. */
+function leerPaso(bajo){
+  const lugares = Object.keys(LUGARES_PLATA);
+  const buscar = (re)=>{ const m = bajo.match(re); return m ? LUGARES_PLATA[m[1]] : ''; };
+  const re = lugares.join('|');
+  let origen  = buscar(new RegExp('\\b(?:de|desde)\\s+(?:mi\\s+|el\\s+|la\\s+)?(' + re + ')\\b'));
+  let destino = buscar(new RegExp('\\b(?:a|al|para|hacia|en)\\s+(?:mi\\s+|el\\s+|la\\s+)?(' + re + ')\\b'));
+  const verbo = VERBOS_PASO.find(v=>new RegExp('\\b'+v+'\\b').test(bajo)) || '';
+  if(!origen && !destino){
+    const suelto = bajo.match(new RegExp('\\b(' + re + ')\\b'));
+    if(suelto && verbo){ if(VERBOS_PASO_SACAR.includes(verbo)) origen = LUGARES_PLATA[suelto[1]]; else destino = LUGARES_PLATA[suelto[1]]; }
+  }
+  if(!origen && !destino) return null;
+  if(!verbo && !(origen && destino)) return null;
+  return { origen, destino };
+}
+
+const PALABRAS_INGRESO = ['me pagaron','pagaron','me dieron','me dio','me entro','me entró','entro','entró','ingreso','cobre','cobré','sueldo','nomina','nómina','quincena','propina','venta','vendi','vendí','infinity','asignar','movistar arena','cliente','abono','me consignaron','consignaron','transferencia de'];
 
 function sinTildes(t){ return String(t||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }
 
@@ -4107,8 +4139,14 @@ function leerLineaDePlata(texto){
     .replace(/us\$|\$/gi,' ').replace(/\s+/g,' ').trim()
     .replace(/^(en|de|por|el|la|un|una)\s+/i,'').replace(/\s+(en|de|por)$/i,'');
   const antesDeLimpiar = detalle;
-  detalle = detalle.replace(/^(me\s+(pagaron|entr[oó]|consignaron|transfirieron)|ingreso|cobr[eé]|pago)\s*(de|por|en)?\s*/i, '').trim();
-  if(!tipo) tipo = /^(me\s+(pagaron|entr[oó]|consignaron|transfirieron)|ingreso|cobr[eé])/i.test(antesDeLimpiar) ? 'ingreso' : null;
+  detalle = detalle.replace(/^(me\s+(pagaron|entr[oó]|consignaron|transfirieron|dieron|dio|mandaron|enviaron|giraron)|ingreso|cobr[eé]|pago)\s*(de|por|en)?\s*/i, '').trim();
+  if(!tipo) tipo = /^(me\s+(pagaron|entr[oó]|consignaron|transfirieron|dieron|dio|mandaron|enviaron|giraron)|ingreso|cobr[eé])/i.test(antesDeLimpiar) ? 'ingreso' : null;
+  const paso = tipo ? null : leerPaso(bajo);
+  if(paso){
+    tipo = 'traslado';
+    detalle = paso.origen && paso.destino ? paso.origen + ' → ' + paso.destino
+            : paso.destino ? 'A ' + paso.destino : 'De ' + paso.origen;
+  }
   if(!tipo) tipo = PALABRAS_INGRESO.some(w=>sinTildes(' '+detalle+' ').includes(' '+sinTildes(w)+' ') || sinTildes(detalle).startsWith(sinTildes(w))) ? 'ingreso' : 'gasto';
 
   let categoria = '';
@@ -4123,7 +4161,7 @@ function leerLineaDePlata(texto){
       categoria = hit ? hit[0] : 'Otros';
     }
   }
-  detalle = detalle ? detalle.charAt(0).toUpperCase() + detalle.slice(1) : '';
+  if(tipo!=='traslado') detalle = detalle ? detalle.charAt(0).toUpperCase() + detalle.slice(1) : '';
   return { tipo, monto, moneda, fecha, detalle, categoria };
 }
 
@@ -4134,13 +4172,15 @@ function anotarLineaDePlata(inp){
   if(pesos===null){ avisar('Ponle la tasa del dólar primero: abre Dólar abajo.'); return; }
   const ev = { id:uid(), cat:'finanzas', type:r.tipo, amount:pesos, moneda:r.moneda,
     montoOriginal: r.moneda==='USD' ? r.monto : null, categoria:r.categoria,
-    persona:'', title: r.detalle || (r.tipo==='gasto' ? r.categoria : 'Ingreso'), date:r.fecha, notes:'', start:'', end:'', status:'hecho' };
+    persona:'', title: r.detalle || (r.tipo==='gasto' ? r.categoria : r.tipo==='traslado' ? 'Paso de plata' : 'Ingreso'), date:r.fecha, notes:'', start:'', end:'', status:'hecho' };
   DATA.events.push(ev);
   inp.value = '';
   saveData(); renderPlata();
   const tope = r.tipo==='gasto' ? Number(DATA.plata.topes[r.categoria]) : 0;
   avisar(r.tipo==='gasto'
     ? `−${money(pesos)} · ${r.categoria}${tope ? ` (${money(gastosDelMes()[r.categoria]||0)} de ${money(tope)})` : ''} · tocar para cambiar`
+    : r.tipo==='traslado'
+    ? `${money(pesos)} · ${ev.title} · la misma plata, solo cambió de lugar`
     : `+${money(pesos)} anotado · tocar para cambiar`, ()=>{
       const e = DATA.events.find(x=>x.id===ev.id);
       if(e) openMovimientoModal(Object.assign(e, { amount: e.montoOriginal || e.amount }));
@@ -4186,7 +4226,7 @@ function renderPlata(){
     </div>` : '')(cuentaQuedaria())}
   </div>
   <div class="linea-plata">
-    <input id="lineaPlata" type="text" enterkeyhint="done" autocomplete="off" placeholder="Anotar gasto o ingreso">
+    <input id="lineaPlata" type="text" enterkeyhint="done" autocomplete="off" placeholder="Anotar gasto, ingreso o paso">
     <button id="lineaPlataOk" aria-label="Anotar" disabled>↵</button>
   </div>
   <div class="linea-lee" id="lineaLee"></div>
@@ -4201,17 +4241,30 @@ function renderPlata(){
   const movs = evMes.slice().sort((a,b)=>b.date.localeCompare(a.date));
   const movsHtml = movs.length ? movs.map(m=>{
     const entra = m.type==='ingreso' || m.type==='prestamo_recibido';
+    const paso = m.type==='traslado';
     const pendiente = m.type==='pago' && m.status!=='hecho';
     return `<div class="fila-p mov-card" data-id="${m.id}" data-sel-tipo="movimiento" data-sel-id="${m.id}">
       <span class="nom">${esc(m.title)}</span>
-      ${pendiente ? `<button class="small-btn" data-pagado="${m.id}">Pagué</button>` : `<span class="cu">${esc(cuandoCorto(m.date))}</span>`}
-      <span class="mo" style="color:${pendiente?'var(--ambar)':entra?'var(--done)':'inherit'}">${entra?'+':'−'}${m.montoOriginal?'US$'+m.montoOriginal:money(m.amount)}</span>
+      ${pendiente ? `<button class="small-btn" data-pagado="${m.id}">Pagué</button>` : `<span class="cu">${esc(cuandoCorto(m.date))}${paso?' · solo cambió de lugar':''}</span>`}
+      <span class="mo" style="color:${pendiente?'var(--ambar)':paso?'var(--text-dim)':entra?'var(--done)':'inherit'}">${paso?'':entra?'+':'−'}${m.montoOriginal?'US$'+m.montoOriginal:money(m.amount)}</span>
     </div>`;
   }).join('') : '<div class="helptext" style="margin:0;">Nada todavía este mes.</div>';
 
-  html += plegable('mes', 'Este mes',
-    `<span style="color:var(--done)">+${money(ingresos)}</span> · <span style="color:var(--urgent)">−${money(gastos)}</span>`,
-    movsHtml);
+  /* la resta del mes: lo que entro menos lo que salio. Los pasos de plata no
+     cuentan, porque la misma plata solo cambio de lugar. Esto no toca el saldo:
+     ese lo declaras tu (D99). */
+  const neto = ingresos - gastos;
+  const colorNeto = neto < 0 ? 'var(--urgent)' : 'var(--done)';
+  const resumenMes = (ingresos || gastos)
+    ? `<span style="color:${colorNeto}; font-weight:600;">${neto<0?'−':'+'}${money(Math.abs(neto))}</span>`
+    : 'nada todavía';
+  const totalHtml = (ingresos || gastos) ? `<div class="fila-p" style="cursor:default; border-top:none;">
+      <span class="nom">${neto<0 ? 'Gastaste más de lo que entró' : 'Te queda del mes'}</span>
+      <span class="cu">entró ${money(ingresos)} · salió ${money(gastos)}</span>
+      <span class="mo" style="color:${colorNeto}">${neto<0?'−':'+'}${money(Math.abs(neto))}</span>
+    </div>` : '';
+
+  html += plegable('mes', 'Este mes', resumenMes, totalHtml + movsHtml);
 
   const recibir = porRecibir();
   if(recibir.length){
@@ -4322,9 +4375,12 @@ function renderPlata(){
     if(!linea.value.trim()){ lee.innerHTML = ''; return; }
     if(!r || !r.monto){ lee.innerHTML = 'Falta cuánto…'; return; }
     const dia = r.fecha===todayStr() ? 'hoy' : niceDateShort(r.fecha);
+    const cuanto = r.moneda==='USD' ? 'US$'+r.monto : money(r.monto);
     lee.innerHTML = r.tipo==='gasto'
-      ? `<b style="color:var(--urgent)">−${r.moneda==='USD'?'US$'+r.monto:money(r.monto)}</b> · ${esc(r.categoria)}${r.detalle?' · '+esc(r.detalle):''} · ${dia}`
-      : `<b style="color:var(--done)">+${r.moneda==='USD'?'US$'+r.monto:money(r.monto)}</b> · ingreso${r.detalle?' · '+esc(r.detalle):''} · ${dia}`;
+      ? `<b style="color:var(--urgent)">−${cuanto}</b> · ${esc(r.categoria)}${r.detalle?' · '+esc(r.detalle):''} · ${dia}`
+      : r.tipo==='traslado'
+      ? `<b>${cuanto}</b> · ${esc(r.detalle)} · ${dia} · <span style="color:var(--text-dim)">no es gasto ni ingreso</span>`
+      : `<b style="color:var(--done)">+${cuanto}</b> · ingreso${r.detalle?' · '+esc(r.detalle):''} · ${dia}`;
   };
   linea.onkeydown = (ev)=>{ if(ev.key==='Enter'){ ev.preventDefault(); anotarLineaDePlata(linea); } };
   ok.onclick = ()=>anotarLineaDePlata(linea);
