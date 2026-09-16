@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>Bitácora</title>
-<meta name="bitacora-build" content="20260915223054">
+<meta name="bitacora-build" content="20260915225114">
 <script>
 /* Modo claro u oscuro (D55). La primera vez sigue al teléfono; después manda el botón. */
 /* Arranca en claro. El oscuro se elige con el boton, no lo decide el
@@ -1283,12 +1283,21 @@ document.getElementById('calNext').onclick = ()=>{ calDate.setMonth(calDate.getM
 /* ============================================================
    CYCLE
 ============================================================ */
+/* El promedio sale de lo que ella registro, pero no de cualquier cosa: dos
+   inicios pegados son el mismo periodo anotado dos veces, y un salto enorme es
+   que se le olvido anotar. Esos no cuentan, para que no salga "ciclo de 2
+   dias". Si no queda ninguno bueno, manda el numero que ella puso. */
+const CICLO_MIN = 15, CICLO_MAX = 60;
 function computeAvgCycle(){
   const starts = [...DATA.cycle.starts].sort();
-  if(starts.length<2) return DATA.cycle.avgLen || 28;
-  let diffs=[]; for(let i=1;i<starts.length;i++) diffs.push(daysBetween(starts[i-1], starts[i]));
-  diffs = diffs.slice(-6);
-  return Math.round(diffs.reduce((a,b)=>a+b,0)/diffs.length);
+  const diffs = [];
+  for(let i=1;i<starts.length;i++){
+    const d = daysBetween(starts[i-1], starts[i]);
+    if(d >= CICLO_MIN && d <= CICLO_MAX) diffs.push(d);
+  }
+  if(!diffs.length) return DATA.cycle.avgLen || 28;
+  const ultimos = diffs.slice(-6);
+  return Math.round(ultimos.reduce((a,b)=>a+b,0)/ultimos.length);
 }
 function predictCycle(){
   const starts = [...DATA.cycle.starts].sort();
@@ -3127,7 +3136,7 @@ function renderYo(){
         <div class="big">${inPeriodNow ? 'En curso' : (diff>=0 ? 'En ' + diff + ' días' : 'Atrasado ' + Math.abs(diff) + ' días')}</div>
         <div class="sub">${inPeriodNow ? 'Tu período está activo' : 'Próximo período estimado: ' + niceDate(nextStart)}</div>
         <div class="ring-row">
-          <div class="ring-box"><b>${avg}</b><span>días de ciclo</span></div>
+          <div class="ring-box"><b>${avg}</b><span>${starts.length>1 && computeAvgCycle()!==(DATA.cycle.avgLen||28) ? 'días de ciclo' : 'días de ciclo (estimado)'}</span></div>
           <div class="ring-box"><b>${esc(DATA.cycle.periodLen)}</b><span>días de duración</span></div>
           <div class="ring-box"><b>${starts.length}</b><span>registrados</span></div>
         </div>
@@ -3160,13 +3169,29 @@ function renderYo(){
   insightsBox.innerHTML = insights.length ? insights.join('') : '<div class="empty-card">Aún no hay suficientes datos para mostrar patrones.</div>';
 }
 function openCycleSetup(){
+  const anotados = [...DATA.cycle.starts].sort().reverse();
   openSheet(`<h3>Configurar ciclo</h3>
-    <div class="field"><label>Fecha de inicio del último período</label><input type="date" id="f_lastperiod" value="${esc(DATA.cycle.starts[DATA.cycle.starts.length-1]||todayStr())}"></div>
+    <div class="field"><label>Agregar un inicio</label><input type="date" id="f_lastperiod" value="${esc(todayStr())}"></div>
     <div class="field-row"><div class="field"><label>Duración del ciclo (días)</label><input type="number" id="f_cyclen" value="${esc(DATA.cycle.avgLen||28)}"></div><div class="field"><label>Duración del período (días)</label><input type="number" id="f_perlen" value="${esc(DATA.cycle.periodLen||5)}"></div></div>
+    ${anotados.length ? `<div class="field"><label>Inicios anotados</label>
+      ${anotados.map(f=>`<div class="fila-p" style="cursor:default;">
+        <span class="nom">${esc(niceDate(f))}</span>
+        <button class="small-btn icono" data-quitar-inicio="${f}" aria-label="Borrar este inicio" title="Borrar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/><path d="M10 11v5M14 11v5"/></svg>
+        </button>
+      </div>`).join('')}
+      <div class="helptext">Si anotaste uno por error, bórralo acá. El promedio se calcula con estos.</div></div>` : ''}
     <div class="sheet-actions"><button class="btn btn-primary" id="saveCycle">Guardar</button></div>`);
+
+  sheet.querySelectorAll('[data-quitar-inicio]').forEach(b=>b.onclick = ()=>{
+    DATA.cycle.starts = DATA.cycle.starts.filter(f=>f!==b.dataset.quitarInicio);
+    DATA.cycle.avgLen = Number(document.getElementById('f_cyclen').value)||28;
+    DATA.cycle.periodLen = Number(document.getElementById('f_perlen').value)||5;
+    saveData(); closeSheet(); renderYo(); openCycleSetup();
+  });
   document.getElementById('saveCycle').onclick = ()=>{
     const d = document.getElementById('f_lastperiod').value;
-    if(!DATA.cycle.starts.includes(d)) DATA.cycle.starts.push(d);
+    if(d && !DATA.cycle.starts.includes(d)) DATA.cycle.starts.push(d);
     DATA.cycle.avgLen = Number(document.getElementById('f_cyclen').value)||28;
     DATA.cycle.periodLen = Number(document.getElementById('f_perlen').value)||5;
     saveData(); closeSheet(); renderYo();
@@ -3754,7 +3779,7 @@ function renderChoquesSemana(){
 
 /* ============================================================
    AVISOS
-   Solo existen tres, y se explican en la pantalla para que sepa exactamente
+   Son cuatro, y se explican en la pantalla para que sepa exactamente
    que va a recibir antes de decir que si (D45, D46, D49, D07).
 ============================================================ */
 const PUSH_URL = '/api/push';
@@ -3790,7 +3815,7 @@ async function renderAvisos(){
   if(!caja) return;
 
   const explicacion = `
-    <div class="helptext" style="margin:0 0 10px;">Solo existen tres, y llegan el día antes:</div>
+    <div class="helptext" style="margin:0 0 10px;">Estos son todos los que existen. Los tres primeros llegan el día antes:</div>
     <ol class="lista-avisos">
       <li>Una entrega de la universidad que se acerca</li>
       <li>Un pago o una cuota por vencer</li>
