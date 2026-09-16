@@ -3868,7 +3868,7 @@ function tasaUSD(){ return Number(DATA.plata.tasaUSD) || null; }
 /* La plata no esta toda en el mismo lado: hay efectivo en la mano y hay plata
    en Nequi y en Daviplata. Cada lugar tiene su propio numero, lo declara ella
    igual que antes (D99) y arriba se ve la suma. */
-const BOLSILLOS_BASE = ['Efectivo','Nequi','Daviplata'];
+const BOLSILLOS_BASE = ['Efectivo','Nequi','Daviplata','Tarjeta'];
 function bolsillos(){
   const P = DATA.plata;
   if(!Array.isArray(P.bolsillos) || !P.bolsillos.length){
@@ -4362,9 +4362,33 @@ function openBolsilloModal(id){
   document.getElementById('verTodos').onclick = ()=>{ closeSheet(); openSaldoModal(); };
   document.getElementById('saveBol').onclick = ()=>{
     const v = document.getElementById('f_bol').value;
+    const antes = b.saldo;
     b.saldo = v==='' ? null : Number(v)||0;
     b.fecha = v==='' ? '' : todayStr();
     DATA.plata.saldo = saldoTotal(); DATA.plata.saldoFecha = saldoFecha();
+    saveData(); closeSheet(); renderPlata();
+    if(antes!==null && antes!=='' && b.saldo!==null) preguntarPorLaDiferencia(b, Number(antes) - Number(b.saldo));
+  };
+}
+
+/* Cuando corrige un lugar y el numero no da, casi siempre es plata que se fue
+   sin quedar anotada. Se ofrece anotarla para que la cuenta del mes sea real,
+   pero se ofrece, no se hace sola (D16), porque puede que el gasto ya este
+   anotado y entonces quedaria contado dos veces. */
+function preguntarPorLaDiferencia(b, falta){
+  if(!falta) return;
+  const salio = falta > 0, monto = Math.abs(falta);
+  openSheet(`<h3>${salio ? 'Se fueron ' + money(monto) : 'Aparecieron ' + money(monto)}</h3>
+    <div class="helptext" style="margin:-4px 0 16px;">En ${esc(b.nombre)} hay ${money(monto)} ${salio?'menos':'más'} de lo que decía Bitácora. Si ya anotaste ese ${salio?'gasto':'ingreso'}, no lo anotes otra vez.</div>
+    <div class="sheet-actions" style="flex-direction:column; align-items:stretch; gap:8px;">
+      <button class="btn btn-primary" id="d_anotar">Anotarlo, no sé ${salio?'en qué':'de dónde'}</button>
+      <button class="btn btn-ghost" id="d_nada">Ya está anotado, solo corrige</button>
+    </div>`);
+  document.getElementById('d_nada').onclick = closeSheet;
+  document.getElementById('d_anotar').onclick = ()=>{
+    DATA.events.push({ id:uid(), cat:'finanzas', type: salio?'gasto':'ingreso', amount:monto, moneda:'COP',
+      categoria: salio ? 'Otros' : '', persona:'', title: salio ? 'No sé en qué' : 'No sé de dónde',
+      date: todayStr(), notes: 'Apareció al cuadrar ' + b.nombre, start:'', end:'', status:'hecho', creado:Date.now() });
     saveData(); closeSheet(); renderPlata();
   };
 }
