@@ -4161,7 +4161,7 @@ function renderPlata(){
     ${(q=>q && (q.recibir||q.cobros||q.pagos||q.debes||q.cuotas) ? `<div class="quedaria">
       <div class="fila" style="justify-content:flex-start; gap:6px; flex-wrap:wrap;"><span style="font-size:13px; color:var(--text-muted);">Si pagas todo lo que debes, te queda</span><span class="n mono" style="color:${q.total<0?'var(--urgent)':'inherit'}">${q.total<0?'−':''}${money(Math.abs(q.total))}</span></div>
       <div class="por-que">${q.total<0 ? 'Es un estimado: hoy debes más de lo que tienes.' : 'Es un estimado, no la plata que tienes.'} <b>Ver de dónde sale ›</b></div>
-      <div class="det" hidden><b>${money(saldoTotal()||0)}</b> que tienes ahora<br>${[q.recibir&&`+ ${money(q.recibir)} por recibir`, q.cobros&&`− ${money(q.cobros)} cobros del mes`, q.pagos&&`− ${money(q.pagos)} pagos pendientes`, q.debes&&`− ${money(q.debes)} que debes`, q.cuotas&&`− ${money(q.cuotas)} en cuotas`].filter(Boolean).join('<br>')}${q.teDeben?`<br><span style="color:var(--text-dim)">Sin contar ${money(q.teDeben)} que te deben.</span>`:''}</div>
+      <div class="det" hidden><b>${money(saldoTotal()||0)}</b> que tienes ahora<br>${[q.recibir&&`<span style="color:var(--done)">+ ${money(q.recibir)}</span> por recibir`, q.cobros&&`<span style="color:var(--urgent)">− ${money(q.cobros)}</span> cobros del mes`, q.pagos&&`<span style="color:var(--urgent)">− ${money(q.pagos)}</span> pagos pendientes`, q.debes&&`<span style="color:var(--urgent)">− ${money(q.debes)}</span> que debes`, q.cuotas&&`<span style="color:var(--urgent)">− ${money(q.cuotas)}</span> en cuotas`].filter(Boolean).join('<br>')}${q.teDeben?`<br><span style="color:var(--text-dim)">Sin contar ${money(q.teDeben)} que te deben.</span>`:''}</div>
     </div>` : '')(cuentaQuedaria())}
   </div>
   <div class="pleg-lista">`;
@@ -4187,7 +4187,7 @@ function renderPlata(){
     return `<div class="fila-p mov-card" data-id="${m.id}" data-sel-tipo="movimiento" data-sel-id="${m.id}">
       <span class="nom">${esc(m.title)}</span>
       ${pendiente ? `<button class="small-btn" data-pagado="${m.id}">Pagué</button>` : `<span class="cu">${esc(cuandoCorto(m.date))}${paso?' · solo cambió de lugar':''}</span>`}
-      <span class="mo" style="color:${pendiente?'var(--ambar)':paso?'var(--text-dim)':entra?'var(--done)':'inherit'}">${paso?'':entra?'+':'−'}${m.montoOriginal?'US$'+m.montoOriginal:money(m.amount)}</span>
+      <span class="mo" style="color:${pendiente?'var(--ambar)':paso?'var(--text-dim)':entra?'var(--done)':'var(--urgent)'}">${paso?'':entra?'+':'−'}${m.montoOriginal?'US$'+m.montoOriginal:money(m.amount)}</span>
     </div>`;
   }).join('') : '<div class="helptext" style="margin:0;">Nada todavía este mes.</div>';
 
@@ -4201,7 +4201,7 @@ function renderPlata(){
     : 'nada todavía';
   const totalHtml = (ingresos || gastos) ? `<div class="fila-p" style="cursor:default; border-top:none;">
       <span class="nom">${neto<0 ? 'Faltó este mes' : 'Sobró este mes'}</span>
-      <span class="cu">entró ${money(ingresos)} · salió ${money(gastos)} · no es lo que tienes</span>
+      <span class="cu">entró <b style="color:var(--done); font-weight:600;">${money(ingresos)}</b> · salió <b style="color:var(--urgent); font-weight:600;">${money(gastos)}</b> · no es lo que tienes</span>
       <span class="mo" style="color:${colorNeto}">${neto<0?'−':'+'}${money(Math.abs(neto))}</span>
     </div>` : '';
 
@@ -4253,7 +4253,7 @@ function renderPlata(){
         <span class="nom">${esc(x.nombre)}</span>
         ${pronto ? `<button class="small-btn" data-pagar-sus="${x.id}">Pagué</button>` : ''}
         <span class="cu ${pagado?'ok':pronto?'ojo':''}">${pagado ? '✓ pagado' : !x.dia ? 'sin día' : esc(cuandoCorto(prox))}</span>
-        <span class="mo">${x.moneda==='USD' ? 'US$'+x.monto : money(x.monto)}</span>
+        <span class="mo" style="color:${pagado?'var(--text-dim)':'var(--urgent)'}">${x.moneda==='USD' ? 'US$'+x.monto : money(x.monto)}</span>
       </div>`;
     }).join('');
     html += plegable('cadames', 'Cada mes',
@@ -4275,7 +4275,7 @@ function renderPlata(){
       return `<div class="fila-p deuda-card ${d.saldada?'saldada':''}" data-id="${d.id}" data-sel-tipo="deuda" data-sel-id="${d.id}">
         <span class="nom">${esc(d.nombre)}</span>
         <span class="cu ${d.saldada?'ok':''}">${d.saldada ? '✓ saldada' : (debo?'debes':'te debe') + (d.fecha ? ' · ' + esc(cuandoCorto(d.fecha)) : '')}</span>
-        <span class="mo" style="color:${d.saldada?'var(--text-dim)':debo?'inherit':'var(--done)'}">${money(saldo)}</span>
+        <span class="mo" style="color:${d.saldada?'var(--text-dim)':debo?'var(--urgent)':'var(--done)'}">${money(saldo)}</span>
       </div>`;
     }).join('');
     html += plegable('deudas', 'Debo y me deben', partes.join(' · ') || 'todo saldado', deuHtml);
@@ -4288,7 +4288,7 @@ function renderPlata(){
         <span class="nom">${esc(inst.name)}</span>
         <button class="small-btn" data-action="payInstallment" data-id="${inst.id}">Pagué</button>
         <span class="cu">${inst.payments.length}/${esc(inst.cuotas)}</span>
-        <span class="mo">${money(Math.max(0, Number(inst.total)-paid))}</span>
+        <span class="mo" style="color:var(--urgent)">${money(Math.max(0, Number(inst.total)-paid))}</span>
       </div>`;
     }).join('');
     html += plegable('cuotas', 'Compras a cuotas', DATA.installments.length + (DATA.installments.length>1?' compras':' compra'), cuoHtml);
