@@ -4750,11 +4750,12 @@ function pendientesDelCierre(){
   const manana = fmtDate(addDays(new Date(),1));
   const out = [];
   DATA.events.filter(e=>e.status!=='hecho' && e.date<=hoy && !e.linkedType).forEach(e=>{
-    out.push({ tipo:'evento', id:e.id, titulo:e.title, nota:e.date<hoy?'Se pasó de fecha':'Era para hoy', arrastres:e.arrastres||0 });
+    out.push({ tipo:'evento', id:e.id, titulo:e.title,
+      nota: (e.date<hoy ? 'Se pasó de fecha · era el ' + niceDateShort(e.date) : 'Era para hoy'), arrastres:e.arrastres||0 });
   });
   (DATA.academicTasks||[]).filter(a=>!a.done && a.date && a.date<=manana).forEach(a=>{
     out.push({ tipo:'entrega', id:a.id, titulo:a.name,
-      nota: a.date<hoy ? 'Ya se pasó' : a.date===hoy ? 'Era hoy' : 'Vence mañana', arrastres:a.arrastres||0 });
+      nota: a.date<hoy ? 'Ya se pasó · era el ' + niceDateShort(a.date) : a.date===hoy ? 'Era hoy' : 'Vence mañana', arrastres:a.arrastres||0 });
   });
   (DATA.pendientes||[]).filter(p=>!p.hecho && (p.arrastres||0) >= 3).forEach(p=>{
     out.push({ tipo:'pendiente', id:p.id, titulo:p.titulo,
@@ -4787,12 +4788,13 @@ function renderCierre(){
     <div class="titulo">${n===1 ? 'Quedó una cosa sin hacer. ¿Qué hacemos con ella?' : `Quedaron ${n} cosas sin hacer. ¿Qué hacemos con ellas?`}</div>
     ${quedaron.map(q=>`
       <div class="cierre-fila ${q.insistente?'insiste':''}" data-tipo="${q.tipo}" data-id="${q.id}">
-        <div class="que">${esc(q.titulo)}</div>
-        <div class="por">${esc(q.nota)}</div>
+        <div class="que"${q.tipo==='entrega'?'':' data-abrir="1"'}>${esc(q.titulo)}</div>
+        <div class="por">${esc(q.nota)}${q.tipo==='entrega'?'':` · <b style="color:var(--accent); cursor:pointer;" data-abrir="1">ver</b>`}</div>
         <div class="opciones">
           <button class="small-btn" data-hacer="hecha">Ya la hice</button>
           <button class="small-btn" data-hacer="manana">A mañana</button>
           <button class="small-btn" data-hacer="otro">Otro día</button>
+          <button class="small-btn" data-hacer="borrar">Ya no va</button>
         </div>
       </div>`).join('')}
     <button class="btn btn-ghost" style="margin-top:10px;" id="cerrarDia">Dejarlo así</button>
@@ -4802,12 +4804,28 @@ function renderCierre(){
     const fila = b.closest('.cierre-fila');
     resolverCierre(fila.dataset.tipo, fila.dataset.id, b.dataset.hacer);
   });
+  caja.querySelectorAll('[data-abrir]').forEach(el=>el.onclick = ()=>{
+    const fila = el.closest('.cierre-fila'), id = fila.dataset.id;
+    if(fila.dataset.tipo==='evento'){ const e = DATA.events.find(x=>x.id===id); if(e) openEventModal(e); }
+    if(fila.dataset.tipo==='pendiente'){ const p = (DATA.pendientes||[]).find(x=>x.id===id); if(p) openPendienteModal(p); }
+  });
   document.getElementById('cerrarDia').onclick = ()=>{ d.cerrado = true; saveData(); renderHoy(); };
 }
 
 function resolverCierre(tipo, id, accion){
   const manana = fmtDate(addDays(new Date(),1));
   const sumaArrastre = obj => { obj.arrastres = (obj.arrastres||0) + 1; };
+
+  /* "Ya no va" borra: es lo que hace falta cuando algo quedo repetido o cuando
+     ya no tiene sentido. Se pregunta antes porque no se puede deshacer. */
+  if(accion==='borrar'){
+    if(!confirm('¿Borrar esto? No se puede deshacer.')) return;
+    if(tipo==='evento') DATA.events = DATA.events.filter(x=>x.id!==id);
+    if(tipo==='entrega') DATA.academicTasks = (DATA.academicTasks||[]).filter(x=>x.id!==id);
+    if(tipo==='pendiente') DATA.pendientes = (DATA.pendientes||[]).filter(x=>x.id!==id);
+    saveData(); renderAll();
+    return;
+  }
 
   if(tipo==='evento'){
     const e = DATA.events.find(x=>x.id===id); if(!e) return;
