@@ -3164,7 +3164,12 @@ function opcionesDeAgregar(){
     { que:'Algo con fecha y hora', nota:'una cita, un evento', hacer:()=>openEventModal() },
     { que:'Algo que se repite', nota:'clases, Joel, gym', hacer:()=>openRoutineModal() }
   ];
+  const movNuevo = (tipo, extra)=>Object.assign({ id:null, _nuevo:true, cat:'finanzas', type:tipo, amount:'', moneda:'COP',
+    categoria:'Otros', persona:'', title:'', date:todayStr(), notes:'', status:'hecho' }, extra||{});
   if(vista==='plata') return [
+    { que:'Un gasto', nota:'algo que ya pagaste', hacer:()=>openMovimientoModal(movNuevo('gasto')) },
+    { que:'Un ingreso', nota:'plata que ya te entró', hacer:()=>openMovimientoModal(movNuevo('ingreso')) },
+    { que:'Un paso de plata', nota:'de efectivo a Nequi, del banco a la mano', hacer:()=>openMovimientoModal(movNuevo('traslado')) },
     { que:'Un pago pendiente', nota:'algo que toca pagar', hacer:()=>openMovimientoModal({ id:null, _nuevo:true, cat:'finanzas', type:'pago', amount:'', moneda:'COP', categoria:'Otros', persona:'', title:'', date:todayStr(), notes:'', status:'pendiente' }) },
     { que:'Un cobro de cada mes', nota:'como Datos o Claude', hacer:()=>openSuscripcionModal() },
     { que:'Un préstamo', nota:'lo que debes o te deben', hacer:()=>openDeudaModal() },
@@ -4020,7 +4025,7 @@ function openMovimientoModalCon(pre, existente){
         status: e.type==='pago' ? 'pendiente' : 'hecho'
       };
       if(existente) Object.assign(existente, obj);
-      else DATA.events.push(Object.assign({id:uid()}, obj));
+      else DATA.events.push(Object.assign({id:uid(), creado:Date.now()}, obj));
       saveData(); closeSheet(); renderPlata();
     };
   }
@@ -4046,7 +4051,7 @@ function openCobroModal(t){
     t.cobrado = true; t.pagoReal = real; t.pagoFecha = fecha;
     DATA.events.push({ id:uid(), cat:'finanzas', type:'ingreso', amount:real, moneda:'COP',
       title: turnoTitulo(t), date: fecha, notes:'Turno del ' + niceDateShort(t.fecha),
-      start:'', end:'', status:'hecho', deTurno:t.id });
+      start:'', end:'', status:'hecho', creado:Date.now(), deTurno:t.id });
     saveData(); closeSheet(); renderPlata();
   };
 }
@@ -4172,7 +4177,7 @@ function anotarLineaDePlata(inp){
   if(pesos===null){ avisar('Ponle la tasa del dólar primero: abre Dólar abajo.'); return; }
   const ev = { id:uid(), cat:'finanzas', type:r.tipo, amount:pesos, moneda:r.moneda,
     montoOriginal: r.moneda==='USD' ? r.monto : null, categoria:r.categoria,
-    persona:'', title: r.detalle || (r.tipo==='gasto' ? r.categoria : r.tipo==='traslado' ? 'Paso de plata' : 'Ingreso'), date:r.fecha, notes:'', start:'', end:'', status:'hecho' };
+    persona:'', title: r.detalle || (r.tipo==='gasto' ? r.categoria : r.tipo==='traslado' ? 'Paso de plata' : 'Ingreso'), date:r.fecha, notes:'', start:'', end:'', status:'hecho', creado:Date.now() };
   DATA.events.push(ev);
   inp.value = '';
   saveData(); renderPlata();
@@ -4238,7 +4243,14 @@ function renderPlata(){
   const evMes = DATA.events.filter(e=>e.cat==='finanzas' && e.date.startsWith(mes));
   const ingresos = evMes.filter(e=>e.type==='ingreso').reduce((a,e)=>a+Number(e.amount||0),0);
   const gastos = evMes.filter(e=>e.type==='gasto').reduce((a,e)=>a+Number(e.amount||0),0);
-  const movs = evMes.slice().sort((a,b)=>b.date.localeCompare(a.date));
+  /* como en Nequi: lo mas reciente arriba. A igual fecha manda lo ultimo
+     anotado (lo viejo no tiene hora guardada, y ahi vale el orden de la lista). */
+  const orden = new Map(DATA.events.map((e,i)=>[e.id, i]));
+  const cuandoSeAnoto = (e)=>{ const c = e.creado; const n = typeof c==='number' ? c : c ? Date.parse(c) : 0; return n || 0; };
+  const movs = evMes.slice().sort((a,b)=>
+    b.date.localeCompare(a.date)
+    || (cuandoSeAnoto(b) - cuandoSeAnoto(a))
+    || (orden.get(b.id) - orden.get(a.id)));
   const movsHtml = movs.length ? movs.map(m=>{
     const entra = m.type==='ingreso' || m.type==='prestamo_recibido';
     const paso = m.type==='traslado';
@@ -4620,7 +4632,7 @@ function openPagarSuscripcion(x){
     if(document.getElementById('p_anotar').checked && monto){
       DATA.events.push({ id:uid(), cat:'finanzas', type:'gasto', amount:monto, moneda:'COP',
         categoria:'Datos y celular', title:x.nombre, date:fecha, notes:'Cobro mensual',
-        start:'', end:'', status:'hecho' });
+        start:'', end:'', status:'hecho', creado:Date.now() });
     }
     x.pagados = x.pagados || [];
     if(!x.pagados.includes(mes)) x.pagados.push(mes);
