@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>Bitácora</title>
-<meta name="bitacora-build" content="20260915221246">
+<meta name="bitacora-build" content="20260915221440">
 <script>
 /* Modo claro u oscuro (D55). La primera vez sigue al teléfono; después manda el botón. */
 /* Arranca en claro. El oscuro se elige con el boton, no lo decide el
@@ -4905,8 +4905,19 @@ function bloquesDeFecha(fecha){
 function bloquesFijos(fecha){
   const d = parseDate(fecha), dow = d.getDay();
   const out = [];
-  weekdayItems(dow).forEach(c=>{
-    if(!c.start) return;
+  const items = weekdayItems(dow).filter(c=>c.start);
+  /* "Universidad" de 6 a 10 y la materia de esa noche son la misma cosa: si la
+     clase cae dentro de la franja, la franja sobra y se muestra la clase, que
+     dice mas. El ingles del SENA y la clase con Leslie son a otras horas, asi
+     que no les pasa. */
+  const clases = items.filter(c=>c.materia)
+    .map(c=>({ d:minutosDe(c.start), h:finEnMinutos(c.start, c.end||c.start) }))
+    .filter(k=>k.d!==null && k.h!==null);
+  items.forEach(c=>{
+    if(!c.materia && clases.length){
+      const d = minutosDe(c.start), h = finEnMinutos(c.start, c.end||c.start);
+      if(d!==null && h!==null && clases.some(k=>k.d >= d && k.h <= h)) return;
+    }
     out.push({ titulo:c.name, start:c.start, end:c.end, color:c.color,
       lugar:(c.ref && c.ref.notes) || '', rutina:c.ref, materia:c.materia });
   });
