@@ -6,6 +6,8 @@
        2. pago o cuota por vencer
        3. hueco libre con un pendiente que cabe
    - Nunca se le avisa de recoger a Joel ni de entrar o salir de un turno (D49).
+   - Ademas de los tres, las clases avisan justo antes de empezar y los
+     examenes el mismo dia (decision nueva de Sharon; cambia D45 en ese punto).
    - Silencio de 11 pm a 6 am, sin excepciones, ni en noches de turno (D46).
    - Los tres llegan el dia anterior (D85).
    - Tope de 8 al dia (D87).
@@ -162,6 +164,72 @@ function avisosDeHuecos(data, manana) {
       ir: 'hoy',
     },
   ];
+}
+
+/* ---- 4. la clase que empieza ya (decision nueva de Sharon, C5) ----
+   Cambia D45 y D49 en un punto: se avisa de clases y de examenes justo antes
+   de que empiecen. Turnos y Joel siguen sin avisar, tal cual estaba.
+   Solo cuentan como clase las materias de la universidad y las rutinas del
+   area universidad (ingles del SENA, clase con Leslie). */
+export const VENTANA_CLASE = 12;   // minutos: se avisa si empieza dentro de este rato
+
+function minutosAhora(ahora = new Date()) {
+  const d = new Date(ahora.getTime() - 5 * 3600 * 1000);
+  return d.getUTCHours() * 60 + d.getUTCMinutes();
+}
+function clasesDelDia(data, fecha) {
+  const [a, m, d] = fecha.split('-').map(Number);
+  const dow = new Date(Date.UTC(a, m - 1, d)).getUTCDay();
+  const out = [];
+  (data.subjects || []).forEach((s) => {
+    if (s.day !== dow || !s.start) return;
+    out.push({ id: 'materia:' + s.id, nombre: s.name, start: s.start });
+  });
+  (data.routines || []).forEach((r) => {
+    if (r.cat !== 'universidad' || !r.days || !r.days.includes(dow) || !r.start) return;
+    out.push({ id: 'rutina:' + r.id, nombre: r.title, start: r.start });
+  });
+  return out;
+}
+
+/* Lo que empieza dentro del rato que viene. Cada uno trae su clave para no
+   mandarlo dos veces el mismo dia. */
+export function avisosDeAhora(data, ahora = new Date()) {
+  if (!data || enSilencio(ahora)) return [];
+  const hoy = fechaEnColombia(ahora);
+  const min = minutosAhora(ahora);
+  const hechos = (data.diario && data.diario[hoy] && data.diario[hoy].repetidos) || {};
+  const out = [];
+
+  clasesDelDia(data, hoy).forEach((c) => {
+    const empieza = minutosDe(c.start);
+    if (empieza === null) return;
+    const faltan = empieza - min;
+    if (faltan < 0 || faltan > VENTANA_CLASE) return;
+    if (hechos[c.id] === 'hecho') return;                 // ya la marco, no la moleste
+    out.push({
+      tipo: 'clase',
+      clave: hoy + ':' + c.id,
+      titulo: c.nombre,
+      cuerpo: faltan <= 1 ? 'Empieza ya' : `Empieza en ${faltan} minutos`,
+      ir: 'hoy',
+    });
+  });
+
+  /* los examenes del dia: se avisan una vez, en la primera corrida del dia */
+  (data.academicTasks || []).forEach((t) => {
+    if (t.done || t.date !== hoy) return;
+    if (!/parcial|quiz|examen|exposici/i.test(t.type || '')) return;
+    out.push({
+      tipo: 'entrega',
+      clave: hoy + ':examen:' + t.id,
+      titulo: 'Hoy tienes ' + t.name,
+      cuerpo: [t.subject, t.type].filter(Boolean).join(' · ') || 'Universidad',
+      ir: 'pendientes',
+    });
+  });
+
+  return out.slice(0, TOPE_DIARIO);
 }
 
 /* El orden importa: si hay que recortar por el tope, se recorta por el final. */

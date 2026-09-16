@@ -1,11 +1,12 @@
 import webpush from 'web-push';
 import { leerJson, escribirJson } from './_blob.js';
-import { avisosPara, enSilencio } from './_avisos.js';
+import { avisosPara, avisosDeAhora, enSilencio } from './_avisos.js';
 
 /* El trabajo diario que manda los avisos. Lo dispara el cron de Vercel a las
    8 de la noche hora de Colombia: el dia antes (D85) y fuera del silencio (D46). */
 const RUTA_DATOS = 'centro-control-sharon/data.json';
 const RUTA_PUSH = 'centro-control-sharon/push.json';
+const RUTA_YA = 'centro-control-sharon/avisos-enviados.json';
 
 function autorizado(req) {
   const secreto = process.env.CRON_SECRET;
@@ -32,7 +33,19 @@ export default async function handler(req, res) {
 
     const guardado = await leerJson(RUTA_DATOS, null);
     const datos = guardado?.data ?? guardado ?? null;
-    const avisos = avisosPara(datos);
+
+    /* Dos formas de correr: la de todos los dias (los tres avisos del contrato,
+       el dia antes) y la de cada rato, que es la que alcanza a avisar de una
+       clase antes de que empiece. */
+    const alInstante = req.query?.momento === 'ahora';
+    let avisos = alInstante ? avisosDeAhora(datos) : avisosPara(datos);
+
+    /* lo de cada rato se repetiria en cada corrida: cada aviso se manda una vez */
+    let yaEnviados = null;
+    if (alInstante && avisos.length) {
+      yaEnviados = (await leerJson(RUTA_YA, { claves: [] }))?.claves || [];
+      avisos = avisos.filter((a) => !yaEnviados.includes(a.clave));
+    }
     if (!avisos.length) return res.status(200).json({ ok: true, enviados: 0, motivo: 'nada que avisar' });
 
     const subs = (await leerJson(RUTA_PUSH, { subs: [] }))?.subs || [];
@@ -54,6 +67,13 @@ export default async function handler(req, res) {
           console.error('[avisos] fallo al enviar', err?.statusCode, err?.body);
         }
       }
+    }
+
+    /* se guarda lo mandado, con la fecha de hoy nada mas: lo viejo se cae solo */
+    if (alInstante && enviados) {
+      const hoy = avisos[0].clave.slice(0, 10);
+      const claves = [...(yaEnviados || []).filter((k) => k.startsWith(hoy)), ...avisos.map((a) => a.clave)];
+      await escribirJson(RUTA_YA, { claves });
     }
 
     if (muertas.length) {

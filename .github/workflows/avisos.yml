@@ -1,0 +1,27 @@
+# Los avisos de "tu clase empieza ya" tienen que mirarse cada rato, y el plan
+# gratis de Vercel solo deja un cron al dia (ese sigue siendo el de las 8 pm
+# con los tres avisos del contrato). Asi que el rondin de cada 5 minutos lo
+# hace GitHub Actions, que en un repo publico es gratis.
+#
+# GitHub puede atrasar estas corridas cuando esta cargado, asi que el aviso
+# sale si la clase empieza dentro de los proximos 12 minutos, y cada aviso se
+# manda una sola vez al dia.
+name: Avisos de clase
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  avisar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tocar el endpoint de avisos
+        run: |
+          curl -sS -m 30 -o respuesta.txt -w '%{http_code}\n' \
+            ${CRON_SECRET:+-H "Authorization: Bearer $CRON_SECRET"} \
+            "https://centro-control-sharon.vercel.app/api/avisos?momento=ahora"
+          cat respuesta.txt
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
