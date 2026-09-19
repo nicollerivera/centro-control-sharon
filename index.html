@@ -1651,12 +1651,13 @@ function renderCalSemana(){
          montarlas taparia la de atras: ahi se reparten. */
       let ancho, izq;
       const monta = unDia && n <= 3 && it.cascada;   // de cuatro en adelante, montarlas deja a las de atras en dos letras
-      if(n === 1){ ancho = unDia ? 96 : 84; izq = 0; }
+      /* la celda entera: el carril que dejaba libre a la derecha se veia bien
+         vacio, pero era justo el ancho que le faltaba al nombre */
+      if(n === 1){ ancho = 100; izq = 0; }
       /* como en Calendar: todas llegan al borde derecho y lo unico que cambia
          es donde empiezan, corridas en cascada */
-      else if(monta){ izq = it.carril * 7; ancho = 96 - izq; }
-      else if(unDia){ ancho = 96/n; izq = it.carril * (96/n); }
-      else { ancho = n === 2 ? 50 : 58; izq = n <= 2 ? it.carril * 50 : it.carril * (42/(n-1)); }
+      else if(monta){ izq = it.carril * 7; ancho = 100 - izq; }
+      else { ancho = 100/n; izq = it.carril * (100/n); }
       const montado = monta && it.carril > 0;
       /* lo que nace en otra seccion (un turno, una entrega) se mueve alla, no
          aca: arrastrarlo dejaria el calendario diciendo una cosa y la seccion
@@ -1732,7 +1733,7 @@ function renderCalSemana(){
   caja.querySelectorAll('.gc-ev').forEach(el=>{
     const w = el.offsetWidth;
     if(w < 17) el.classList.add('mudo');
-    else if(w < 42) el.classList.add('angosto');
+    else if(w < 34) el.classList.add('angosto');   // ya ocupando la celda entera, lo normal se lee bien desde 34
   });
   engancharArrastreSemana(caja, y);
   engancharTira(caja);
