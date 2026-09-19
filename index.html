@@ -596,6 +596,7 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 /* si el bloque es corto no cabe partir la palabra: una linea y puntos */
 /* el que se monta encima lleva su propio borde, o se confunde con el de abajo */
 .gc-ev.montado{outline:1.5px solid var(--surface); outline-offset:-1px;}
+.gc-ev.mudo b, .gc-ev.mudo .h{display:none;}
 .gc-ev.corto{padding-top:1px;}
 .gc-ev.corto b{overflow-wrap:normal;}
 .gc-ev.mueve{touch-action:auto;}
@@ -1621,7 +1622,7 @@ function renderCalSemana(){
     const despierta = items.filter(it=>!it.b.noche);
     const fondo = noche.map(it=>`<button class="gc-ev noche" data-sueno="${it.b.sueno}"
       style="--c:${it.b.color}; top:${y(it.desde)}px; height:${Math.max(y(it.hasta) - y(it.desde), 13)}px; left:0; width:calc(100% - 2px); z-index:1;"
-      title="${esc(it.b.start)}–${esc(it.b.end)} ${esc(it.b.titulo)}"><b>${esc(it.b.titulo)}</b></button>`).join('');
+      title="${esc(it.b.start)}–${esc(it.b.end)} ${esc(it.b.titulo)}">${unDia ? `<b>${esc(it.b.titulo)}</b>` : ''}</button>`).join('');
 
     const evs = fondo + acomodarEnCarriles(despierta).map(it=>{
       const b = it.b;
@@ -1720,6 +1721,12 @@ function renderCalSemana(){
     const px = ev.clientY - col.getBoundingClientRect().top;
     calSelected = f;
     abrirEnFranja(f, y.minutoEn(px));
+  });
+  /* medido ya pintado: un bloque de veinte pixeles con titulo deja una letra
+     por renglon, que no se lee y ensucia. Ahi vale mas la barra de color sola:
+     se toca y se abre. */
+  caja.querySelectorAll('.gc-ev').forEach(el=>{
+    if(el.offsetWidth < 34) el.classList.add('mudo');
   });
   engancharArrastreSemana(caja, y);
   engancharTira(caja);
