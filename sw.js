@@ -10,7 +10,7 @@
    - /api/*: siempre la red, el service worker ni se mete
 */
 
-const VERSION = 'v3';
+const VERSION = 'v4';
 const CACHE = `bitacora-${VERSION}`;
 const CACHE_EXTERNO = `bitacora-externo-${VERSION}`;
 
