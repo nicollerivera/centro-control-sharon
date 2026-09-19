@@ -597,6 +597,9 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 /* el que se monta encima lleva su propio borde, o se confunde con el de abajo */
 .gc-ev.montado{outline:1.5px solid var(--surface); outline-offset:-1px;}
 .gc-ev.mudo b, .gc-ev.mudo .h{display:none;}
+.gc-ev.angosto{padding-left:3px; padding-right:1px; border-left-width:2px;}
+.gc-ev.angosto b{font-size:8.5px; overflow-wrap:break-word;}   /* las lineas las manda el alto, como en los demas */
+.gc-ev.angosto .h{display:none;}
 .gc-ev.corto{padding-top:1px;}
 .gc-ev.corto b{overflow-wrap:normal;}
 .gc-ev.mueve{touch-action:auto;}
@@ -1722,11 +1725,14 @@ function renderCalSemana(){
     calSelected = f;
     abrirEnFranja(f, y.minutoEn(px));
   });
-  /* medido ya pintado: un bloque de veinte pixeles con titulo deja una letra
-     por renglon, que no se lee y ensucia. Ahi vale mas la barra de color sola:
+  /* medido ya pintado: en un bloque angosto el titulo cabe en una linea corta
+     ("Univ…"), que dice bastante mas que nada. Solo se queda callado el que no
+     tiene ancho ni para tres letras: ahi vale mas la barra de color sola, que
      se toca y se abre. */
   caja.querySelectorAll('.gc-ev').forEach(el=>{
-    if(el.offsetWidth < 34) el.classList.add('mudo');
+    const w = el.offsetWidth;
+    if(w < 17) el.classList.add('mudo');
+    else if(w < 42) el.classList.add('angosto');
   });
   engancharArrastreSemana(caja, y);
   engancharTira(caja);
