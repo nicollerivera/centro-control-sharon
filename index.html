@@ -1651,14 +1651,18 @@ function renderCalSemana(){
          montarlas taparia la de atras: ahi se reparten. */
       let ancho, izq;
       const monta = unDia && n <= 3 && it.cascada;   // de cuatro en adelante, montarlas deja a las de atras en dos letras
-      /* la celda entera: el carril que dejaba libre a la derecha se veia bien
-         vacio, pero era justo el ancho que le faltaba al nombre */
-      if(n === 1){ ancho = 100; izq = 0; }
+      /* En la semana la celda mide 44 pixeles: partirla entre dos cruzadas deja
+         22 para cada una, y en 22 pixeles no cabe una palabra. Asi que ahi cada
+         bloque ocupa la celda entera y se apilan — el que empieza despues, al
+         frente —; de cada uno se lee lo suyo en el rato en que no lo tapan.
+         Repartir es cosa del dia, donde hay ancho para repartir. */
+      if(!unDia){ ancho = 100; izq = 0; }
+      else if(n === 1){ ancho = 100; izq = 0; }
       /* como en Calendar: todas llegan al borde derecho y lo unico que cambia
          es donde empiezan, corridas en cascada */
       else if(monta){ izq = it.carril * 7; ancho = 100 - izq; }
       else { ancho = 100/n; izq = it.carril * (100/n); }
-      const montado = monta && it.carril > 0;
+      const montado = (monta || !unDia) && it.carril > 0;
       /* lo que nace en otra seccion (un turno, una entrega) se mueve alla, no
          aca: arrastrarlo dejaria el calendario diciendo una cosa y la seccion
          otra. Lo suyo — lo que agendo y lo que conto — si se mueve. */
