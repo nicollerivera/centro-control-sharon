@@ -591,13 +591,13 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
   border-radius:5px; padding:2px 4px 2px 5px; line-height:1.15; color:var(--text);
   background:color-mix(in srgb, var(--c) 18%, var(--surface)); border-left:3px solid var(--c);}
 .gc-ev b{font-size:9.5px; font-weight:600; overflow-wrap:break-word;
-  display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:4; overflow:hidden;}
+  display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:var(--lineas, 3); overflow:hidden;}
 .gc-ev .h{display:block; font-size:8.5px; color:var(--text-muted);}
 /* si el bloque es corto no cabe partir la palabra: una linea y puntos */
 /* el que se monta encima lleva su propio borde, o se confunde con el de abajo */
 .gc-ev.montado{outline:1.5px solid var(--surface); outline-offset:-1px;}
 .gc-ev.corto{padding-top:1px;}
-.gc-ev.corto b{-webkit-line-clamp:1; overflow-wrap:normal;}
+.gc-ev.corto b{overflow-wrap:normal;}
 .gc-ev.mueve{touch-action:auto;}
 /* sostenido: ya lo tiene agarrado, y a partir de ahi el dedo lo lleva a el y
    no a la pantalla */
@@ -1661,11 +1661,19 @@ function renderCalSemana(){
         : b.pend && b.pend.hora ? `data-arr="${b.pend.id}" data-arr-tipo="pendiente"` : '';
       const arriba = y(it.desde);
       const alto = Math.max(y(it.hasta) - arriba, 13);
+      /* las lineas que de verdad caben en ese alto: asi el recorte termina en
+         puntos suspensivos y no en media palabra cortada por el borde */
+      const lh = unDia ? 14.3 : 11.2;
+      const caben = Math.floor((alto - 4) / lh);
+      /* la hora solo si sobra sitio: entre saber a que hora fue y saber que
+         fue, lo segundo importa mas */
+      const conHora = caben >= 3;
+      const lineas = Math.max(1, conHora ? caben - 1 : caben);
       return `<button class="gc-ev${montado ? ' montado':''}${alto < 34 ? ' corto':''}${hecho?' hecho':''}${saltado?' saltado':''}${mueve?' mueve':''}" ${marca} ${mueve} data-dur="${it.hasta - it.desde}" data-desde="${it.desde}"
-        style="--c:${b.color}; top:${arriba}px; height:${alto}px;
+        style="--c:${b.color}; --lineas:${lineas}; top:${arriba}px; height:${alto}px;
                left:${izq}%; width:calc(${ancho}% - 2px); z-index:${2 + it.carril};"
         title="${esc(b.start)}${b.end?'–'+esc(b.end):''} ${esc(b.titulo)}">
-        <b>${esc(b.titulo)}</b>${alto >= 30 ? `<span class="h mono">${esc(b.start)}</span>` : ''}
+        <b>${esc(b.titulo)}</b>${conHora ? `<span class="h mono">${esc(b.start)}</span>` : ''}
         ${mueve && alto >= 30 ? '<span class="gc-asa" aria-hidden="true"></span>' : ''}
       </button>`;
     }).join('');
@@ -4241,6 +4249,21 @@ const PISTAS_AREA = [
   { cat:'nexxa',       claves:['nexxa','globo','decorac','montaje','fiesta','evento'] },
   { cat:'ads',         claves:['curso','ads','pauta','campana','publicidad','embudo'] }
 ];
+/* "Entre a clase" no dice nada dentro de un mes: lo que quiso decir es la clase
+   que tenia a esa hora, y eso Bitacora ya lo sabe por su horario. Se le pone el
+   nombre de la materia, y asi al final del mes las horas quedan contadas donde
+   van. Si escribio de que fue la clase, se respeta lo que escribio. */
+const RE_CLASE_SUELTA = /^(?:(?:me\s+)?(?:entre|fui|sali|estuve|llegue|regrese|volvi)\s*)?(?:a|en|de|para)?\s*(?:la|el|mi|las|los)?\s*(?:clase|clases|universidad|uni|u|sena|curso)\s*$/;
+function claseDeEseRato(fecha, desde, hasta){
+  const d = parseDate(fecha);
+  if(!d) return null;
+  return weekdayItems(d.getDay()).find(c=>{
+    if(!c.start) return false;
+    if(!c.materia && !/clase|universidad|sena|curso/.test(sinTildes(c.name))) return false;
+    const a = minutosDe(c.start), b = c.end ? finEnMinutos(c.start, c.end) : a + 60;
+    return a !== null && a < hasta && desde < b;
+  }) || null;
+}
 function areaDeLoQueDijo(texto){
   const t = sinTildes(texto);
   const p = PISTAS_AREA.find(a=>a.claves.some(k=>t.includes(k)));
@@ -4288,7 +4311,7 @@ function limpiarLoQueDijo(s){
 }
 /* De lo que escribio salen bloques con hora. Lo que no tiene hora no se
    inventa: se devuelve aparte para que ella decida. */
-function leerElDia(texto){
+function leerElDia(texto, fecha){
   const bloques = [], sinHora = [];
   const crudo = String(texto || '');
   RE_TRAMO.lastIndex = 0;
@@ -4322,8 +4345,12 @@ function leerElDia(texto){
     if(!loDijo) hasta = desde + 60;                             // provisional: lo arregla el encadenado
     ultimoFin = hasta;
     if(!titulo){ return; }
-    bloques.push({ titulo: titulo.charAt(0).toUpperCase() + titulo.slice(1),
-      desde, hasta, loDijo, cat: areaDeLoQueDijo(contexto) });
+    /* si lo que dijo fue "entre a clase" a secas, la clase que tenia a esa hora
+       le pone el nombre */
+    const clase = fecha && RE_CLASE_SUELTA.test(sinTildes(titulo).trim())
+      ? claseDeEseRato(fecha, desde, hasta) : null;
+    bloques.push({ titulo: clase ? clase.name : titulo.charAt(0).toUpperCase() + titulo.slice(1),
+      desde, hasta, loDijo, cat: clase ? (clase.materia ? 'universidad' : areaDeLoQueDijo(clase.name)) : areaDeLoQueDijo(contexto) });
   });
 
   /* Cuando no dice a que hora termino algo, no termino una hora despues: termino
@@ -4353,7 +4380,7 @@ function engancharContar(caja){
   caja.querySelectorAll('[data-contar]').forEach(box=>{
     const txt = box.querySelector('.contar-txt');
     const mandar = ()=>{
-      const leido = leerElDia(txt.value);
+      const leido = leerElDia(txt.value, box.dataset.contar);
       if(!leido.bloques.length){
         avisar(leido.sinHora.length
           ? 'No le vi la hora a eso. Escríbelo como "de 3 a 4 ' + leido.sinHora[0].slice(0,24) + '".'
