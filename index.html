@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>Bitácora</title>
-<meta name="bitacora-build" content="20260918193908">
+<meta name="bitacora-build" content="20260918194238">
 <script>
 /* Modo claro u oscuro (D55). La primera vez sigue al teléfono; después manda el botón. */
 /* Arranca en claro. El oscuro se elige con el boton, no lo decide el
@@ -306,6 +306,15 @@ body.con-barra .elegido .urg, body.con-barra .elegido .tag{visibility:hidden;}
 .chiprow::-webkit-scrollbar{display:none;}
 .chip{flex-shrink:0; padding:5px 11px; border-radius:20px; border:1px solid var(--border); background:var(--surface); color:var(--text-muted); font-size:12.5px; font-weight:600;}
 .chip.active{border-color:var(--chip-color, var(--accent)); background:var(--chip-color-soft, var(--accent-soft)); color:var(--text);}
+button.chip{font-family:inherit; line-height:1.5; cursor:pointer;}
+/* cuando son para elegir y no para desplazar, caben todos a la vista */
+.chiprow.envuelve{flex-wrap:wrap; overflow:visible; gap:7px;}
+/* el monto es la pregunta de verdad: se ve grande y es lo primero que toca */
+.field.monto input[type=number]{font-size:22px; font-weight:600; padding-top:12px; padding-bottom:12px;}
+/* lo que casi nunca cambia se guarda aca detras */
+.mas-campos{display:block; margin:-2px 0 14px; padding:4px 2px; background:none; border:none; color:var(--accent); font:inherit; font-size:13px; font-weight:600; cursor:pointer;}
+.mas-campos::after{content:' ›'; display:inline-block; transition:transform .15s;}
+.mas-campos.abierto::after{transform:rotate(90deg);}
 
 /* ---------- subtabs ---------- */
 .subtabs-wrap{position:relative; margin-bottom:16px;}
@@ -4413,41 +4422,53 @@ function openMovimientoModal(existente){
   if(existente && existente._nuevo){ const pre = existente; existente = null; delete pre._nuevo; return openMovimientoModalCon(pre); }
   return openMovimientoModalCon(null, existente);
 }
+/* Anotar un almuerzo no puede costar ocho preguntas: el + ya dijo que era un
+   gasto, la fecha es hoy y la plata sale de donde salio la vez pasada. Asi que
+   arriba queda lo unico que cambia siempre — cuanto, de que y de donde — y lo
+   demas (el titulo, otra fecha, dolares, la nota) vive detras de "Mas detalles",
+   que se abre solo cuando esta corrigiendo algo ya anotado. */
 function openMovimientoModalCon(pre, existente){
   const e = existente || pre || { id:null, cat:'finanzas', type:'gasto', amount:'', moneda:'COP',
     categoria:'Otros', persona:'', title:'', date:todayStr(), notes:'', status:'hecho' };
+  if(!e.bolsillo && signoDelTipo(e.type)) e.bolsillo = bolsilloPorDefecto();
+  let verDetalles = !!existente;
 
   function pintar(){
     const esPrestamo = e.type==='prestamo_dado' || e.type==='prestamo_recibido';
-    openSheet(`<h3>${existente?'Editar movimiento':'Registrar un movimiento'}</h3>
-      <div class="field"><label>¿Qué fue?</label>
-        <select id="m_tipo">${Object.entries(TIPOS_MOV).map(([k,v])=>`<option value="${k}" ${e.type===k?'selected':''}>${v}</option>`).join('')}</select>
-      </div>
-      <div class="field-row">
-        <div class="field" style="flex:2;"><label>Cuánto</label><input type="number" id="m_monto" inputmode="decimal" value="${e.amount}" placeholder="$"></div>
-        <div class="field" style="flex:1;"><label>Moneda</label><select id="m_moneda">
-          <option value="COP" ${e.moneda!=='USD'?'selected':''}>Pesos</option>
-          <option value="USD" ${e.moneda==='USD'?'selected':''}>Dólares</option>
-        </select></div>
-      </div>
+    const signo = signoDelTipo(e.type);
+    const esTraslado = e.type==='traslado';
+    const chip = (valor, texto, activo, attr)=>
+      `<button type="button" class="chip ${activo?'active':''}" ${attr}="${esc(valor)}">${esc(texto)}</button>`;
+    openSheet(`<h3>${existente ? 'Editar movimiento' : esc(TIPOS_MOV[e.type])}</h3>
+      <div class="field monto"><label>Cuánto</label><input type="number" id="m_monto" inputmode="decimal" value="${e.amount}" placeholder="$"></div>
       ${e.moneda==='USD' && tasaUSD() ? `<div class="helptext" style="margin:-8px 0 14px;">A ${money(tasaUSD())} el dólar, son ${money(enPesos(e.amount||0,'USD'))}.</div>` : ''}
-      ${e.type==='gasto' ? `<div class="field"><label>¿De qué categoría?</label>
-        <select id="m_categoria">${CATEGORIAS_GASTO.map(c=>`<option value="${esc(c)}" ${e.categoria===c?'selected':''}>${esc(c)}</option>`).join('')}</select>
-        <div class="helptext">De esto sale el presupuesto.</div></div>` : ''}
+      ${e.type==='gasto' ? `<div class="field"><label>¿De qué fue?</label>
+        <div class="chiprow envuelve" id="m_cats">${CATEGORIAS_GASTO.map(c=>chip(c, c, e.categoria===c, 'data-cat')).join('')}</div></div>` : ''}
       ${esPrestamo ? `<div class="field"><label>¿Con quién?</label><input type="text" id="m_persona" value="${esc(e.persona)}" placeholder="Nombre"></div>` : ''}
-      ${e.type==='traslado' ? `
+      ${esTraslado ? `
       <div class="field-row">
         <div class="field" style="flex:1;"><label>De</label><select id="m_de">${bolsillos().map(b=>`<option value="${esc(b.nombre)}" ${e.de===b.nombre?'selected':''}>${esc(b.nombre)}</option>`).join('')}</select></div>
         <div class="field" style="flex:1;"><label>A</label><select id="m_a">${bolsillos().map(b=>`<option value="${esc(b.nombre)}" ${e.a===b.nombre?'selected':''}>${esc(b.nombre)}</option>`).join('')}</select></div>
       </div>
-      <div class="helptext" style="margin:-8px 0 14px;">No suma ni resta en el mes: es la misma plata cambiando de lugar. Se baja de un lugar y se sube al otro.</div>` : `
-      <div class="field"><label>${e.type==='pago' ? '¿Qué hay que pagar?' : 'En qué / de dónde'}</label>
-        <input type="text" id="m_titulo" value="${esc(e.title)}" placeholder="${e.type==='gasto'?'Ej: almuerzo, transporte':'Ej: turno de Infinity'}"></div>`}
-      ${signoDelTipo(e.type) ? `<div class="field"><label>${signoDelTipo(e.type)>0 ? '¿A dónde entró?' : '¿De dónde sale?'}</label>
-        ${selectBolsillo('m_bolsillo', e.bolsillo || bolsilloPorDefecto())}
-        <div class="helptext">${e.type==='pago' ? 'Se descuenta de ahí el día que toques “Pagué”.' : signoDelTipo(e.type)>0 ? 'Se le suma a ese lugar al guardar.' : 'Se le resta a ese lugar al guardar.'}</div></div>` : ''}
-      <div class="field"><label>${e.type==='pago' ? 'Se vence el' : 'Cuándo'}</label><input type="date" id="m_fecha" value="${esc(e.date)}"></div>
-      <div class="field"><label>Nota (opcional)</label><input type="text" id="m_nota" value="${esc(e.notes)}"></div>
+      <div class="helptext" style="margin:-8px 0 14px;">No suma ni resta en el mes: es la misma plata cambiando de lugar. Se baja de un lugar y se sube al otro.</div>` : ''}
+      ${signo ? `<div class="field"><label>${signo>0 ? '¿A dónde entró?' : '¿De dónde sale?'}</label>
+        <div class="chiprow envuelve" id="m_bols">${bolsillos().map(b=>chip(b.nombre, b.nombre, (e.bolsillo||bolsilloPorDefecto())===b.nombre, 'data-bol')).join('')}${chip(SIN_BOLSILLO, 'Sin tocar saldos', e.bolsillo===SIN_BOLSILLO, 'data-bol')}</div>
+        <div class="helptext">${existente ? 'Ya se movió cuando lo anotaste; si le cambias el monto, corrige el saldo a mano.' : e.type==='pago' ? 'Se descuenta de ahí el día que toques “Pagué”.' : signo>0 ? 'Se le suma a ese lugar al guardar.' : 'Se le resta a ese lugar al guardar.'}</div></div>` : ''}
+      ${e.type==='pago' ? `<div class="field"><label>Se vence el</label><input type="date" id="m_fecha_pago" value="${esc(e.date)}"></div>` : ''}
+      <button type="button" class="mas-campos ${verDetalles?'abierto':''}" id="m_mas">${verDetalles ? 'Menos detalles' : 'Más detalles'}</button>
+      <div id="m_detalles" ${verDetalles?'':'hidden'}>
+        <div class="field"><label>¿Qué fue?</label>
+          <select id="m_tipo">${Object.entries(TIPOS_MOV).map(([k,v])=>`<option value="${k}" ${e.type===k?'selected':''}>${v}</option>`).join('')}</select>
+        </div>
+        ${esTraslado ? '' : `<div class="field"><label>${e.type==='pago' ? '¿Qué hay que pagar?' : 'En qué / de dónde'}</label>
+          <input type="text" id="m_titulo" value="${esc(e.title)}" placeholder="${e.type==='gasto'?'Ej: almuerzo, transporte':'Ej: turno de Infinity'}"></div>`}
+        ${e.type==='pago' ? '' : `<div class="field"><label>Cuándo</label><input type="date" id="m_fecha" value="${esc(e.date)}"></div>`}
+        <div class="field"><label>Moneda</label><select id="m_moneda">
+          <option value="COP" ${e.moneda!=='USD'?'selected':''}>Pesos</option>
+          <option value="USD" ${e.moneda==='USD'?'selected':''}>Dólares</option>
+        </select></div>
+        <div class="field"><label>Nota (opcional)</label><input type="text" id="m_nota" value="${esc(e.notes)}"></div>
+      </div>
       <div class="sheet-actions">
         ${existente?`<button class="btn btn-ghost" id="m_borrar">Borrar</button>`:''}
         <button class="btn btn-primary" id="m_guardar">Guardar</button>
@@ -4460,12 +4481,20 @@ function openMovimientoModalCon(pre, existente){
       e.moneda = g('m_moneda').value;
       if(g('m_titulo')) e.title = g('m_titulo').value.trim();
       if(g('m_de')){ e.de = g('m_de').value; e.a = g('m_a').value; e.title = e.de + ' → ' + e.a; }
-      e.date = g('m_fecha').value || todayStr();
+      e.date = (g('m_fecha_pago') || g('m_fecha')).value || todayStr();
       e.notes = g('m_nota').value.trim();
-      if(g('m_categoria')) e.categoria = g('m_categoria').value;
-      if(g('m_bolsillo')) e.bolsillo = g('m_bolsillo').value;
       if(g('m_persona')) e.persona = g('m_persona').value.trim();
     }
+    /* las categorias y los bolsillos se eligen tocando, sin volver a pintar todo */
+    document.querySelectorAll('#m_cats [data-cat]').forEach(b=>b.onclick = ()=>{
+      e.categoria = b.dataset.cat;
+      document.querySelectorAll('#m_cats [data-cat]').forEach(x=>x.classList.toggle('active', x===b));
+    });
+    document.querySelectorAll('#m_bols [data-bol]').forEach(b=>b.onclick = ()=>{
+      e.bolsillo = b.dataset.bol;
+      document.querySelectorAll('#m_bols [data-bol]').forEach(x=>x.classList.toggle('active', x===b));
+    });
+    document.getElementById('m_mas').onclick = ()=>{ leer(); verDetalles = !verDetalles; pintar(); };
     /* el formulario cambia segun el tipo: no le mostramos campos que no aplican */
     document.getElementById('m_tipo').onchange = ()=>{ leer(); pintar(); };
     document.getElementById('m_moneda').onchange = ()=>{ leer(); pintar(); };
@@ -4478,7 +4507,9 @@ function openMovimientoModalCon(pre, existente){
     document.getElementById('m_guardar').onclick = ()=>{
       leer();
       if(!Number(e.amount)){ alert('Falta el monto.'); return; }
-      if(!e.title) e.title = TIPOS_MOV[e.type];
+      /* sin titulo, el gasto se llama como su categoria: "Comida fuera" dice
+         mas que "Gasto" cuando lo vuelve a ver en la lista del mes */
+      if(!e.title) e.title = (e.type==='gasto' && e.categoria && e.categoria!=='Otros') ? e.categoria : TIPOS_MOV[e.type];
       /* lo que se guarda son pesos, con el original anotado al lado */
       const pesos = e.moneda==='USD' ? enPesos(e.amount,'USD') : Number(e.amount);
       if(pesos===null){ alert('Ponle la tasa del dólar primero: en Plata, abre Dólar.'); return; }
