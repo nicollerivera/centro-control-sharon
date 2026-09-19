@@ -1199,12 +1199,18 @@ function bindItemClicks(){
       ev.stopPropagation();
       const e = DATA.events.find(x=>x.id===b.dataset.id);
       if(!e) return;
-      if(e.status==='pendiente'||!e.status) e.status='progreso';
-      else if(e.status==='progreso'){
-        const actual = prompt('¿Cuántos minutos reales te tomó? (opcional, Cancelar para omitir)');
-        if(actual && !isNaN(actual)) e.actualMin = Number(actual);
+      /* Un toque dice que ya esta, y el mismo toque lo deshace. Nada de un
+         estado a medias en el camino, ni de preguntarle cuantos minutos le
+         tomo cuando lo unico que quiso fue marcarlo (D107). El rato que duro
+         se saca de su propia hora, que para eso la escribio. */
+      if(e.status==='hecho'){ e.status='pendiente'; }
+      else {
         e.status='hecho';
-      } else { e.status='pendiente'; }
+        if(!e.actualMin && e.start && e.end){
+          const dur = finEnMinutos(e.start, e.end) - minutosDe(e.start);
+          if(dur > 0) e.actualMin = dur;
+        }
+      }
       syncSourceFromEvent(e);
       saveData(); renderAll();
     };
@@ -3658,11 +3664,20 @@ function subActiva(vista){
 }
 function opcionesDeAgregar(){
   const vista = views.find(v=>document.getElementById('view-'+v).classList.contains('active'));
-  if(vista==='calendario') return [
-    { que:'Un turno', nota:'Infinity, Asignar o Movistar', hacer:()=>openTurnoModal() },
-    { que:'Algo con fecha y hora', nota:'una cita, un evento', hacer:()=>openEventModal() },
-    { que:'Algo que se repite', nota:'clases, Joel, gym', hacer:()=>openRoutineModal() }
-  ];
+  /* En el calendario casi siempre esta parada en un dia que no es hoy: si lo
+     que quiere es contar lo que ya paso ese dia, no tiene por que agendarlo
+     como si estuviera por venir y despues marcarlo. */
+  if(vista==='calendario'){
+    const dia = calSelected || todayStr();
+    return [
+      ...(dia < todayStr() ? [{ que:'Algo que ya hice', nota:'queda anotado ese día, ya marcado',
+        hacer:()=>openYaHiceModal({ date:dia }) }] : []),
+      { que:'Un turno', nota:'Infinity, Asignar o Movistar', hacer:()=>openTurnoModal() },
+      { que:'Algo con fecha y hora', nota:'una cita, un evento', hacer:()=>openEventModal() },
+      { que:'Algo que se repite', nota:'clases, Joel, gym', hacer:()=>openRoutineModal() },
+      { que:'Cuánto dormí', nota:'esa noche', hacer:()=>openSuenoModal(dia) }
+    ];
+  }
   const movNuevo = (tipo, extra)=>Object.assign({ id:null, _nuevo:true, cat:'finanzas', type:tipo, amount:'', moneda:'COP',
     categoria:'Otros', persona:'', title:'', date:todayStr(), notes:'', status:'hecho' }, extra||{});
   if(vista==='plata') return [
