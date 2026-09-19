@@ -555,7 +555,7 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 
 /* ---------- la semana como una agenda: las horas de arriba abajo, cada dia
    una columna y cada cosa un bloque del alto que de verdad dura (D103) ---------- */
-.gc{--hp:44px; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); overflow:hidden; margin-bottom:10px;}
+.gc{border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); overflow:hidden; margin-bottom:10px;}
 .gc-head{display:grid; grid-template-columns:34px repeat(7,minmax(0,1fr)); border-bottom:1px solid var(--border);}
 .gc-dia{display:flex; flex-direction:column; align-items:center; gap:3px; padding:7px 0 8px; background:none; border:none; font:inherit; color:var(--text-dim); cursor:pointer;}
 .gc-dia b{font-size:9.5px; font-weight:700; letter-spacing:.05em;}
@@ -564,11 +564,13 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 .gc-dia.elegido:not(.hoy) .num{background:var(--accent-soft); color:var(--accent);}
 .gc-scroll{max-height:58vh; overflow-y:auto; overscroll-behavior:contain;}
 .gc-cuerpo{display:grid; grid-template-columns:34px repeat(7,minmax(0,1fr));}
-.gc-hora{height:var(--hp); font-size:9.5px; color:var(--text-dim); text-align:right; padding-right:4px;}
+.gc-hora{font-size:9.5px; color:var(--text-dim); text-align:right; padding-right:4px; line-height:1;}
 .gc-hora span{position:relative; top:-5px;}
-.gc-col{position:relative; border-left:1px solid var(--border);
-  background-image:linear-gradient(var(--border) 1px, transparent 1px);
-  background-size:100% var(--hp); background-position:0 -1px;}
+.gc-hora.corta{font-size:8px; opacity:.55;}
+.gc-hora.corta span{top:-3px;}
+.gc-col{position:relative; border-left:1px solid var(--border);}
+.gc-linea{border-top:1px solid var(--border); box-sizing:border-box;}
+.gc-col > .gc-linea:first-child{border-top:none;}
 .gc-col.hoy{background-color:var(--accent-soft);}
 .gc-ev{position:absolute; overflow:hidden; text-align:left; border:none; font:inherit; cursor:pointer;
   border-radius:5px; padding:2px 3px 2px 4px; line-height:1.15; color:var(--text);
@@ -1424,7 +1426,40 @@ function renderCalendar(){
 /* La semana como agenda: siete columnas de horas y cada cosa dibujada donde
    cae y del alto que dura. Ver el dia en bloques contesta sola la pregunta de
    si le cabe un turno, que es para lo que abre la semana (D24, D103). */
-const GC_HP = 44;                 // pixeles que mide una hora
+const GC_HP = 42;                 // lo que mide una hora con algo dentro
+const GC_HP_CORTA = 13;           // y lo que mide una hora en la que no pasa nada
+
+/* La madrugada ocupaba lo mismo que la tarde: siete horas de rejilla vacia (o
+   de sueño) para llegar a donde de verdad pasa el dia. Las horas en las que no
+   hay nada se encogen, y la semana entra casi entera en la pantalla. */
+function alturasDeLaSemana(dias){
+  const viva = new Array(24).fill(false);
+  dias.forEach(f=>{
+    bloquesDeFecha(f).forEach(b=>{
+      if(b.noche) return;                       // dormir no hace que esa hora valga la pena mostrarla
+      const d = minutosDe(b.start);
+      if(d === null) return;
+      const h = Math.min(1440, b.end ? finEnMinutos(b.start, b.end) : d + 30);
+      for(let x = Math.floor(d/60); x <= Math.min(23, Math.floor((h - 1)/60)); x++) viva[x] = true;
+    });
+  });
+  if(!viva.some(Boolean)) for(let h = 6; h <= 22; h++) viva[h] = true;   // dia en blanco: se ve el dia despierto
+  /* la hora pegada a algo tambien va completa, para que el bloque no arranque
+     pegado al borde de lo encogido */
+  return viva.map((v,i)=> (v || viva[i-1] || viva[i+1]) ? GC_HP : GC_HP_CORTA);
+}
+/* De un minuto del dia al pixel donde cae, con horas de distinto alto. */
+function reglaDelDia(alturas){
+  const tope = []; let acc = 0;
+  alturas.forEach(a=>{ tope.push(acc); acc += a; });
+  const y = (min)=>{
+    if(min >= 1440) return acc;
+    const h = Math.max(0, Math.min(23, Math.floor(min/60)));
+    return tope[h] + (min - h*60)/60 * alturas[h];
+  };
+  y.total = acc;
+  return y;
+}
 /* Dos cosas a la misma hora no se pisan: se parten el ancho de la columna. */
 function acomodarEnCarriles(items){
   items.sort((a,b)=> a.desde - b.desde || a.hasta - b.hasta);
@@ -1466,8 +1501,11 @@ function renderCalSemana(){
     </button>`;
   }).join('');
 
-  const horas = Array.from({length:24}, (_,h)=>
-    `<div class="gc-hora"><span>${h ? String(h).padStart(2,'0') : ''}</span></div>`).join('');
+  const alturas = alturasDeLaSemana(dias);
+  const y = reglaDelDia(alturas);
+  const horas = alturas.map((a,h)=>
+    `<div class="gc-hora${a < GC_HP ? ' corta' : ''}" style="height:${a}px"><span>${h ? String(h).padStart(2,'0') : ''}</span></div>`).join('');
+  const lineas = alturas.map(a=>`<div class="gc-linea" style="height:${a}px"></div>`).join('');
 
   const ahora = ahoraEnMinutos();
   let primera = 24*60;
@@ -1495,17 +1533,18 @@ function renderCalSemana(){
         : b.pend ? `data-pend="${b.pend.id}" data-sel-tipo="pendiente" data-sel-id="${b.pend.id}"`
       : b.sueno ? `data-sueno="${b.sueno}"` : '';
       const ancho = 100 / (it.carriles || 1);
-      const alto = (it.hasta - it.desde) / 60 * GC_HP;
+      const arriba = y(it.desde);
+      const alto = Math.max(y(it.hasta) - arriba, 13);
       return `<button class="gc-ev${alto < 34 ? ' corto':''}${hecho?' hecho':''}${saltado?' saltado':''}" ${marca}
-        style="--c:${b.color}; top:${it.desde/60*GC_HP}px; height:${Math.max(alto, 15)}px;
+        style="--c:${b.color}; top:${arriba}px; height:${alto}px;
                left:${it.carril*ancho}%; width:calc(${ancho}% - 2px);"
         title="${esc(b.start)}${b.end?'–'+esc(b.end):''} ${esc(b.titulo)}">
         <b>${esc(b.titulo)}</b>${alto >= 30 ? `<span class="h mono">${esc(b.start)}</span>` : ''}
       </button>`;
     }).join('');
 
-    return `<div class="gc-col ${f===hoy?'hoy':''}" data-dia="${f}">${evs}${
-      f===hoy ? `<div class="gc-ahora" style="top:${ahora/60*GC_HP}px"></div>` : ''}</div>`;
+    return `<div class="gc-col ${f===hoy?'hoy':''}" data-dia="${f}">${lineas}${evs}${
+      f===hoy ? `<div class="gc-ahora" style="top:${y(ahora)}px"></div>` : ''}</div>`;
   }).join('');
 
   caja.innerHTML = `<div class="gc">
@@ -1518,7 +1557,7 @@ function renderCalSemana(){
   /* se abre donde empieza el dia de verdad, no a medianoche */
   const arranque = dias.includes(hoy) ? Math.min(primera, ahora) : primera;
   const scroll = document.getElementById('gcScroll');
-  scroll.scrollTop = Math.max(0, (arranque===24*60 ? 7*60 : arranque - 30) / 60 * GC_HP);
+  scroll.scrollTop = Math.max(0, y(arranque === 24*60 ? 7*60 : Math.max(0, arranque - 30)));
 
   /* tocar el dia arriba, o el aire de su columna, lo elige abajo */
   caja.querySelectorAll('[data-dia]').forEach(el=>el.onclick = (ev)=>{
