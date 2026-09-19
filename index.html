@@ -560,13 +560,15 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
    semana se corre de lado, porque en 44 pixeles no se lee nada. Flex y no
    grid: en grid, lo pegado se queda encerrado en su propia celda y la columna
    de las horas se iba con el deslizamiento. */
-/* que la tabla mida lo que mide su contenido: si se queda del ancho de la
-   pantalla, la columna de las horas no tiene por donde quedarse pegada */
-.gc-tabla{display:flex; width:100%; min-width:max-content;}
+/* la semana cabe entera, sin correrla de lado: para leer los nombres completos
+   esta la vista de Dia, que es a lo que sirve tener las tres */
+.gc-tabla{display:flex; width:100%;}
 .gc-colhoras{flex:0 0 30px; position:sticky; left:0; z-index:11; background:var(--surface);}
 .gc-esq{height:46px; position:sticky; top:0; z-index:13; background:var(--surface); border-bottom:1px solid var(--border);}
-.gc-diacol{flex:1 0 92px; min-width:92px; display:flex; flex-direction:column;}
-.gc-tabla.solo .gc-diacol{flex:1 1 auto; min-width:0;}
+.gc-diacol{flex:1 1 0; min-width:0; display:flex; flex-direction:column;}
+/* en la vista de Dia, la letra puede ser de verdad */
+.gc-tabla.solo .gc-ev b{font-size:12.5px;}
+.gc-tabla.solo .gc-ev .h{font-size:11px;}
 .gc-dia{position:sticky; top:0; z-index:12; height:46px; box-sizing:border-box; background:var(--surface); border:none; border-bottom:1px solid var(--border);
   display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; font:inherit; color:var(--text-dim); cursor:pointer;}
 .gc-dia b{font-size:9.5px; font-weight:700; letter-spacing:.05em;}
@@ -586,9 +588,9 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 .gc-ev{position:absolute; overflow:hidden; text-align:left; border:none; font:inherit; cursor:pointer;
   border-radius:5px; padding:2px 4px 2px 5px; line-height:1.15; color:var(--text);
   background:color-mix(in srgb, var(--c) 18%, var(--surface)); border-left:3px solid var(--c);}
-.gc-ev b{font-size:10.5px; font-weight:600; overflow-wrap:break-word;
-  display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:5; overflow:hidden;}
-.gc-ev .h{display:block; font-size:9.5px; color:var(--text-muted);}
+.gc-ev b{font-size:9.5px; font-weight:600; overflow-wrap:break-word;
+  display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:4; overflow:hidden;}
+.gc-ev .h{display:block; font-size:8.5px; color:var(--text-muted);}
 /* si el bloque es corto no cabe partir la palabra: una linea y puntos */
 .gc-ev.corto{padding-top:1px;}
 .gc-ev.corto b{-webkit-line-clamp:1; overflow-wrap:normal;}
@@ -597,7 +599,9 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
    no a la pantalla */
 .gc-ev.agarrado{touch-action:none; z-index:6; box-shadow:0 8px 20px rgba(0,0,0,.28); transform:scale(1.04); outline:2px solid var(--c);}
 /* el borde de abajo se agarra para alargar: una rayita que aparece al tocar */
-.gc-asa{position:absolute; left:0; right:0; bottom:0; height:14px; touch-action:none; cursor:ns-resize;}
+/* solo en los bloques que tienen alto de sobra: en uno de media hora, el
+   asa se comeria el bloque entero y no habria por donde agarrarlo para mover */
+.gc-asa{position:absolute; left:0; right:0; bottom:0; height:11px; cursor:ns-resize;}
 .gc-asa::after{content:''; position:absolute; left:50%; bottom:2px; width:16px; height:2.5px; margin-left:-8px; border-radius:2px; background:var(--c); opacity:.45;}
 .gc-ev.arrastrando .gc-asa::after{opacity:.9;}
 .gc-ev.arrastrando{z-index:5; opacity:.9; box-shadow:0 6px 18px rgba(0,0,0,.22); transform:scale(1.02);}
@@ -1622,7 +1626,7 @@ function renderCalSemana(){
                left:${izq}%; width:calc(${ancho}% - 2px); z-index:${2 + it.carril};"
         title="${esc(b.start)}${b.end?'–'+esc(b.end):''} ${esc(b.titulo)}">
         <b>${esc(b.titulo)}</b>${alto >= 30 ? `<span class="h mono">${esc(b.start)}</span>` : ''}
-        ${mueve ? '<span class="gc-asa" aria-hidden="true"></span>' : ''}
+        ${mueve && alto >= 30 ? '<span class="gc-asa" aria-hidden="true"></span>' : ''}
       </button>`;
     }).join('');
 
@@ -1643,7 +1647,7 @@ function renderCalSemana(){
       </div>
     </div>
   </div>
-  <div class="gc-pie">Toca un rato libre y pones algo a esa hora. Para mover un bloque, mantenlo presionado un segundo y arrástralo; la rayita de abajo lo alarga.</div>`;
+  <div class="gc-pie">Toca un rato libre y pones algo a esa hora. Mantén presionado un bloque para agarrarlo: arrástralo para moverlo, o tira de su borde de abajo para alargarlo.</div>`;
 
   /* se abre donde empieza el dia de verdad, no a medianoche. Si es la misma
      semana que ya estaba viendo (movio algo, marco algo), se queda donde
@@ -1679,6 +1683,13 @@ function renderCalSemana(){
    la semana dibujada, lo natural es agarrarlo y soltarlo donde va. Se arrastra
    en cuanto se mueve el dedo: quedarse quieto encima sigue siendo el gesto de
    seleccionar, y un toque seco lo sigue abriendo. */
+/* Mientras hay un bloque agarrado, el dedo no puede seguir desplazando la
+   pantalla. Cambiarle el touch-action a mitad del gesto no sirve — el
+   navegador ya decidio en el primer toque —, asi que se le quita el
+   desplazamiento al vuelo, cortando el touchmove. */
+let GC_ARR = null;
+document.addEventListener('touchmove', (ev)=>{ if(GC_ARR) ev.preventDefault(); }, { passive:false });
+
 function engancharArrastreSemana(caja, y){
   const columnas = [...caja.querySelectorAll('.gc-col')];
   let arr = null, reloj = null, espera = null;
@@ -1695,21 +1706,21 @@ function engancharArrastreSemana(caja, y){
        sin querer. La rayita de abajo si agarra de una: es un blanco pequeño y
        nadie la toca de paso. */
     const agarrar = (ev, alargando)=>{
-      arr = { el, x0:ev.clientX, y0:ev.clientY, movio:false, alargando,
+      arr = GC_ARR = { el, x0:ev.clientX, y0:ev.clientY, movio:false, alargando,
         top0: parseFloat(el.style.top), alto0: parseFloat(el.style.height),
         dur: Number(el.dataset.dur) || 60, desde: Number(el.dataset.desde),
         colInicial: el.parentElement, col: el.parentElement, min: null, hasta: null };
       try{ el.setPointerCapture(ev.pointerId); }catch(e){}
-      if(!alargando){
-        el.classList.add('agarrado');
-        if(navigator.vibrate) try{ navigator.vibrate(12); }catch(e){}
-      }
+      el.classList.add('agarrado');
+      if(navigator.vibrate) try{ navigator.vibrate(12); }catch(e){}
     };
     el.addEventListener('pointerdown', (ev)=>{
       if(ev.button) return;
-      if(ev.target.closest('.gc-asa')){ ev.preventDefault(); agarrar(ev, true); return; }
+      /* tambien el borde de abajo espera a que lo sostenga: rozarlo al pasar el
+         dedo alargaba cosas sin querer */
+      const asa = !!ev.target.closest('.gc-asa');
       espera = { x:ev.clientX, y:ev.clientY };
-      reloj = setTimeout(()=>{ reloj = null; agarrar(ev, false); }, 480);
+      reloj = setTimeout(()=>{ reloj = null; agarrar(ev, asa); }, 420);
     });
     el.addEventListener('pointermove', (ev)=>{
       /* mientras lo sostiene: si el dedo se va, era que queria desplazar */
@@ -1743,10 +1754,11 @@ function engancharArrastreSemana(caja, y){
     const soltar = (ev)=>{
       if(reloj){ clearTimeout(reloj); reloj = null; espera = null; }   // solo fue un toque
       el.classList.remove('agarrado');
+      GC_ARR = null;
       if(!arr || arr.el !== el) return;
       const { movio, min, dur, alargando, hasta, desde } = arr;
       const fecha = arr.col.dataset.dia, tipo = el.dataset.arrTipo, id = el.dataset.arr;
-      arr = null;
+      arr = GC_ARR = null;
       el.classList.remove('arrastrando');
       if(!movio) return;
       sinClic = true;                       // el clic que viene detras del arrastre no abre nada
@@ -1784,6 +1796,7 @@ function engancharArrastreSemana(caja, y){
     el.addEventListener('pointercancel', ()=>{
       if(reloj){ clearTimeout(reloj); reloj = null; espera = null; }
       el.classList.remove('agarrado');
+      GC_ARR = null;
       if(arr && arr.el===el){ arr = null; el.classList.remove('arrastrando'); renderCalSemana(); }
     });
   });
