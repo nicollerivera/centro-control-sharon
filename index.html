@@ -586,6 +586,25 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 .gc-ahora{position:absolute; left:0; right:0; height:2px; background:var(--urgent); z-index:3; pointer-events:none;}
 .gc-ahora::before{content:''; position:absolute; left:-3px; top:-3px; width:8px; height:8px; border-radius:50%; background:var(--urgent);}
 
+/* ---------- contarle el dia a Bitacora, como a una amiga ---------- */
+.contar{display:flex; gap:8px; align-items:flex-end; background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:6px 6px 6px 12px; margin:8px 0 4px;}
+.contar-txt{flex:1; min-width:0; resize:none; border:none; background:none; color:var(--text); font:inherit; font-size:14px; line-height:1.4; padding:8px 0; max-height:120px;}
+.contar-txt:focus{outline:none;}
+.contar-ok{flex:none; background:var(--accent); color:#fff; border:none; border-radius:18px; padding:9px 15px; font:inherit; font-size:13px; font-weight:700; cursor:pointer;}
+.contar-fila{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:6px; align-items:center; padding:10px 0; border-top:1px solid var(--border);}
+.contar-fila input, .contar-fila select{background:var(--surface-2); border:1px solid var(--border); color:var(--text); border-radius:10px; padding:9px 10px; font-size:14px; font-family:inherit; min-width:0;}
+.contar-fila input[type=text]{grid-column:1 / -1; order:-1;}
+.contar-fila select{grid-column:1 / 3;}
+
+.res-cosas{margin-top:16px; border-top:1px solid var(--border); padding-top:14px;}
+.res-cosas .rot{font-size:12px; font-weight:700; color:var(--text-dim); text-transform:uppercase; letter-spacing:.03em; margin-bottom:10px;}
+.res-cosas .cosa{display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 10px; align-items:baseline; margin-bottom:9px;}
+.res-cosas .nom{font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.res-cosas .nom i{font-style:normal; color:var(--text-dim); font-size:12px;}
+.res-cosas b{font-size:13px; font-variant-numeric:tabular-nums; white-space:nowrap;}
+.res-cosas .barra{grid-column:1 / -1; height:5px; border-radius:3px; background:var(--surface-2); overflow:hidden;}
+.res-cosas .barra span{display:block; height:100%; border-radius:3px;}
+
 /* ---------- Yo tab ---------- */
 .cycle-hero{background:linear-gradient(135deg, rgba(214,70,126,.14), rgba(139,108,249,.07)); border:1px solid var(--border); border-radius:var(--radius); padding:18px; margin-bottom:16px;}
 .cycle-hero .big{font-size:26px; font-weight:700; font-family:'Space Grotesk',sans-serif; color:var(--c-ciclo);}
@@ -697,6 +716,7 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
     <div id="hoyClasses"></div>
     <div id="hoyList"></div>
     <div id="hoyUpcoming"></div>
+    <div id="hoyContar"></div>
     <div id="hoyCierre"></div>
     <div id="hoyUrgentListas"></div>
   </div>
@@ -1315,6 +1335,16 @@ function renderHoy(){
     ? `<div class="rotulo"><span>Tu día</span><span>${duracionLarga(resumen.ocupado)} ocupadas · ${libres(resumen.libre)}</span></div>`
     : `<div class="rotulo"><span>Tu día</span></div>`;
 
+  /* ---- la caja para contar lo que ya paso ---- */
+  const cajaHoy = document.getElementById('hoyContar');
+  /* se pinta una sola vez: si se repintara en cada render, le borraria a
+     medias lo que esta escribiendo */
+  if(cajaHoy && !cajaHoy.querySelector('.contar-txt')){
+    cajaHoy.innerHTML = `<div class="rotulo" style="margin-top:22px;"><span>Cuéntame tu día</span></div>`
+      + cajaContar(t);
+    engancharContar(cajaHoy);
+  }
+
   /* ---- 3 · lo flexible de hoy: sin hora ---- */
   const sueltos = DATA.events.filter(e=>e.date===t && !e.start && e.status!=='hecho');
   const lugarHoy = acomodarDia(t).lugar;
@@ -1514,9 +1544,12 @@ function renderCalDayList(){
     (bloques.length ? tiraDelDia(ds, { sugerir:true })
       : `<div class="empty-card">Este día lo tienes libre entero.</div>`) +
     ((sinHora.length || pendSinHora.length) ? `<div class="rotulo" style="margin-top:20px;"><span>Sin hora</span></div>` +
-      pendSinHora.map(sueltoPendiente).join('') + sinHora.map(itemHTML).join('') : '');
+      pendSinHora.map(sueltoPendiente).join('') + sinHora.map(itemHTML).join('') : '') +
+    `<div class="rotulo" style="margin-top:20px;"><span>${ds < todayStr() ? 'Cuéntame cómo fue' : 'Cuéntame tu día'}</span></div>` +
+    cajaContar(ds);
 
   engancharTira(box);
+  engancharContar(box);
 }
 /* Un pendiente con dia pero sin hora: se ve con su ventana, y se marca o se abre. */
 function sueltoPendiente(p){
@@ -3435,9 +3468,18 @@ function resumenDe(desde, hasta){
   /* minutos por area: lo marcado hecho, sea evento o cosa que se repite */
   const porArea = {};
   const sumar = (cat, min)=>{ if(min>0) porArea[cat] = (porArea[cat]||0) + min; };
+  /* y por cosa, no solo por area: "Personal 40 h" no le dice nada, "almuerzo
+     18 h, novio 15 h, celular 9 h" si. Lo que escribio con el mismo nombre se
+     junta, sin importar mayusculas ni tildes. */
+  const porCosa = {};
   DATA.events.filter(e=>enRango(e.date) && e.status==='hecho').forEach(e=>{
     const min = Number(e.actualMin) || (e.start && e.end ? Math.round(horasFromRange(e.start, e.end)*60) : 0);
     sumar(e.cat, min);
+    const k = sinTildes(e.title||'').trim();
+    if(min > 0 && k && e.cat !== 'finanzas'){
+      porCosa[k] = porCosa[k] || { titulo:e.title, cat:e.cat, min:0, veces:0 };
+      porCosa[k].min += min; porCosa[k].veces++;
+    }
   });
   dias.forEach(f=>{ const m = minutosRepetidosDe(f); Object.keys(m).forEach(c=>sumar(c, m[c])); });
   sumar('trabajo', minTrabajo);
@@ -3463,7 +3505,8 @@ function resumenDe(desde, hasta){
   const salio = movs.filter(e=>e.type==='gasto').reduce((a,e)=>a+Number(e.amount||0),0);
 
   const focoEntradas = Object.entries(porArea).sort((a,b)=>b[1]-a[1]);
-  return { desde, hasta, dias, minTrabajo, minEstudio, minDormido, porArea,
+  const cosas = Object.values(porCosa).sort((a,b)=>b.min - a.min);
+  return { desde, hasta, dias, minTrabajo, minEstudio, minDormido, porArea, cosas,
     foco: focoEntradas[0] || null, hechas, quedaron, publicadas,
     clientesNuevos, clientesMarca: deMarca.length, entro, salio };
 }
@@ -3552,7 +3595,15 @@ function renderResumen(){
       ${r.clientesNuevos ? `<p><b>${r.clientesNuevos}</b> ${r.clientesNuevos===1?'cliente llegó':'clientes llegaron'} por la marca personal.</p>`
         : r.clientesMarca ? `<p>La marca personal te ha traído <b>${r.clientesMarca}</b> ${r.clientesMarca===1?'cliente':'clientes'} en total.</p>` : ''}
       ${r.quedaron ? `<p><b>${r.quedaron}</b> ${r.quedaron===1?'cosa quedó':'cosas quedaron'} sin hacer.</p>` : ''}
-    </div>`}
+    </div>
+    ${r.cosas.length ? `<div class="res-cosas">
+      <div class="rot">En qué se te fue el tiempo</div>
+      ${r.cosas.slice(0,7).map(c=>`<div class="cosa">
+        <span class="nom">${esc(c.titulo)}${c.veces>1?` <i>×${c.veces}</i>`:''}</span>
+        <b>${esc(horasTexto(c.min))}</b>
+        <span class="barra"><span style="width:${Math.round(c.min / r.cosas[0].min * 100)}%; background:${catDe(c.cat).color};"></span></span>
+      </div>`).join('')}
+    </div>` : ''}`}
   </div>`;
 
   caja.querySelectorAll('[data-res]').forEach(b=>b.onclick = ()=>{
@@ -3859,6 +3910,186 @@ function openYaHiceModal(preset){
       status:'hecho', estMin:null, actualMin:null, notes:'' });
     saveData(); closeSheet(); renderAll(); refrescarDiaCalendario();
   };
+}
+
+/* ============================================================
+   CONTAR EL DIA
+   Anotar lo que ya paso, cosa por cosa, era un formulario por cada cosa: seis
+   toques para decir que almorzo. Aca lo escribe como se lo contaria a una
+   amiga ("de 1 a 2 almorce y de 3 a 4 estuve con mi novio") y Bitacora lo
+   parte en bloques con su hora. Antes de guardar se lo muestra: adivinar la
+   hora sin preguntar es util, adivinarla sin que se vea es mentir.
+============================================================ */
+const sinTildes = s => (s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+
+/* Por que area contarlo. Lo que no cae en ninguna es personal, que es la vida. */
+const PISTAS_AREA = [
+  { cat:'universidad', claves:['clase','universidad',' la u','uni ','parcial','estudi','tarea','taller','expos','semillero','quiz','ensayo'] },
+  { cat:'trabajo',     claves:['turno','trabaj','oficina','movistar','infinity','asignar','llamada','cliente','reunion','junta','capacitacion'] },
+  { cat:'nexxa',       claves:['nexxa','globo','decorac','montaje','fiesta','evento'] },
+  { cat:'ads',         claves:['curso','ads','pauta','campana','publicidad','embudo'] }
+];
+function areaDeLoQueDijo(texto){
+  const t = sinTildes(texto);
+  const p = PISTAS_AREA.find(a=>a.claves.some(k=>t.includes(k)));
+  return p ? p.cat : 'personal';
+}
+/* Si no dice am ni pm hay que adivinar, y se adivina con lo que hace la gente:
+   "de 1 a 2" es despues de almuerzo, "de 8 a 9" es la mañana, y lo que se hace
+   de noche se dice sin pm ("cene de 7 a 8"). */
+const PISTAS_NOCHE = ['cen','noche','acost','dormi','novela','serie','pelicula','tv','rezar','bañ'];
+const PISTAS_MANANA = ['desayun','amaneci','madrug','levant','manana'];
+
+function aMinutos24(h, min, sufijo, texto, minimo){
+  h = Number(h); min = Number(min || 0);
+  const suf = sinTildes(sufijo || '');
+  const t = sinTildes(texto || '');
+  if(h > 23 || min > 59) return null;
+  if(/p\.?\s?m|tarde|noche/.test(suf)) h = (h % 12) + 12;
+  else if(/a\.?\s?m|manana|madrugada/.test(suf)) h = h % 12;
+  else if(h <= 11){
+    if(h <= 5) h += 12;                                        // la 1, las 2, las 4: la tarde
+    else if(PISTAS_NOCHE.some(k=>t.includes(k))) h += 12;       // "cene de 7 a 8"
+    else if(PISTAS_MANANA.some(k=>t.includes(k))){ /* la mañana se queda */ }
+    /* el dia no va para atras: si lo que dijo cae mucho antes de donde iba, era
+       la tarde. "Mucho" son dos horas, porque "a las 6 me levante, de 6 a 7
+       gym" es la misma mañana contada dos veces, no las seis de la tarde. */
+    else if(minimo !== null && h*60 + min < minimo - 120) h += 12;
+  }
+  if(h > 23) h -= 12;
+  return h*60 + min;
+}
+
+/* Una hora tiene que venir anunciada ("de", "a las", "entre") o traer su propia
+   marca (dos puntos, am, pm, un guion). Si no, un "2" suelto de "2 arepas"
+   terminaba siendo las dos de la tarde. */
+const RE_TRAMO = /(\bde(?:sde)?\s+(?:las?\s+)?|\ba\s+las?\s+|\bentre\s+(?:las?\s+)?|\bhasta\s+(?:las?\s+)?)?(\d{1,2})(?::(\d{2}))?\s*(a\.?\s?m\.?|p\.?\s?m\.?|de la manana|de la mañana|de la tarde|de la noche)?\s*(?:(?:\ba\b|\bhasta\b|\by\b|-|–|—)\s*(?:las?\s+)?(\d{1,2})(?::(\d{2}))?\s*(a\.?\s?m\.?|p\.?\s?m\.?|de la manana|de la mañana|de la tarde|de la noche)?)?/gi;
+
+function limpiarLoQueDijo(s){
+  return (s||'')
+    .replace(/^[\s,;.:y-]+/i, '')
+    .replace(/^(?:y\s+)?(?:luego|despues|después|mas tarde|más tarde|al rato|entonces|ya|pues|tambien|también|de ahi|de ahí)\b[\s,;:]*/i, '')
+    .replace(/^(?:me\s+)?(?:quede|quedé)\b\s*/i, '')
+    .replace(/[\s,;.:]*\b(?:y|e)?\s*(?:luego|despues|después|mas tarde|más tarde|al rato|entonces|tambien|también|ahi|ahí)\s*$/i, '')
+    .replace(/[\s,;.:y]+$/i, '')
+    .trim();
+}
+/* De lo que escribio salen bloques con hora. Lo que no tiene hora no se
+   inventa: se devuelve aparte para que ella decida. */
+function leerElDia(texto){
+  const bloques = [], sinHora = [];
+  const crudo = String(texto || '');
+  RE_TRAMO.lastIndex = 0;
+  const marcas = [];
+  let m;
+  while((m = RE_TRAMO.exec(crudo)) !== null){
+    const anunciada = !!m[1], tieneFin = m[5] !== undefined, marcada = !!(m[3] || m[4] || m[6] || m[7]);
+    if(!anunciada && !tieneFin && !marcada) continue;           // un numero suelto no es una hora
+    if(Number(m[2]) > 23) continue;
+    marcas.push({ m, ini:m.index, fin:m.index + m[0].length });
+  }
+  if(!marcas.length){
+    const solo = limpiarLoQueDijo(crudo);
+    if(solo) sinHora.push(solo);
+    return { bloques, sinHora };
+  }
+  let ultimoFin = null;
+  marcas.forEach((k, i)=>{
+    const antes = limpiarLoQueDijo(crudo.slice(i ? marcas[i-1].fin : 0, k.ini));
+    const luego = limpiarLoQueDijo(crudo.slice(k.fin, i+1 < marcas.length ? marcas[i+1].ini : crudo.length));
+    /* "almorce de 1 a 2" y "de 1 a 2 almorce" dicen lo mismo */
+    const titulo = (luego || antes || '').replace(/\s+/g,' ').slice(0, 70);
+    /* la pista de si fue mañana o tarde, y de que area es, sale de lo que dijo
+       de esa cosa: mirar la frase de al lado hacia que "cene" cayera en la
+       universidad porque antes venia "estudie para el parcial" */
+    const contexto = titulo;
+    const desde = aMinutos24(k.m[2], k.m[3], k.m[4], contexto, ultimoFin);
+    if(desde === null) return;
+    let hasta = k.m[5] !== undefined ? aMinutos24(k.m[5], k.m[6], k.m[7], contexto, desde) : null;
+    if(hasta === null) hasta = desde + 60;                      // sin hora de salida, una hora
+    if(hasta <= desde) hasta = Math.min(desde + 60, 24*60);     // "de 11 a 1" ya lo resolvio aMinutos24
+    ultimoFin = hasta;
+    if(!titulo){ return; }
+    bloques.push({ titulo: titulo.charAt(0).toUpperCase() + titulo.slice(1),
+      start: hhmm(desde), end: hhmm(Math.min(hasta, 24*60 - 1)), cat: areaDeLoQueDijo(contexto) });
+  });
+  return { bloques, sinHora };
+}
+
+/* La caja donde lo escribe. La misma en Hoy y en el dia que este mirando. */
+function cajaContar(fecha){
+  const cuando = fecha === todayStr() ? 'hoy' : niceDateShort(fecha);
+  return `<div class="contar" data-contar="${fecha}">
+    <textarea class="contar-txt" rows="2" placeholder="De 1 a 2 almorcé, de 3 a 4 estuve con mi novio…"
+      aria-label="Cuéntame qué hiciste ${esc(cuando)}"></textarea>
+    <button class="contar-ok" type="button">Anotar</button>
+  </div>`;
+}
+function engancharContar(caja){
+  caja.querySelectorAll('[data-contar]').forEach(box=>{
+    const txt = box.querySelector('.contar-txt');
+    const mandar = ()=>{
+      const leido = leerElDia(txt.value);
+      if(!leido.bloques.length){
+        avisar(leido.sinHora.length
+          ? 'No le vi la hora a eso. Escríbelo como "de 3 a 4 ' + leido.sinHora[0].slice(0,24) + '".'
+          : 'Cuéntame con horas: "de 1 a 2 almorcé".');
+        return;
+      }
+      txt.value = '';
+      revisarLoQueConto(box.dataset.contar, leido.bloques);
+    };
+    box.querySelector('.contar-ok').onclick = mandar;
+    /* enter manda, shift+enter sigue escribiendo: como en cualquier chat */
+    txt.onkeydown = (e)=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); mandar(); } };
+  });
+}
+
+/* Lo que entendio, antes de guardarlo. Todo se puede corregir aca mismo. */
+function revisarLoQueConto(fecha, bloques){
+  const pintar = ()=>{
+    openSheet(`<h3>¿Así fue tu ${fecha===todayStr() ? 'día' : 'día ' + niceDateShort(fecha)}?</h3>
+      <div class="helptext" style="margin:-4px 0 12px;">Cámbiale lo que no quedó bien. Se guarda todo como hecho.</div>
+      ${bloques.map((b,i)=>`
+        <div class="contar-fila" data-i="${i}">
+          <input type="time" data-campo="start" value="${esc(b.start)}" aria-label="Desde">
+          <input type="time" data-campo="end" value="${esc(b.end)}" aria-label="Hasta">
+          <input type="text" data-campo="titulo" value="${esc(b.titulo)}" aria-label="Qué hiciste">
+          <select data-campo="cat" aria-label="De qué fue">
+            ${Object.entries(CATS).filter(([k])=>k!=='finanzas')
+              .map(([k,v])=>`<option value="${k}" ${b.cat===k?'selected':''}>${v.emoji} ${esc(v.label)}</option>`).join('')}
+          </select>
+          <button class="small-btn" data-quitar="${i}" aria-label="Quitar">✕</button>
+        </div>`).join('')}
+      <div class="sheet-actions">
+        <button class="btn btn-primary" id="contarGuardar">Guardar ${bloques.length === 1 ? 'esto' : 'las ' + bloques.length}</button>
+      </div>`);
+
+    const leer = ()=> [...sheet.querySelectorAll('.contar-fila')].map(f=>({
+      start: f.querySelector('[data-campo="start"]').value,
+      end: f.querySelector('[data-campo="end"]').value,
+      titulo: f.querySelector('[data-campo="titulo"]').value.trim(),
+      cat: f.querySelector('[data-campo="cat"]').value
+    }));
+    sheet.querySelectorAll('[data-quitar]').forEach(b=>b.onclick = ()=>{
+      const v = leer(); v.splice(Number(b.dataset.quitar), 1);
+      bloques = v;
+      if(!bloques.length){ closeSheet(); return; }
+      pintar();
+    });
+    document.getElementById('contarGuardar').onclick = ()=>{
+      const v = leer().filter(b=>b.titulo && b.start);
+      v.forEach(b=>{
+        const dur = b.end ? finEnMinutos(b.start, b.end) - minutosDe(b.start) : 0;
+        DATA.events.push({ id:uid(), creado:Date.now(), cat:b.cat, title:b.titulo, date:fecha,
+          start:b.start, end:b.end || '', status:'hecho', estMin:null,
+          actualMin: dur > 0 ? dur : null, notes:'' });
+      });
+      saveData(); closeSheet(); renderAll(); refrescarDiaCalendario();
+      avisar(v.length === 1 ? 'Anotado.' : v.length + ' cosas anotadas.');
+    };
+  };
+  pintar();
 }
 
 function openPeriodModal(){
