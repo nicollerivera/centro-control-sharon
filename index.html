@@ -609,9 +609,15 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 .gc-asa::after{content:''; position:absolute; left:50%; bottom:2px; width:16px; height:2.5px; margin-left:-8px; border-radius:2px; background:var(--c); opacity:.45;}
 .gc-ev.arrastrando .gc-asa::after{opacity:.9;}
 .gc-ev.arrastrando{z-index:5; opacity:.9; box-shadow:0 6px 18px rgba(0,0,0,.22); transform:scale(1.02);}
-.gc-ev.hecho{opacity:.45;}
-.gc-ev.saltado{opacity:.5;}
+/* lo hecho se apaga, pero no se vuelve transparente: con opacidad, dos cosas
+   cruzadas dejaban ver sus dos textos uno encima del otro */
+.gc-ev.hecho, .gc-ev.saltado{background:color-mix(in srgb, var(--c) 8%, var(--surface)); border-left-color:color-mix(in srgb, var(--c) 55%, var(--surface));}
+.gc-ev.hecho b, .gc-ev.saltado b{color:var(--text-dim); font-weight:500;}
+.gc-ev.hecho .h, .gc-ev.saltado .h{color:var(--text-dim);}
 .gc-ev.saltado b{text-decoration:line-through;}
+/* el sueño es el telon: se ve, pero no compite con lo que hizo despierta */
+.gc-ev.noche{background:color-mix(in srgb, var(--c) 9%, var(--surface)); border-left-width:2px; cursor:pointer;}
+.gc-ev.noche b{color:var(--text-dim); font-weight:500;}
 /* la raya roja de la hora en la que va: lo unico que se mueve en la pantalla */
 .gc-ahora{position:absolute; left:0; right:0; height:2px; background:var(--urgent); z-index:3; pointer-events:none;}
 .gc-ahora::before{content:''; position:absolute; left:-3px; top:-3px; width:8px; height:8px; border-radius:50%; background:var(--urgent);}
@@ -1485,15 +1491,20 @@ function renderCalendar(){
 const GC_SEMANA = { lunes:null, scroll:null };   // donde iba mirando la semana
 const GC_HP = 27;                 // lo que mide una hora con algo dentro
 const GC_HP_CORTA = 9;            // y lo que mide una hora en la que no pasa nada
+const GC_HP_NOCHE = 5;            // y una en la que solo estaba durmiendo
 
 /* La madrugada ocupaba lo mismo que la tarde: siete horas de rejilla vacia (o
    de sueño) para llegar a donde de verdad pasa el dia. Las horas en las que no
    hay nada se encogen, y la semana entra casi entera en la pantalla. */
 function alturasDeLaSemana(dias){
-  const viva = new Array(24).fill(false);
+  const viva = new Array(24).fill(false), dormida = new Array(24).fill(false);
   dias.forEach(f=>{
     bloquesDeFecha(f).forEach(b=>{
-      if(b.noche) return;                       // dormir no hace que esa hora valga la pena mostrarla
+      if(b.noche){                              // dormir se colapsa aun mas que lo vacio
+        const d0 = minutosDe(b.start), h0 = Math.min(1440, b.end ? finEnMinutos(b.start, b.end) : d0 + 30);
+        if(d0 !== null) for(let x = Math.floor(d0/60); x <= Math.min(23, Math.floor((h0 - 1)/60)); x++) dormida[x] = true;
+        return;
+      }
       const d = minutosDe(b.start);
       if(d === null) return;
       const h = Math.min(1440, b.end ? finEnMinutos(b.start, b.end) : d + 30);
@@ -1504,7 +1515,7 @@ function alturasDeLaSemana(dias){
   /* solo la hora que tiene algo se queda grande: darle el mismo alto a sus
      vecinas hacia que una cosa suelta a las 2 de la mañana abriera media
      madrugada */
-  return viva.map(v=> v ? GC_HP : GC_HP_CORTA);
+  return viva.map((v,i)=> v ? GC_HP : dormida[i] ? GC_HP_NOCHE : GC_HP_CORTA);
 }
 /* De un minuto del dia al pixel donde cae, con horas de distinto alto. */
 function reglaDelDia(alturas){
@@ -1553,7 +1564,12 @@ function acomodarEnCarriles(items){
       else carriles[i] = it.hasta;
       it.carril = i;
     });
-    grupo.forEach(it=> it.carriles = carriles.length);
+    /* Montarlos solo sirve si lo de encima empieza despues: asi queda a la
+       vista la cabecera de lo de abajo, que es donde esta su nombre. Dos cosas
+       que arrancan a la misma hora se tapan, y esas se reparten. */
+    const cascada = grupo.every(it => it.carril === 0 || grupo.every(o =>
+      o.carril >= it.carril || !(o.desde < it.hasta && it.desde < o.hasta) || it.desde >= o.desde + 15));
+    grupo.forEach(it=>{ it.carriles = carriles.length; it.cascada = cascada; });
     grupo = []; finGrupo = -1;
   };
   items.forEach(it=>{
@@ -1598,7 +1614,16 @@ function renderCalSemana(){
        no cuenta para eso o siempre abriria a medianoche */
     items.forEach(it=>{ if(!it.b.noche && it.desde < primera) primera = it.desde; });
 
-    const evs = acomodarEnCarriles(items).map(it=>{
+    /* Lo dormido va al fondo, ancho completo y sin pelear por un carril: es el
+       telon del dia, no una cosa mas de la lista. Si entra al reparto, once
+       horas de sueño dejan a todo lo demas en media columna. */
+    const noche = items.filter(it=>it.b.noche);
+    const despierta = items.filter(it=>!it.b.noche);
+    const fondo = noche.map(it=>`<button class="gc-ev noche" data-sueno="${it.b.sueno}"
+      style="--c:${it.b.color}; top:${y(it.desde)}px; height:${Math.max(y(it.hasta) - y(it.desde), 13)}px; left:0; width:calc(100% - 2px); z-index:1;"
+      title="${esc(it.b.start)}–${esc(it.b.end)} ${esc(it.b.titulo)}"><b>${esc(it.b.titulo)}</b></button>`).join('');
+
+    const evs = fondo + acomodarEnCarriles(despierta).map(it=>{
       const b = it.b;
       const idRep = b.ev ? null : b.rutina ? 'rutina:'+b.rutina.id : b.materia ? 'materia:'+b.materia.id : null;
       const estadoRep = idRep ? estadoRepetido(f, idRep) : null;
@@ -1621,9 +1646,11 @@ function renderCalSemana(){
          Calendar, y se lee entero. En la semana, con columnas de 44 pixeles,
          montarlas taparia la de atras: ahi se reparten. */
       let ancho, izq;
-      const monta = unDia && n <= 4;       // de cinco cruzadas en adelante, montarlas tapa
+      const monta = unDia && n <= 3 && it.cascada;   // de cuatro en adelante, montarlas deja a las de atras en dos letras
       if(n === 1){ ancho = unDia ? 96 : 84; izq = 0; }
-      else if(monta){ izq = it.carril * 7; ancho = 96 - 7*(n-1); }
+      /* como en Calendar: todas llegan al borde derecho y lo unico que cambia
+         es donde empiezan, corridas en cascada */
+      else if(monta){ izq = it.carril * 7; ancho = 96 - izq; }
       else if(unDia){ ancho = 96/n; izq = it.carril * (96/n); }
       else { ancho = n === 2 ? 50 : 58; izq = n <= 2 ? it.carril * 50 : it.carril * (42/(n-1)); }
       const montado = monta && it.carril > 0;
