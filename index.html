@@ -1607,15 +1607,13 @@ function renderCalSemana(){
         : b.materia ? `data-materia="${b.materia.id}"`
         : b.pend ? `data-pend="${b.pend.id}"`
         : b.sueno ? `data-sueno="${b.sueno}"` : '';
-      /* Dos cosas cruzadas no se parten la columna por la mitad: la de despues
-         se corre un poco a la derecha y se monta sobre la de antes, como en
-         Google Calendar. Partirlas dejaba dos tajadas donde no cabia el
-         nombre; asi las dos siguen anchas y se ve cual empieza despues. El
-         ultimo carril siempre termina en el borde. */
+      /* no llena la columna: el carril que queda a la derecha deja ver el color
+         del dia y sirve para tocar y agregar algo a esa misma hora. Y de tres
+         cosas a la misma hora en adelante no se parte la columna en tajadas
+         ilegibles: se encabalgan, como las cartas de una mano. */
       const n = it.carriles || 1;
-      const paso = n > 1 ? Math.min(14, 42/(n-1)) : 0;
-      const ancho = n === 1 ? 84 : 96 - paso*(n-1);
-      const izq = it.carril * paso;
+      const ancho = n === 1 ? 84 : n === 2 ? 50 : 58;   // el ultimo carril tiene que terminar en el borde, no pasarse
+      const izq = n <= 2 ? it.carril * (100/n) : it.carril * (42/(n-1));
       /* lo que nace en otra seccion (un turno, una entrega) se mueve alla, no
          aca: arrastrarlo dejaria el calendario diciendo una cosa y la seccion
          otra. Lo suyo — lo que agendo y lo que conto — si se mueve. */
