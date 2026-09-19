@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>Bitácora</title>
-<meta name="bitacora-build" content="20260918195441">
+<meta name="bitacora-build" content="20260918195629">
 <script>
 /* Modo claro u oscuro (D55). La primera vez sigue al teléfono; después manda el botón. */
 /* Arranca en claro. El oscuro se elige con el boton, no lo decide el
@@ -177,14 +177,17 @@ button{font-family:inherit;}
 .no-btn{flex:none; width:26px; height:26px; margin:1px 0 0; padding:0; display:flex; align-items:center; justify-content:center; border:2px solid var(--border); border-radius:50%; background:none; color:var(--text-dim); cursor:pointer;}
 .no-btn svg{width:13px; height:13px;}
 .no-btn.activo{border-color:var(--text-muted); background:var(--surface-2); color:var(--text-muted);}
-.bloque .no-btn{width:28px; height:28px; margin:0;}
+.bloque .no-btn{width:28px; height:28px;}
 /* el boton que da el dia por pasado: ancho, arriba de la tira, imposible de no ver */
 .dia-entero{width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px; margin:2px 0 6px; padding:11px 14px; border:1px solid var(--border); border-radius:12px; background:var(--surface-2); color:var(--text); font:inherit; font-size:13.5px; font-weight:600; cursor:pointer;}
 .dia-entero span{font-size:12px; font-weight:600; color:var(--text-muted);}
-/* los dos botones del bloque se tocan con el pulgar sin apuntar: 28 y con aire */
+/* Los dos botones del bloque dicen cosas opuestas, asi que no pueden quedar
+   pegados: un pulgar que apunta mal marcaria "hecho" queriendo decir "hoy no".
+   28 px cada uno y 18 entre centros de borde a borde — mas que el ancho de una
+   yema — con el ✕ arrimado al texto y el ✓ contra el margen. */
 .bloque .status-btn{width:28px; height:28px; margin:0;}
 .bloque{gap:10px;}
-.bloque .no-btn + .status-btn{margin-left:-2px;}
+.bloque .no-btn{margin-right:8px;}
 
 /* lo hecho, guardado en una linea discreta al final del dia */
 .linea-hechas{display:flex; align-items:center; gap:7px; margin:6px 0 0; padding:7px 2px; background:none; border:none; color:var(--done); font:inherit; font-size:12.5px; font-weight:600; cursor:pointer;}
