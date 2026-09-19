@@ -3998,7 +3998,7 @@ function leerElDia(texto){
     const antes = limpiarLoQueDijo(crudo.slice(i ? marcas[i-1].fin : 0, k.ini));
     const luego = limpiarLoQueDijo(crudo.slice(k.fin, i+1 < marcas.length ? marcas[i+1].ini : crudo.length));
     /* "almorce de 1 a 2" y "de 1 a 2 almorce" dicen lo mismo */
-    const titulo = (luego || antes || '').replace(/\s+/g,' ').slice(0, 70);
+    const titulo = (luego || antes || '').replace(/\s+/g,' ').slice(0, 90);
     /* la pista de si fue mañana o tarde, y de que area es, sale de lo que dijo
        de esa cosa: mirar la frase de al lado hacia que "cene" cayera en la
        universidad porque antes venia "estudie para el parcial" */
@@ -4006,14 +4006,26 @@ function leerElDia(texto){
     const desde = aMinutos24(k.m[2], k.m[3], k.m[4], contexto, ultimoFin);
     if(desde === null) return;
     let hasta = k.m[5] !== undefined ? aMinutos24(k.m[5], k.m[6], k.m[7], contexto, desde) : null;
-    if(hasta === null) hasta = desde + 60;                      // sin hora de salida, una hora
-    if(hasta <= desde) hasta = Math.min(desde + 60, 24*60);     // "de 11 a 1" ya lo resolvio aMinutos24
+    const loDijo = hasta !== null && hasta > desde;
+    if(!loDijo) hasta = desde + 60;                             // provisional: lo arregla el encadenado
     ultimoFin = hasta;
     if(!titulo){ return; }
     bloques.push({ titulo: titulo.charAt(0).toUpperCase() + titulo.slice(1),
-      start: hhmm(desde), end: hhmm(Math.min(hasta, 24*60 - 1)), cat: areaDeLoQueDijo(contexto) });
+      desde, hasta, loDijo, cat: areaDeLoQueDijo(contexto) });
   });
-  return { bloques, sinHora };
+
+  /* Cuando no dice a que hora termino algo, no termino una hora despues: termino
+     cuando empezo lo siguiente. Poner una hora fija abria un hueco falso entre
+     cada cosa, como si en ese rato no hubiera hecho nada. */
+  bloques.forEach((b, i)=>{
+    const sigue = bloques[i+1];
+    if(!b.loDijo && sigue && sigue.desde > b.desde) b.hasta = sigue.desde;
+    else if(!b.loDijo && !sigue) b.hasta = Math.min(b.desde + 60, 24*60 - 1);
+    /* y si lo que dijo se monta sobre lo siguiente, manda lo que dijo */
+    b.hasta = Math.max(b.desde + 5, Math.min(b.hasta, 24*60 - 1));
+  });
+
+  return { bloques: bloques.map(b=>({ titulo:b.titulo, start:hhmm(b.desde), end:hhmm(b.hasta), cat:b.cat })), sinHora };
 }
 
 /* La caja donde lo escribe. La misma en Hoy y en el dia que este mirando. */
