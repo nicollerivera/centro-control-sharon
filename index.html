@@ -582,6 +582,8 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 /* si el bloque es corto no cabe partir la palabra: una linea y puntos */
 .gc-ev.corto{padding-top:1px;}
 .gc-ev.corto b{-webkit-line-clamp:1; overflow-wrap:normal;}
+.gc-ev.mueve{touch-action:none;}
+.gc-ev.arrastrando{z-index:5; opacity:.9; box-shadow:0 6px 18px rgba(0,0,0,.22); transform:scale(1.02);}
 .gc-ev.hecho{opacity:.45;}
 .gc-ev.saltado{opacity:.5;}
 .gc-ev.saltado b{text-decoration:line-through;}
@@ -1238,7 +1240,7 @@ function bindItemClicks(){
       saveData(); renderAll();
     };
   });
-  document.querySelectorAll('.item[data-id], .bloque[data-id]').forEach(it=>{
+  document.querySelectorAll('.item[data-id], .bloque[data-id], .gc-ev[data-id]').forEach(it=>{
     /* bindItemClicks corre en cada render y recorre todo el documento: sin esto,
        un item de otra seccion terminaba con el mismo clic colgado dos veces */
     if(it.dataset.enganchado) return;
@@ -1427,6 +1429,7 @@ function renderCalendar(){
 /* La semana como agenda: siete columnas de horas y cada cosa dibujada donde
    cae y del alto que dura. Ver el dia en bloques contesta sola la pregunta de
    si le cabe un turno, que es para lo que abre la semana (D24, D103). */
+const GC_SEMANA = { lunes:null, scroll:null };   // donde iba mirando la semana
 const GC_HP = 34;                 // lo que mide una hora con algo dentro
 const GC_HP_CORTA = 11;           // y lo que mide una hora en la que no pasa nada
 
@@ -1557,9 +1560,14 @@ function renderCalSemana(){
         : b.pend ? `data-pend="${b.pend.id}" data-sel-tipo="pendiente" data-sel-id="${b.pend.id}"`
       : b.sueno ? `data-sueno="${b.sueno}"` : '';
       const ancho = 100 / (it.carriles || 1);
+      /* lo que nace en otra seccion (un turno, una entrega) se mueve alla, no
+         aca: arrastrarlo dejaria el calendario diciendo una cosa y la seccion
+         otra. Lo suyo — lo que agendo y lo que conto — si se mueve. */
+      const mueve = b.ev && !b.ev.linkedType ? `data-arr="${b.ev.id}" data-arr-tipo="evento"`
+        : b.pend && b.pend.hora ? `data-arr="${b.pend.id}" data-arr-tipo="pendiente"` : '';
       const arriba = y(it.desde);
       const alto = Math.max(y(it.hasta) - arriba, 13);
-      return `<button class="gc-ev${alto < 34 ? ' corto':''}${hecho?' hecho':''}${saltado?' saltado':''}" ${marca}
+      return `<button class="gc-ev${alto < 34 ? ' corto':''}${hecho?' hecho':''}${saltado?' saltado':''}${mueve?' mueve':''}" ${marca} ${mueve} data-dur="${it.hasta - it.desde}"
         style="--c:${b.color}; top:${arriba}px; height:${alto}px;
                left:${it.carril*ancho}%; width:calc(${ancho}% - 2px);"
         title="${esc(b.start)}${b.end?'–'+esc(b.end):''} ${esc(b.titulo)}">
@@ -1577,12 +1585,18 @@ function renderCalSemana(){
       <div class="gc-cuerpo"><div>${horas}</div>${columnas}</div>
     </div>
   </div>
-  <div class="gc-pie">Toca un rato libre y pones algo a esa hora.</div>`;
+  <div class="gc-pie">Toca un rato libre y pones algo a esa hora. Arrastra un bloque para moverlo.</div>`;
 
-  /* se abre donde empieza el dia de verdad, no a medianoche */
+  /* se abre donde empieza el dia de verdad, no a medianoche. Si es la misma
+     semana que ya estaba viendo (movio algo, marco algo), se queda donde
+     estaba: saltar al principio despues de cada toque marea. */
   const arranque = dias.includes(hoy) ? Math.min(primera, ahora) : primera;
   const scroll = document.getElementById('gcScroll');
-  scroll.scrollTop = Math.max(0, y(arranque === 24*60 ? 7*60 : Math.max(0, arranque - 30)));
+  scroll.scrollTop = (GC_SEMANA.lunes === lunes && GC_SEMANA.scroll != null)
+    ? GC_SEMANA.scroll
+    : Math.max(0, y(arranque === 24*60 ? 7*60 : Math.max(0, arranque - 30)));
+  GC_SEMANA.lunes = lunes;
+  scroll.onscroll = ()=>{ GC_SEMANA.scroll = scroll.scrollTop; };
 
   /* tocar el dia arriba lo elige abajo */
   caja.querySelectorAll('.gc-dia').forEach(el=>el.onclick = ()=>{
@@ -1597,8 +1611,71 @@ function renderCalSemana(){
     calSelected = f;
     abrirEnFranja(f, y.minutoEn(px));
   });
+  engancharArrastreSemana(caja, y);
   engancharTira(caja);
   renderCalDayList();
+}
+
+/* ---------- mover un bloque arrastrandolo ----------
+   Cambiar algo de hora era abrirlo, buscar los dos campos y escribir. Teniendo
+   la semana dibujada, lo natural es agarrarlo y soltarlo donde va. Se arrastra
+   en cuanto se mueve el dedo: quedarse quieto encima sigue siendo el gesto de
+   seleccionar, y un toque seco lo sigue abriendo. */
+function engancharArrastreSemana(caja, y){
+  const columnas = [...caja.querySelectorAll('.gc-col')];
+  let arr = null;
+
+  const columnaEn = (x)=> columnas.find(c=>{
+    const r = c.getBoundingClientRect();
+    return x >= r.left && x <= r.right;
+  }) || arr.colInicial;
+
+  caja.querySelectorAll('.gc-ev.mueve').forEach(el=>{
+    el.addEventListener('pointerdown', (ev)=>{
+      if(ev.button) return;
+      arr = { el, x0:ev.clientX, y0:ev.clientY, movio:false,
+        top0: parseFloat(el.style.top), dur: Number(el.dataset.dur) || 60,
+        colInicial: el.parentElement, col: el.parentElement, min: null };
+      try{ el.setPointerCapture(ev.pointerId); }catch(e){}
+    });
+    el.addEventListener('pointermove', (ev)=>{
+      if(!arr || arr.el !== el) return;
+      const dx = ev.clientX - arr.x0, dy = ev.clientY - arr.y0;
+      if(!arr.movio && Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      arr.movio = true;
+      el.classList.add('arrastrando');
+      const col = columnaEn(ev.clientX);
+      if(col !== arr.col){ arr.col = col; col.appendChild(el); el.style.left = '0'; el.style.width = 'calc(100% - 2px)'; }
+      const min = Math.min(23*60 + 30, Math.max(0, y.minutoEn(arr.top0 + dy)));
+      arr.min = min;
+      el.style.top = y(min) + 'px';
+      el.style.height = Math.max(y(min + arr.dur) - y(min), 13) + 'px';
+      const rot = el.querySelector('.h');
+      if(rot) rot.textContent = hhmm(min);
+    });
+    const soltar = (ev)=>{
+      if(!arr || arr.el !== el) return;
+      const movio = arr.movio, min = arr.min, fecha = arr.col.dataset.dia, dur = arr.dur, tipo = el.dataset.arrTipo, id = el.dataset.arr;
+      arr = null;
+      el.classList.remove('arrastrando');
+      if(!movio || min === null) return;
+      sinClic = true;                       // el clic que viene detras del arrastre no abre nada
+      if(tipo === 'evento'){
+        const e = DATA.events.find(x=>x.id===id);
+        if(!e) return;
+        e.date = fecha; e.start = hhmm(min);
+        if(e.end) e.end = hhmm(Math.min(min + dur, 24*60 - 1));
+      } else {
+        const p = (DATA.pendientes||[]).find(x=>x.id===id);
+        if(!p) return;
+        p.fecha = fecha; p.hora = hhmm(min);
+      }
+      saveData(); renderAll(); renderCalSemana();
+      avisar('Movido a ' + niceDateShort(fecha) + ', ' + hhmm(min) + '.');
+    };
+    el.addEventListener('pointerup', soltar);
+    el.addEventListener('pointercancel', ()=>{ if(arr && arr.el===el){ arr = null; el.classList.remove('arrastrando'); renderCalSemana(); } });
+  });
 }
 
 function renderCalDayList(){
@@ -5982,10 +6059,12 @@ function tiraDelDia(fecha, opciones){
   return (o.rapido ? botonDiaEntero(fecha) : '')
     + pintar(porHacer)
     + (porHacer.every(f=>f.tipo==='hueco') && n ? `<div class="todo-listo">Ya hiciste todo lo de hoy.</div>` : '')
-    + (n ? `<button class="linea-hechas ${nHechas?'':'solo-no'}" data-abrir-hechas>
+    /* en un dia que no es hoy, lo hecho no es un resumen: es lo que paso ese
+       dia. Va abierto, para verlo y poder corregirlo sin buscar nada. */
+    + (n ? `<button class="linea-hechas ${nHechas?'':'solo-no'}${fecha!==todayStr()?' abierta':''}" data-abrir-hechas>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">${nHechas ? '<path d="M20 6L9 17l-5-5"/>' : '<path d="M6 6l12 12M18 6L6 18"/>'}</svg>
         <span>${rotulo}</span>
-      </button><div class="hechas-lista" hidden>${pintar(yaHechas)}</div>` : '');
+      </button><div class="hechas-lista" ${fecha===todayStr()?'hidden':''}>${pintar(yaHechas)}</div>` : '');
 }
 
 /* ---------- marcar el dia de un solo toque ----------
