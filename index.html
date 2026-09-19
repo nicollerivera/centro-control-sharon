@@ -1494,8 +1494,8 @@ function renderCalendar(){
    si le cabe un turno, que es para lo que abre la semana (D24, D103). */
 const GC_SEMANA = { lunes:null, scroll:null };   // donde iba mirando la semana
 const GC_HP = 27;                 // lo que mide una hora con algo dentro
-const GC_HP_CORTA = 9;            // y lo que mide una hora en la que no pasa nada
-const GC_HP_NOCHE = 5;            // y una en la que solo estaba durmiendo
+const GC_HP_CORTA = 6;            // y lo que mide una hora en la que no pasa nada
+const GC_HP_NOCHE = 4;            // y una en la que solo estaba durmiendo
 
 /* La madrugada ocupaba lo mismo que la tarde: siete horas de rejilla vacia (o
    de sueño) para llegar a donde de verdad pasa el dia. Las horas en las que no
@@ -1600,8 +1600,13 @@ function renderCalSemana(){
 
   const alturas = alturasDeLaSemana(dias);
   const y = reglaDelDia(alturas);
-  const horas = alturas.map((a,h)=>
-    `<div class="gc-hora${a < GC_HP ? ' corta' : ''}" style="height:${a}px"><span>${h ? String(h).padStart(2,'0') : ''}</span></div>`).join('');
+  /* en las horas encogidas los numeros se pisarian unos con otros: se marca
+     una de cada tres, lo justo para no perderse */
+  const horas = alturas.map((a,h)=>{
+    const corta = a < GC_HP;
+    const rotulo = h && (!corta || h % 3 === 0) ? String(h).padStart(2,'0') : '';
+    return `<div class="gc-hora${corta ? ' corta' : ''}" style="height:${a}px"><span>${rotulo}</span></div>`;
+  }).join('');
   const lineas = alturas.map(a=>`<div class="gc-linea" style="height:${a}px"></div>`).join('');
 
   const ahora = ahoraEnMinutos();
