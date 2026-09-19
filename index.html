@@ -1427,7 +1427,7 @@ function renderCalendar(){
    cae y del alto que dura. Ver el dia en bloques contesta sola la pregunta de
    si le cabe un turno, que es para lo que abre la semana (D24, D103). */
 const GC_HP = 42;                 // lo que mide una hora con algo dentro
-const GC_HP_CORTA = 13;           // y lo que mide una hora en la que no pasa nada
+const GC_HP_CORTA = 12;           // y lo que mide una hora en la que no pasa nada
 
 /* La madrugada ocupaba lo mismo que la tarde: siete horas de rejilla vacia (o
    de sueño) para llegar a donde de verdad pasa el dia. Las horas en las que no
@@ -1444,9 +1444,10 @@ function alturasDeLaSemana(dias){
     });
   });
   if(!viva.some(Boolean)) for(let h = 6; h <= 22; h++) viva[h] = true;   // dia en blanco: se ve el dia despierto
-  /* la hora pegada a algo tambien va completa, para que el bloque no arranque
-     pegado al borde de lo encogido */
-  return viva.map((v,i)=> (v || viva[i-1] || viva[i+1]) ? GC_HP : GC_HP_CORTA);
+  /* solo la hora que tiene algo se queda grande: darle el mismo alto a sus
+     vecinas hacia que una cosa suelta a las 2 de la mañana abriera media
+     madrugada */
+  return viva.map(v=> v ? GC_HP : GC_HP_CORTA);
 }
 /* De un minuto del dia al pixel donde cae, con horas de distinto alto. */
 function reglaDelDia(alturas){
