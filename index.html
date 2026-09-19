@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>Bitácora</title>
-<meta name="bitacora-build" content="20260918194238">
+<meta name="bitacora-build" content="20260918194724">
 <script>
 /* Modo claro u oscuro (D55). La primera vez sigue al teléfono; después manda el botón. */
 /* Arranca en claro. El oscuro se elige con el boton, no lo decide el
@@ -3589,10 +3589,16 @@ function opcionesDeAgregar(){
     return [
       { que:'Una lista nueva', nota:'como una nota de Keep', hacer:()=>openListaModal(null) },
       { que:'Algo con fecha', nota:'lo sin fecha va en su lista', hacer:()=>openEventModal() },
-      { que:'Algo que ya hiciste', nota:'para que quede registrado', hacer:()=>openDoneModal() }
+      { que:'Algo que ya hiciste', nota:'para que quede registrado', hacer:()=>openYaHiceModal() }
     ];
   }
   if(vista==='yo') return [{ que:'Una nota tuya', nota:'', hacer:()=>openPersonalModal() }];
+  /* En Hoy casi nunca esta agendando: esta contando lo que ya paso. */
+  if(vista==='hoy') return [
+    { que:'Algo que ya hice', nota:'el gym, un rato de celular, lo que cambió', hacer:()=>openYaHiceModal() },
+    { que:'Cuánto dormí', nota:'aunque te hayas acostado a las 2', hacer:()=>openSuenoModal() },
+    { que:'Algo con fecha y hora', nota:'una cita, un evento', hacer:()=>openEventModal() }
+  ];
   return [{ que:'Algo con fecha y hora', nota:'', hacer:()=>openEventModal() }];
 }
 
@@ -3699,25 +3705,43 @@ function openEventModal(existing, preset){
   if(isEdit){ document.getElementById('delEvent').onclick = ()=>{ DATA.events = DATA.events.filter(x=>x.id!==e.id); saveData(); closeSheet(); renderAll(); }; }
 }
 
-function openDoneModal(){
-  openSheet(`<h3>Ya lo hice</h3>
-    <div class="field"><label>Categoría</label><div class="chiprow" id="catChipsDone">
-      ${Object.entries(CATS).map(([k,v],i)=>`<div class="chip ${i===0?'active':''}" data-cat="${k}" style="--chip-color:${v.color}; --chip-color-soft:${v.color}22;">${v.emoji} ${v.label}</div>`).join('')}
+/* Lo que pasó sin estar escrito: el gym de las 5, la clase que cambió de hora,
+   la noche entera viendo el celular. Se anota con sus horas y cae en la tira
+   del día como algo hecho, asi que cuenta en el resumen de tiempo (pestaña Yo).
+   Si no se acuerda de las horas, las deja vacias y queda anotado sin bloque. */
+function openYaHiceModal(preset){
+  const p = preset || {};
+  const redondo = (min)=> hhmm(Math.max(0, Math.round(min/5)*5));
+  const ahora = ahoraEnMinutos();
+  const desde = p.start || redondo(Math.max(0, ahora - 60));
+  const hasta = p.end || redondo(ahora);
+  const fecha = p.date || todayStr();
+  openSheet(`<h3>${esc(p.titulo || 'Algo que ya hice')}</h3>
+    ${p.enVezDe ? `<div class="helptext" style="margin:-4px 0 14px;">En vez de ${esc(p.enVezDe)}, de ${esc(desde)} a ${esc(hasta)}.</div>` : ''}
+    <div class="field"><label>¿Qué hiciste?</label><input type="text" id="f_ytitle" value="${esc(p.title||'')}" placeholder="Ej: gym, dormí, vi celular"></div>
+    <div class="field"><label>¿De qué fue?</label><div class="chiprow envuelve" id="f_ycats">
+      ${Object.entries(CATS).filter(([k])=>k!=='finanzas').map(([k,v],i)=>`<button type="button" class="chip ${(p.cat||'personal')===k?'active':''}" data-cat="${k}" style="--chip-color:${v.color}; --chip-color-soft:${v.color}22;">${v.emoji} ${esc(v.label)}</button>`).join('')}
     </div></div>
-    <div class="field"><label>¿Qué hiciste?</label><input type="text" id="f_dtitle" placeholder="Ej: Llamé al cliente, hice el pago..."></div>
     <div class="field-row">
-      <div class="field"><label>Fecha</label><input type="date" id="f_ddate" value="${todayStr()}"></div>
-      <div class="field"><label>Minutos que te tomó</label><input type="number" id="f_dmin" placeholder="Opcional"></div>
+      <div class="field"><label>Desde</label><input type="time" id="f_ydesde" value="${esc(desde)}"></div>
+      <div class="field"><label>Hasta</label><input type="time" id="f_yhasta" value="${esc(hasta)}"></div>
     </div>
-    <div class="sheet-actions"><button class="btn btn-primary" id="saveDone">Guardar</button></div>`);
-  let cat='universidad';
-  document.querySelectorAll('#catChipsDone .chip').forEach(c=>{ c.onclick=()=>{ document.querySelectorAll('#catChipsDone .chip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); cat=c.dataset.cat; }; });
-  document.getElementById('saveDone').onclick = ()=>{
-    const title = document.getElementById('f_dtitle').value.trim();
-    if(!title){ alert('Escribe qué hiciste'); return; }
-    const min = document.getElementById('f_dmin').value;
-    DATA.events.push({ id:uid(), cat, title, date:document.getElementById('f_ddate').value||todayStr(), start:'', end:'', status:'hecho', estMin:null, actualMin: min?Number(min):null, notes:'' });
-    saveData(); closeSheet(); renderAll();
+    <div class="field"><label>Día</label><input type="date" id="f_yfecha" value="${esc(fecha)}"></div>
+    <div class="sheet-actions"><button class="btn btn-primary" id="f_yguardar">Guardar</button></div>`);
+  let cat = p.cat || 'personal';
+  document.querySelectorAll('#f_ycats [data-cat]').forEach(c=>c.onclick = ()=>{
+    cat = c.dataset.cat;
+    document.querySelectorAll('#f_ycats [data-cat]').forEach(x=>x.classList.toggle('active', x===c));
+  });
+  document.getElementById('f_yguardar').onclick = ()=>{
+    const title = document.getElementById('f_ytitle').value.trim();
+    if(!title){ alert('Escribe qué hiciste.'); return; }
+    DATA.events.push({ id:uid(), creado:Date.now(), cat, title,
+      date: document.getElementById('f_yfecha').value || todayStr(),
+      start: document.getElementById('f_ydesde').value,
+      end: document.getElementById('f_yhasta').value,
+      status:'hecho', estMin:null, actualMin:null, notes:'' });
+    saveData(); closeSheet(); renderAll(); refrescarDiaCalendario();
   };
 }
 
@@ -5485,7 +5509,7 @@ function tiraDelDia(fecha, opciones){
       </div>
       ${b.ev ? `<button class="status-btn ${hecho?'hecho':progreso?'progreso':''}" data-action="cyclestatus" data-id="${b.ev.id}" aria-label="Marcar hecho"></button>` : ''}
       ${b.pend ? `<button class="status-btn" data-action="hechoPend" data-pid="${b.pend.id}" aria-label="Marcar hecho"></button>` : ''}
-      ${idRep ? `<button class="status-btn ${hecho?'hecho':progreso?'progreso':saltado?'saltado':''}" data-action="cicloRepetido" data-rep="${idRep}" data-fecha="${fecha}" aria-label="${saltado?'Hoy no fue':'Marcar hecho'}" title="${saltado?'Hoy no fue — tócalo otra vez para devolverlo':'Tócalo otra vez para decir que hoy no fue'}"></button>` : ''}
+      ${idRep ? `<button class="status-btn ${hecho?'hecho':progreso?'progreso':saltado?'saltado':''}" data-action="cicloRepetido" data-rep="${idRep}" data-fecha="${fecha}" data-desde="${esc(b.start||'')}" data-hasta="${esc(b.end||'')}" data-titulo="${esc(b.titulo)}" aria-label="${saltado?'Hoy no fue':'Marcar hecho'}" title="${saltado?'Hoy no fue — tócalo otra vez para devolverlo':'Tócalo otra vez para decir que hoy no fue'}"></button>` : ''}
     </div>`;
   }).join('');
 
@@ -5566,8 +5590,15 @@ function engancharTira(caja){
   caja.querySelectorAll('[data-action="cicloRepetido"]').forEach(b=>{
     b.onclick = (ev)=>{
       ev.stopPropagation();
-      ciclarRepetido(b.dataset.fecha, b.dataset.rep);
+      const { fecha, rep, desde, hasta, titulo } = b.dataset;
+      const estado = ciclarRepetido(fecha, rep);
       saveData(); renderAll();
+      /* cambiar una cosa por otra es decir "hoy no" y contar que hizo en ese
+         rato: se ofrece ahi mismo, con las horas del bloque ya puestas */
+      if(estado === 'saltado'){
+        avisar('Hoy no. ¿Hiciste otra cosa a esa hora?',
+          ()=>openYaHiceModal({ start:desde, end:hasta, date:fecha, enVezDe:titulo, titulo:'¿Qué hiciste en vez de eso?' }));
+      }
     };
   });
   caja.querySelectorAll('[data-action="hechoPend"]').forEach(b=>{
