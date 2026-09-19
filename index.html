@@ -585,13 +585,17 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 .gc-linea{border-top:1px solid var(--border); box-sizing:border-box;}
 .gc-col > .gc-linea:first-child{border-top:none;}
 .gc-col.hoy{background-color:var(--accent-soft);}
-.gc-ev{position:absolute; overflow:hidden; text-align:left; border:none; font:inherit; cursor:pointer;
+/* display:block y no el centrado que traen los botones: en un bloque largo, el
+   nombre va arriba, donde empieza la cosa, no flotando a media tarde */
+.gc-ev{position:absolute; display:block; overflow:hidden; text-align:left; border:none; font:inherit; cursor:pointer;
   border-radius:5px; padding:2px 4px 2px 5px; line-height:1.15; color:var(--text);
   background:color-mix(in srgb, var(--c) 18%, var(--surface)); border-left:3px solid var(--c);}
 .gc-ev b{font-size:9.5px; font-weight:600; overflow-wrap:break-word;
   display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:4; overflow:hidden;}
 .gc-ev .h{display:block; font-size:8.5px; color:var(--text-muted);}
 /* si el bloque es corto no cabe partir la palabra: una linea y puntos */
+/* el que se monta encima lleva su propio borde, o se confunde con el de abajo */
+.gc-ev.montado{outline:1.5px solid var(--surface); outline-offset:-1px;}
 .gc-ev.corto{padding-top:1px;}
 .gc-ev.corto b{-webkit-line-clamp:1; overflow-wrap:normal;}
 .gc-ev.mueve{touch-action:auto;}
@@ -1612,8 +1616,17 @@ function renderCalSemana(){
          cosas a la misma hora en adelante no se parte la columna en tajadas
          ilegibles: se encabalgan, como las cartas de una mano. */
       const n = it.carriles || 1;
-      const ancho = n === 1 ? 84 : n === 2 ? 50 : 58;   // el ultimo carril tiene que terminar en el borde, no pasarse
-      const izq = n <= 2 ? it.carril * (100/n) : it.carril * (42/(n-1));
+      /* En el dia, la columna es toda la pantalla: lo que se cruza no se parte,
+         se monta un poco corrido a la derecha y con su borde, como en Google
+         Calendar, y se lee entero. En la semana, con columnas de 44 pixeles,
+         montarlas taparia la de atras: ahi se reparten. */
+      let ancho, izq;
+      const monta = unDia && n <= 4;       // de cinco cruzadas en adelante, montarlas tapa
+      if(n === 1){ ancho = unDia ? 96 : 84; izq = 0; }
+      else if(monta){ izq = it.carril * 7; ancho = 96 - 7*(n-1); }
+      else if(unDia){ ancho = 96/n; izq = it.carril * (96/n); }
+      else { ancho = n === 2 ? 50 : 58; izq = n <= 2 ? it.carril * 50 : it.carril * (42/(n-1)); }
+      const montado = monta && it.carril > 0;
       /* lo que nace en otra seccion (un turno, una entrega) se mueve alla, no
          aca: arrastrarlo dejaria el calendario diciendo una cosa y la seccion
          otra. Lo suyo — lo que agendo y lo que conto — si se mueve. */
@@ -1621,7 +1634,7 @@ function renderCalSemana(){
         : b.pend && b.pend.hora ? `data-arr="${b.pend.id}" data-arr-tipo="pendiente"` : '';
       const arriba = y(it.desde);
       const alto = Math.max(y(it.hasta) - arriba, 13);
-      return `<button class="gc-ev${alto < 34 ? ' corto':''}${hecho?' hecho':''}${saltado?' saltado':''}${mueve?' mueve':''}" ${marca} ${mueve} data-dur="${it.hasta - it.desde}" data-desde="${it.desde}"
+      return `<button class="gc-ev${montado ? ' montado':''}${alto < 34 ? ' corto':''}${hecho?' hecho':''}${saltado?' saltado':''}${mueve?' mueve':''}" ${marca} ${mueve} data-dur="${it.hasta - it.desde}" data-desde="${it.desde}"
         style="--c:${b.color}; top:${arriba}px; height:${alto}px;
                left:${izq}%; width:calc(${ancho}% - 2px); z-index:${2 + it.carril};"
         title="${esc(b.start)}${b.end?'–'+esc(b.end):''} ${esc(b.titulo)}">
