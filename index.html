@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>Bitácora</title>
-<meta name="bitacora-build" content="20260915231105">
+<meta name="bitacora-build" content="20260918193908">
 <script>
 /* Modo claro u oscuro (D55). La primera vez sigue al teléfono; después manda el botón. */
 /* Arranca en claro. El oscuro se elige con el boton, no lo decide el
@@ -170,6 +170,14 @@ button{font-family:inherit;}
 .bloque .nombre{font-size:15px; font-weight:600; line-height:1.3;}
 .bloque .sitio{font-size:12.5px; color:var(--text-muted); margin-top:2px;}
 .bloque.hecho .nombre{color:var(--text-dim); text-decoration:line-through;}
+/* lo que hoy no fue: ahi sigue, pero apagado y sin tachar (no lo hizo, no le tocaba) */
+.bloque.saltado{opacity:.55;}
+.bloque.saltado .nombre::after{content:' · hoy no'; font-weight:500; font-size:12px; color:var(--text-dim);}
+.status-btn.saltado{border-color:var(--text-dim); background:none;}
+.status-btn.saltado::before{width:11px; height:0; border-bottom:2.5px solid var(--text-dim); border-left:none; transform:none;}
+/* el boton que da el dia por pasado: ancho, arriba de la tira, imposible de no ver */
+.dia-entero{width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px; margin:2px 0 6px; padding:11px 14px; border:1px solid var(--border); border-radius:12px; background:var(--surface-2); color:var(--text); font:inherit; font-size:13.5px; font-weight:600; cursor:pointer;}
+.dia-entero span{font-size:12px; font-weight:600; color:var(--text-muted);}
 .bloque .status-btn{width:24px; height:24px; margin:0;}
 
 /* lo hecho, guardado en una linea discreta al final del dia */
@@ -1040,11 +1048,43 @@ function showView(v){
   views.forEach(x=>{ document.getElementById('view-'+x).classList.toggle('active', x===v); });
   document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
   document.getElementById('fabAdd').style.display = 'flex';
+  recordarDonde(v);
   renderAll();
   /* la barra recien se puede medir cuando su seccion esta a la vista */
   document.querySelectorAll('#view-'+v+' .subtabs').forEach(marcarBordes);
 }
 document.querySelectorAll('.navbtn').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view)));
+
+/* Salir a contestar un mensaje y volver no es empezar de cero: el telefono
+   cierra la app cuando le hace falta memoria, y al reabrirla caia en Hoy.
+   Asi que se guarda donde estaba parada y se vuelve ahi, mientras sea del
+   mismo dia y de hace menos de cuatro horas. Mas viejo que eso, Hoy. */
+const DONDE_KEY = 'bitacora:donde';
+const DONDE_VENCE = 4 * 60 * 60 * 1000;
+function recordarDonde(vista, sub){
+  let previo = {};
+  try{ previo = JSON.parse(lsGet(DONDE_KEY)) || {}; }catch(e){}
+  const v = vista || previo.vista || 'hoy';
+  lsSet(DONDE_KEY, JSON.stringify({
+    vista: v,
+    sub: sub || (vista && vista !== previo.vista ? '' : previo.sub) || '',
+    dia: todayStr(),
+    cuando: Date.now()
+  }));
+}
+function dondeEstaba(){
+  let d = null;
+  try{ d = JSON.parse(lsGet(DONDE_KEY)); }catch(e){}
+  if(!d || !views.includes(d.vista)) return null;
+  if(d.dia !== todayStr() || Date.now() - (d.cuando||0) > DONDE_VENCE) return null;
+  return d;
+}
+function volverDondeEstaba(){
+  const d = dondeEstaba();
+  if(!d) return;
+  if(d.vista !== 'hoy') showView(d.vista);
+  if(d.sub && SUB_VIEW[d.sub] === d.vista) goToSubtab(d.sub);
+}
 
 /* Marca en que lado quedan pestanas escondidas, para pintar la sombrita. */
 function marcarBordes(barra){
@@ -1066,6 +1106,7 @@ document.querySelectorAll('.subtabs').forEach(barra=>{
     b.addEventListener('click', ()=>{
       botones.forEach(x=>x.classList.remove('active'));
       b.classList.add('active');
+      recordarDonde(SUB_VIEW[b.dataset.sub], b.dataset.sub);
       b.scrollIntoView({behavior:'smooth', inline:'center', block:'nearest'});
       setTimeout(()=>marcarBordes(barra), 320);
       subs.forEach(sub=>{
@@ -1221,7 +1262,7 @@ function renderHoy(){
   const resumen = resumenDelDia(t);
   const lista = document.getElementById('hoyList');
   lista.innerHTML = resumen.bloques.length
-    ? tiraDelDia(t, { sugerir:true })
+    ? tiraDelDia(t, { sugerir:true, rapido:true })
     : `<div class="empty-card">Hoy no tienes nada con hora. Toca + para agregar algo.</div>`;
   engancharTira(lista);
 
@@ -4250,6 +4291,35 @@ function moverEntreBolsillos(de, a, monto){
   if(de && de!==a) tocar(de, -1);
   if(a && a!==de) tocar(a, +1);
 }
+/* Un gasto sale de algun lado y un ingreso entra a alguno: antes todo caia en
+   el monton y le tocaba corregir Nequi a mano. Ahora el movimiento dice de
+   donde salio o a donde entro, y ese numero se mueve solo. "Sin tocar saldos"
+   sigue estando, para lo que no quiere que cuente. */
+const SIN_BOLSILLO = '—';
+function aplicarABolsillo(nombre, delta){
+  if(!nombre || nombre===SIN_BOLSILLO) return;
+  const b = bolsillos().find(x=>x.nombre===nombre);
+  if(!b || b.saldo===null || b.saldo==='') return;   // un lugar sin numero puesto se queda sin numero
+  b.saldo = Number(b.saldo) + Number(delta);
+  b.fecha = todayStr();
+}
+/* De donde sale o a donde entra cada tipo: +1 entra, -1 sale, 0 no toca nada. */
+function signoDelTipo(tipo){
+  if(tipo==='ingreso' || tipo==='prestamo_recibido') return 1;
+  if(tipo==='gasto' || tipo==='pago' || tipo==='prestamo_dado') return -1;
+  return 0;
+}
+/* El de siempre: el ultimo que uso, y si no, el primero con numero puesto. */
+function bolsilloPorDefecto(){
+  const guardado = DATA.plata.ultimoBolsillo;
+  if(guardado && bolsillos().some(b=>b.nombre===guardado)) return guardado;
+  const puesto = bolsillosPuestos()[0];
+  return puesto ? puesto.nombre : (bolsillos()[0] ? bolsillos()[0].nombre : SIN_BOLSILLO);
+}
+function selectBolsillo(id, elegido){
+  return `<select id="${id}">${bolsillos().map(b=>`<option value="${esc(b.nombre)}" ${elegido===b.nombre?'selected':''}>${esc(b.nombre)}</option>`).join('')}<option value="${SIN_BOLSILLO}" ${elegido===SIN_BOLSILLO?'selected':''}>Sin tocar saldos</option></select>`;
+}
+
 function enPesos(monto, moneda){
   if(moneda!=='USD') return Number(monto)||0;
   const t = tasaUSD();
@@ -4373,6 +4443,9 @@ function openMovimientoModalCon(pre, existente){
       <div class="helptext" style="margin:-8px 0 14px;">No suma ni resta en el mes: es la misma plata cambiando de lugar. Se baja de un lugar y se sube al otro.</div>` : `
       <div class="field"><label>${e.type==='pago' ? '¿Qué hay que pagar?' : 'En qué / de dónde'}</label>
         <input type="text" id="m_titulo" value="${esc(e.title)}" placeholder="${e.type==='gasto'?'Ej: almuerzo, transporte':'Ej: turno de Infinity'}"></div>`}
+      ${signoDelTipo(e.type) ? `<div class="field"><label>${signoDelTipo(e.type)>0 ? '¿A dónde entró?' : '¿De dónde sale?'}</label>
+        ${selectBolsillo('m_bolsillo', e.bolsillo || bolsilloPorDefecto())}
+        <div class="helptext">${e.type==='pago' ? 'Se descuenta de ahí el día que toques “Pagué”.' : signoDelTipo(e.type)>0 ? 'Se le suma a ese lugar al guardar.' : 'Se le resta a ese lugar al guardar.'}</div></div>` : ''}
       <div class="field"><label>${e.type==='pago' ? 'Se vence el' : 'Cuándo'}</label><input type="date" id="m_fecha" value="${esc(e.date)}"></div>
       <div class="field"><label>Nota (opcional)</label><input type="text" id="m_nota" value="${esc(e.notes)}"></div>
       <div class="sheet-actions">
@@ -4390,6 +4463,7 @@ function openMovimientoModalCon(pre, existente){
       e.date = g('m_fecha').value || todayStr();
       e.notes = g('m_nota').value.trim();
       if(g('m_categoria')) e.categoria = g('m_categoria').value;
+      if(g('m_bolsillo')) e.bolsillo = g('m_bolsillo').value;
       if(g('m_persona')) e.persona = g('m_persona').value.trim();
     }
     /* el formulario cambia segun el tipo: no le mostramos campos que no aplican */
@@ -4411,7 +4485,7 @@ function openMovimientoModalCon(pre, existente){
       if(e.type==='traslado' && !e.de){ e.de = bolsillos()[0].nombre; e.a = bolsillos()[1] ? bolsillos()[1].nombre : ''; e.title = e.de + ' → ' + e.a; }
       const obj = {
         cat:'finanzas', type:e.type, amount:pesos, moneda:e.moneda,
-        de: e.de || '', a: e.a || '',
+        de: e.de || '', a: e.a || '', bolsillo: signoDelTipo(e.type) ? (e.bolsillo || bolsilloPorDefecto()) : '',
         montoOriginal: e.moneda==='USD' ? Number(e.amount) : null,
         categoria: e.type==='gasto' ? e.categoria : '',
         persona: e.persona || '', title:e.title, date:e.date, notes:e.notes,
@@ -4423,6 +4497,9 @@ function openMovimientoModalCon(pre, existente){
         DATA.events.push(Object.assign({id:uid(), creado:Date.now()}, obj));
         /* solo al anotarlo: si despues lo editas, los numeros ya se movieron */
         if(obj.type==='traslado') moverEntreBolsillos(obj.de, obj.a, pesos);
+        /* el pago pendiente no mueve nada todavia: mueve el dia que dice "Pagué" */
+        else if(signoDelTipo(obj.type) && obj.type!=='pago') aplicarABolsillo(obj.bolsillo, signoDelTipo(obj.type)*pesos);
+        if(obj.bolsillo && obj.bolsillo!==SIN_BOLSILLO) DATA.plata.ultimoBolsillo = obj.bolsillo;
       }
       saveData(); closeSheet(); renderPlata();
     };
@@ -4438,6 +4515,7 @@ function openCobroModal(t){
     <div class="helptext" style="margin:-4px 0 14px;">${esc(turnoTitulo(t))} · turno del ${esc(niceDate(t.fecha))}. Calculabas ${money(esperado)}.</div>
     <div class="field"><label>Lo que de verdad entró</label><input type="number" id="c_monto" inputmode="numeric" value="${esperado}"></div>
     <div class="field"><label>Cuándo te pagaron</label><input type="date" id="c_fecha" value="${fechaDePagoTurno(t) || todayStr()}"></div>
+    <div class="field"><label>¿A dónde entró?</label>${selectBolsillo('c_bolsillo', bolsilloPorDefecto())}</div>
     <div class="sheet-actions">
       <button class="btn btn-ghost" id="c_nada">Todavía no</button>
       <button class="btn btn-primary" id="c_guardar">Ya me pagaron</button>
@@ -4446,10 +4524,13 @@ function openCobroModal(t){
   document.getElementById('c_guardar').onclick = ()=>{
     const real = Number(document.getElementById('c_monto').value)||0;
     const fecha = document.getElementById('c_fecha').value || todayStr();
+    const bolsillo = document.getElementById('c_bolsillo').value;
     t.cobrado = true; t.pagoReal = real; t.pagoFecha = fecha;
-    DATA.events.push({ id:uid(), cat:'finanzas', type:'ingreso', amount:real, moneda:'COP',
+    DATA.events.push({ id:uid(), cat:'finanzas', type:'ingreso', amount:real, moneda:'COP', bolsillo,
       title: turnoTitulo(t), date: fecha, notes:'Turno del ' + niceDateShort(t.fecha),
       start:'', end:'', status:'hecho', creado:Date.now(), deTurno:t.id });
+    aplicarABolsillo(bolsillo, real);
+    if(bolsillo !== SIN_BOLSILLO) DATA.plata.ultimoBolsillo = bolsillo;
     saveData(); closeSheet(); renderPlata();
   };
 }
@@ -4532,7 +4613,7 @@ function renderPlata(){
     const pendiente = m.type==='pago' && m.status!=='hecho';
     return `<div class="fila-p mov-card" data-id="${m.id}" data-sel-tipo="movimiento" data-sel-id="${m.id}">
       <span class="nom">${esc(m.title)}</span>
-      ${pendiente ? `<button class="small-btn" data-pagado="${m.id}">Pagué</button>` : `<span class="cu">${esc(cuandoCorto(m.date))}${paso?' · solo cambió de lugar':''}</span>`}
+      ${pendiente ? `<button class="small-btn" data-pagado="${m.id}">Pagué</button>` : `<span class="cu">${esc(cuandoCorto(m.date))}${paso?' · solo cambió de lugar':m.bolsillo && m.bolsillo!==SIN_BOLSILLO?' · '+esc(m.bolsillo):''}</span>`}
       <span class="mo" style="color:${pendiente?'var(--ambar)':paso?'var(--text-dim)':entra?'var(--done)':'var(--urgent)'}">${paso?'':entra?'+':'−'}${m.montoOriginal?'US$'+m.montoOriginal:money(m.amount)}</span>
     </div>`;
   }).join('') : '<div class="helptext" style="margin:0;">Nada todavía este mes.</div>';
@@ -4689,6 +4770,7 @@ function renderPlata(){
     ev.stopPropagation();
     const m = DATA.events.find(x=>x.id===b.dataset.pagado);
     m.status='hecho'; m.pagadoFecha = todayStr();
+    aplicarABolsillo(m.bolsillo, -Number(m.amount||0));
     saveData(); renderPlata();
   });
   const _b_addInstallmentBtn = document.getElementById('addInstallmentBtn'); if(_b_addInstallmentBtn) _b_addInstallmentBtn.onclick = openInstallmentModal;
@@ -5022,12 +5104,17 @@ function estadoRepetido(fecha, id){
   d.repetidos = d.repetidos || {};
   return d.repetidos[id] || 'pendiente';
 }
+/* Tres toques, porque hay dias que la cosa sencillamente no pasa: el primero
+   la marca hecha, el segundo dice "hoy no" (D27: llevar a Joel se repite, pero
+   no siempre le toca a ella) y el tercero la devuelve como estaba. Lo que dice
+   "hoy no" deja de ocupar el dia y ese rato vuelve a contar como libre. */
 function ciclarRepetido(fecha, id){
   const d = diaDe(fecha);
   d.repetidos = d.repetidos || {};
-  const hecho = d.repetidos[id] === 'hecho';
-  if(hecho) delete d.repetidos[id]; else d.repetidos[id] = 'hecho';
-  return hecho ? 'pendiente' : 'hecho';
+  const ahora = d.repetidos[id];
+  const sigue = ahora === 'hecho' ? 'saltado' : ahora === 'saltado' ? 'pendiente' : 'hecho';
+  if(sigue === 'pendiente') delete d.repetidos[id]; else d.repetidos[id] = sigue;
+  return sigue;
 }
 
 function minutosDormidos(fecha){
@@ -5243,8 +5330,10 @@ function bloquesFijos(fecha){
       const d = minutosDe(c.start), h = c.end ? finEnMinutos(c.start, c.end) : minutosDe(c.start);
       if(d!==null && h!==null && clases.some(k=>k.d >= d && k.h <= h)) return;
     }
+    const idRep = c.materia ? 'materia:'+c.materia.id : c.ref ? 'rutina:'+c.ref.id : '';
     out.push({ titulo:c.name, start:c.start, end:c.end, color:c.color,
-      lugar:(c.ref && c.ref.notes) || '', rutina:c.ref, materia:c.materia });
+      lugar:(c.ref && c.ref.notes) || '', rutina:c.ref, materia:c.materia,
+      saltado: idRep ? estadoRepetido(fecha, idRep) === 'saltado' : false });
   });
   DATA.events.filter(e=>e.date===fecha && e.start).forEach(e=>{
     out.push({ titulo:e.title, start:e.start, end:e.end,
@@ -5256,6 +5345,7 @@ function bloquesFijos(fecha){
 /* Dos bloques encimados no ocupan el doble: se unen antes de contar. */
 function ocupadoDelDia(bloques){
   const tramos = bloques
+    .filter(b=>!b.saltado)          // lo que dijo que hoy no fue, no ocupa nada
     .map(b=>({ desde: minutosDe(b.start), hasta: b.end ? finEnMinutos(b.start, b.end) : minutosDe(b.start) }))
     .filter(t=>t.desde !== null && t.hasta !== null && t.hasta > t.desde)
     .sort((a,b)=>a.desde - b.desde);
@@ -5315,13 +5405,15 @@ function tiraDelDia(fecha, opciones){
   ].sort((x,y)=> x.orden - y.orden);
 
   /* lo hecho no se queda estorbando en la lista, pero tampoco desaparece: se
-     guarda en una linea que se abre, para que igual se vea lo que avanzo (D03) */
+     guarda en una linea que se abre, para que igual se vea lo que avanzo (D03).
+     Lo que dijo que hoy no fue se guarda en esa misma linea. */
   const estaHecho = (b)=> b.ev ? b.ev.status==='hecho'
     : estadoRepetido(fecha, b.rutina ? 'rutina:'+b.rutina.id : b.materia ? 'materia:'+b.materia.id : '') === 'hecho';
+  const estaFuera = (b)=> b.saltado || estaHecho(b);
   /* si el bloque del medio ya esta hecho, los dos huecos que quedaban a sus
      lados son un solo rato libre: se juntan en vez de salir dos veces */
   const porHacer = [];
-  filas.filter(f=> f.tipo!=='bloque' || !estaHecho(f.b)).forEach(f=>{
+  filas.filter(f=> f.tipo!=='bloque' || !estaFuera(f.b)).forEach(f=>{
     const ultimo = porHacer[porHacer.length-1];
     if(f.tipo==='hueco' && ultimo && ultimo.tipo==='hueco'){
       ultimo.h = { desde: Math.min(ultimo.h.desde, f.h.desde), hasta: Math.max(ultimo.h.hasta, f.h.hasta) };
@@ -5329,7 +5421,7 @@ function tiraDelDia(fecha, opciones){
     }
     porHacer.push(f.tipo==='hueco' ? { ...f, h:{ ...f.h } } : f);
   });
-  const yaHechas = filas.filter(f=> f.tipo==='bloque' && estaHecho(f.b));
+  const yaHechas = filas.filter(f=> f.tipo==='bloque' && estaFuera(f.b));
 
   const pintar = (lista)=> lista.map(f=>{
     if(f.tipo === 'hueco'){
@@ -5348,11 +5440,12 @@ function tiraDelDia(fecha, opciones){
     const estadoRep = idRep ? estadoRepetido(fecha, idRep) : null;
     const hecho = b.ev ? b.ev.status==='hecho' : estadoRep==='hecho';
     const progreso = b.ev ? b.ev.status==='progreso' : estadoRep==='progreso';
+    const saltado = estadoRep==='saltado';
     const marca = b.ev ? `data-id="${b.ev.id}" data-sel-tipo="evento" data-sel-id="${b.ev.id}"`
       : b.rutina ? `data-rutina="${b.rutina.id}" data-sel-tipo="rutina" data-sel-id="${b.rutina.id}"`
       : b.materia ? `data-materia="${b.materia.id}" data-sel-tipo="materia" data-sel-id="${b.materia.id}"`
       : b.pend ? `data-pend="${b.pend.id}" data-sel-tipo="pendiente" data-sel-id="${b.pend.id}"` : '';
-    return `<div class="bloque${hecho?' hecho':''}${b.auto?' auto':''}${b.movidoPor?' movido':''}" ${marca} ${b.auto?`style="--raya:${b.color}"`:''}>
+    return `<div class="bloque${hecho?' hecho':''}${saltado?' saltado':''}${b.auto?' auto':''}${b.movidoPor?' movido':''}" ${marca} ${b.auto?`style="--raya:${b.color}"`:''}>
       <div class="hora mono">${esc(b.start)}${b.end?`<span class="hasta">${esc(b.end)}</span>`:''}</div>
       <div class="raya" style="background:${b.color};"></div>
       <div class="cuerpo">
@@ -5361,17 +5454,61 @@ function tiraDelDia(fecha, opciones){
       </div>
       ${b.ev ? `<button class="status-btn ${hecho?'hecho':progreso?'progreso':''}" data-action="cyclestatus" data-id="${b.ev.id}" aria-label="Marcar hecho"></button>` : ''}
       ${b.pend ? `<button class="status-btn" data-action="hechoPend" data-pid="${b.pend.id}" aria-label="Marcar hecho"></button>` : ''}
-      ${idRep ? `<button class="status-btn ${hecho?'hecho':progreso?'progreso':''}" data-action="cicloRepetido" data-rep="${idRep}" data-fecha="${fecha}" aria-label="Marcar hecho"></button>` : ''}
+      ${idRep ? `<button class="status-btn ${hecho?'hecho':progreso?'progreso':saltado?'saltado':''}" data-action="cicloRepetido" data-rep="${idRep}" data-fecha="${fecha}" aria-label="${saltado?'Hoy no fue':'Marcar hecho'}" title="${saltado?'Hoy no fue — tócalo otra vez para devolverlo':'Tócalo otra vez para decir que hoy no fue'}"></button>` : ''}
     </div>`;
   }).join('');
 
   const n = yaHechas.length;
-  return pintar(porHacer)
+  const nSalt = yaHechas.filter(f=>f.b.saltado).length;
+  const nHechas = n - nSalt;
+  const rotulo = [nHechas ? (nHechas===1 ? '1 hecha' : nHechas + ' hechas') : '',
+                  nSalt ? (nSalt===1 ? '1 que hoy no fue' : nSalt + ' que hoy no fueron') : '']
+                 .filter(Boolean).join(' · ');
+  return (o.rapido ? botonDiaEntero(fecha) : '')
+    + pintar(porHacer)
     + (porHacer.every(f=>f.tipo==='hueco') && n ? `<div class="todo-listo">Ya hiciste todo lo de hoy.</div>` : '')
     + (n ? `<button class="linea-hechas" data-abrir-hechas>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
-        <span>${n===1 ? '1 hecha' : n + ' hechas'}</span>
+        <span>${rotulo}</span>
       </button><div class="hechas-lista" hidden>${pintar(yaHechas)}</div>` : '');
+}
+
+/* ---------- marcar el dia de un solo toque ----------
+   Anotar cosa por cosa lo que ya paso es el trabajo que la hacia no anotar
+   nada. Casi siempre el dia salio como estaba escrito, asi que un boton lo
+   da por pasado y ella solo toca las excepciones para decir "hoy no". */
+function loQueYaPaso(fecha){
+  if(fecha !== todayStr()) return [];
+  const ahora = ahoraEnMinutos();
+  return bloquesDeFecha(fecha).filter(b=>{
+    if(b.saltado) return false;
+    const fin = b.end ? finEnMinutos(b.start, b.end) : minutosDe(b.start);
+    if(fin === null || fin > ahora) return false;          // todavia no le ha pasado
+    if(b.ev) return b.ev.status !== 'hecho';
+    if(b.pend) return !b.pend.hecho;
+    const idRep = b.rutina ? 'rutina:'+b.rutina.id : b.materia ? 'materia:'+b.materia.id : '';
+    return idRep ? estadoRepetido(fecha, idRep) !== 'hecho' : false;
+  });
+}
+function botonDiaEntero(fecha){
+  const n = loQueYaPaso(fecha).length;
+  if(n < 2) return '';
+  return `<button class="dia-entero" data-dia-entero="${fecha}">
+    Ya pasó como estaba escrito <span>${n} cosas</span>
+  </button>`;
+}
+function marcarLoQueYaPaso(fecha){
+  const bloques = loQueYaPaso(fecha);
+  if(!bloques.length) return;
+  bloques.forEach(b=>{
+    if(b.ev){ b.ev.status = 'hecho'; syncSourceFromEvent(b.ev); return; }
+    if(b.pend){ b.pend.hecho = true; b.pend.hechoFecha = todayStr(); return; }
+    const idRep = b.rutina ? 'rutina:'+b.rutina.id : b.materia ? 'materia:'+b.materia.id : '';
+    if(idRep){ const d = diaDe(fecha); d.repetidos = d.repetidos || {}; d.repetidos[idRep] = 'hecho'; }
+  });
+  saveData(); renderAll(); refrescarDiaCalendario();
+  avisar(bloques.length + (bloques.length===1 ? ' cosa marcada. Lo que no fue, tócalo y dile hoy no.'
+                                              : ' cosas marcadas. Lo que no fue, tócalo y dile hoy no.'));
 }
 
 /* Los bloques y huecos de un dia se tocan igual en todos lados. */
@@ -5384,6 +5521,9 @@ function engancharTira(caja){
   });
   caja.querySelectorAll('[data-pend]').forEach(el=>{
     el.onclick = ()=>{ const p = DATA.pendientes.find(x=>x.id===el.dataset.pend); if(p) openPendienteModal(p); };
+  });
+  caja.querySelectorAll('[data-dia-entero]').forEach(b=>{
+    b.onclick = ()=> marcarLoQueYaPaso(b.dataset.diaEntero);
   });
   caja.querySelectorAll('[data-abrir-hechas]').forEach(b=>{
     b.onclick = ()=>{
@@ -5620,6 +5760,7 @@ function renderAll(){
 (async function init(){
   await loadData();
   renderAll();
+  volverDondeEstaba();
   document.querySelectorAll('.view.active .subtabs').forEach(marcarBordes);
   engancharAvisos();
 
