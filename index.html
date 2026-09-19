@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>Bitácora</title>
-<meta name="bitacora-build" content="20260918194724">
+<meta name="bitacora-build" content="20260918195441">
 <script>
 /* Modo claro u oscuro (D55). La primera vez sigue al teléfono; después manda el botón. */
 /* Arranca en claro. El oscuro se elige con el boton, no lo decide el
@@ -173,17 +173,25 @@ button{font-family:inherit;}
 /* lo que hoy no fue: ahi sigue, pero apagado y sin tachar (no lo hizo, no le tocaba) */
 .bloque.saltado{opacity:.55;}
 .bloque.saltado .nombre::after{content:' · hoy no'; font-weight:500; font-size:12px; color:var(--text-dim);}
-.status-btn.saltado{border-color:var(--text-dim); background:none;}
-.status-btn.saltado::before{width:11px; height:0; border-bottom:2.5px solid var(--text-dim); border-left:none; transform:none;}
+/* la ✕ vive al lado del ✓: decir "hoy no" es un toque, igual que decir que si */
+.no-btn{flex:none; width:26px; height:26px; margin:1px 0 0; padding:0; display:flex; align-items:center; justify-content:center; border:2px solid var(--border); border-radius:50%; background:none; color:var(--text-dim); cursor:pointer;}
+.no-btn svg{width:13px; height:13px;}
+.no-btn.activo{border-color:var(--text-muted); background:var(--surface-2); color:var(--text-muted);}
+.bloque .no-btn{width:28px; height:28px; margin:0;}
 /* el boton que da el dia por pasado: ancho, arriba de la tira, imposible de no ver */
 .dia-entero{width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px; margin:2px 0 6px; padding:11px 14px; border:1px solid var(--border); border-radius:12px; background:var(--surface-2); color:var(--text); font:inherit; font-size:13.5px; font-weight:600; cursor:pointer;}
 .dia-entero span{font-size:12px; font-weight:600; color:var(--text-muted);}
-.bloque .status-btn{width:24px; height:24px; margin:0;}
+/* los dos botones del bloque se tocan con el pulgar sin apuntar: 28 y con aire */
+.bloque .status-btn{width:28px; height:28px; margin:0;}
+.bloque{gap:10px;}
+.bloque .no-btn + .status-btn{margin-left:-2px;}
 
 /* lo hecho, guardado en una linea discreta al final del dia */
 .linea-hechas{display:flex; align-items:center; gap:7px; margin:6px 0 0; padding:7px 2px; background:none; border:none; color:var(--done); font:inherit; font-size:12.5px; font-weight:600; cursor:pointer;}
 .linea-hechas svg{width:14px; height:14px;}
 .linea-hechas.abierta{color:var(--text-muted);}
+/* si en el dia no hubo nada hecho y solo cosas que no fueron, el verde miente */
+.linea-hechas.solo-no{color:var(--text-muted);}
 .hechas-lista{opacity:.75;}
 .hechas-lista .bloque{padding:8px 2px;}
 .todo-listo{padding:14px 2px; font-size:14px; color:var(--text-muted);}
@@ -5159,15 +5167,15 @@ function estadoRepetido(fecha, id){
   d.repetidos = d.repetidos || {};
   return d.repetidos[id] || 'pendiente';
 }
-/* Tres toques, porque hay dias que la cosa sencillamente no pasa: el primero
-   la marca hecha, el segundo dice "hoy no" (D27: llevar a Joel se repite, pero
-   no siempre le toca a ella) y el tercero la devuelve como estaba. Lo que dice
-   "hoy no" deja de ocupar el dia y ese rato vuelve a contar como libre. */
-function ciclarRepetido(fecha, id){
+/* Cada bloque que se repite tiene sus dos botones a la vista: el ✓ dice que
+   lo hizo y la ✕ dice que hoy no fue (D27: lo de Joel se repite, pero hay dias
+   que no hay colegio). Un toque cada uno, y el mismo toque lo deshace. Nada de
+   pasar por "hecho" para poder decir que no fue. Lo que dice "hoy no" deja de
+   ocupar el dia y ese rato vuelve a contar como libre. */
+function marcarRepetido(fecha, id, estado){
   const d = diaDe(fecha);
   d.repetidos = d.repetidos || {};
-  const ahora = d.repetidos[id];
-  const sigue = ahora === 'hecho' ? 'saltado' : ahora === 'saltado' ? 'pendiente' : 'hecho';
+  const sigue = d.repetidos[id] === estado ? 'pendiente' : estado;
   if(sigue === 'pendiente') delete d.repetidos[id]; else d.repetidos[id] = sigue;
   return sigue;
 }
@@ -5509,7 +5517,10 @@ function tiraDelDia(fecha, opciones){
       </div>
       ${b.ev ? `<button class="status-btn ${hecho?'hecho':progreso?'progreso':''}" data-action="cyclestatus" data-id="${b.ev.id}" aria-label="Marcar hecho"></button>` : ''}
       ${b.pend ? `<button class="status-btn" data-action="hechoPend" data-pid="${b.pend.id}" aria-label="Marcar hecho"></button>` : ''}
-      ${idRep ? `<button class="status-btn ${hecho?'hecho':progreso?'progreso':saltado?'saltado':''}" data-action="cicloRepetido" data-rep="${idRep}" data-fecha="${fecha}" data-desde="${esc(b.start||'')}" data-hasta="${esc(b.end||'')}" data-titulo="${esc(b.titulo)}" aria-label="${saltado?'Hoy no fue':'Marcar hecho'}" title="${saltado?'Hoy no fue — tócalo otra vez para devolverlo':'Tócalo otra vez para decir que hoy no fue'}"></button>` : ''}
+      ${idRep ? `<button class="no-btn ${saltado?'activo':''}" data-action="repNo" data-rep="${idRep}" data-fecha="${fecha}" data-desde="${esc(b.start||'')}" data-hasta="${esc(b.end||'')}" data-titulo="${esc(b.titulo)}" aria-label="Hoy no fue" title="Hoy no fue">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+      <button class="status-btn ${hecho?'hecho':progreso?'progreso':''}" data-action="repSi" data-rep="${idRep}" data-fecha="${fecha}" aria-label="Marcar hecho" title="Ya lo hice"></button>` : ''}
     </div>`;
   }).join('');
 
@@ -5522,8 +5533,8 @@ function tiraDelDia(fecha, opciones){
   return (o.rapido ? botonDiaEntero(fecha) : '')
     + pintar(porHacer)
     + (porHacer.every(f=>f.tipo==='hueco') && n ? `<div class="todo-listo">Ya hiciste todo lo de hoy.</div>` : '')
-    + (n ? `<button class="linea-hechas" data-abrir-hechas>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+    + (n ? `<button class="linea-hechas ${nHechas?'':'solo-no'}" data-abrir-hechas>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">${nHechas ? '<path d="M20 6L9 17l-5-5"/>' : '<path d="M6 6l12 12M18 6L6 18"/>'}</svg>
         <span>${rotulo}</span>
       </button><div class="hechas-lista" hidden>${pintar(yaHechas)}</div>` : '');
 }
@@ -5587,11 +5598,18 @@ function engancharTira(caja){
       b.classList.toggle('abierta', !lista.hidden);
     };
   });
-  caja.querySelectorAll('[data-action="cicloRepetido"]').forEach(b=>{
+  caja.querySelectorAll('[data-action="repSi"]').forEach(b=>{
+    b.onclick = (ev)=>{
+      ev.stopPropagation();
+      marcarRepetido(b.dataset.fecha, b.dataset.rep, 'hecho');
+      saveData(); renderAll();
+    };
+  });
+  caja.querySelectorAll('[data-action="repNo"]').forEach(b=>{
     b.onclick = (ev)=>{
       ev.stopPropagation();
       const { fecha, rep, desde, hasta, titulo } = b.dataset;
-      const estado = ciclarRepetido(fecha, rep);
+      const estado = marcarRepetido(fecha, rep, 'saltado');
       saveData(); renderAll();
       /* cambiar una cosa por otra es decir "hoy no" y contar que hizo en ese
          rato: se ofrece ahi mismo, con las horas del bloque ya puestas */
