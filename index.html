@@ -1443,7 +1443,9 @@ function renderCalSemana(){
       const hasta = Math.min(1440, b.end ? finEnMinutos(b.start, b.end) : desde + 30);
       return { desde, hasta: Math.max(hasta, desde + 20), b };
     }).filter(Boolean);
-    items.forEach(it=>{ if(it.desde < primera) primera = it.desde; });
+    /* la semana abre donde empieza el dia despierto: el sueño de la madrugada
+       no cuenta para eso o siempre abriria a medianoche */
+    items.forEach(it=>{ if(!it.b.noche && it.desde < primera) primera = it.desde; });
 
     const evs = acomodarEnCarriles(items).map(it=>{
       const b = it.b;
@@ -1454,7 +1456,8 @@ function renderCalSemana(){
       const marca = b.ev ? `data-id="${b.ev.id}" data-sel-tipo="evento" data-sel-id="${b.ev.id}"`
         : b.rutina ? `data-rutina="${b.rutina.id}" data-sel-tipo="rutina" data-sel-id="${b.rutina.id}"`
         : b.materia ? `data-materia="${b.materia.id}" data-sel-tipo="materia" data-sel-id="${b.materia.id}"`
-        : b.pend ? `data-pend="${b.pend.id}" data-sel-tipo="pendiente" data-sel-id="${b.pend.id}"` : '';
+        : b.pend ? `data-pend="${b.pend.id}" data-sel-tipo="pendiente" data-sel-id="${b.pend.id}"`
+      : b.sueno ? `data-sueno="${b.sueno}"` : '';
       const ancho = 100 / (it.carriles || 1);
       const alto = (it.hasta - it.desde) / 60 * GC_HP;
       return `<button class="gc-ev${alto < 34 ? ' corto':''}${hecho?' hecho':''}${saltado?' saltado':''}" ${marca}
@@ -5313,12 +5316,12 @@ function renderManana(){
   });
 }
 
-function openSuenoModal(){
-  const hoy = todayStr();
+function openSuenoModal(fecha){
+  const hoy = fecha || todayStr();
   const d = diaDe(hoy);
   if(!d.sueno.length) d.sueno = [{ desde:'', hasta:'' }];
   const pintar = ()=>{
-    openSheet(`<h3>¿Cómo dormiste?</h3>
+    openSheet(`<h3>¿Cómo dormiste${hoy===todayStr() ? '' : ' el ' + niceDateShort(hoy)}?</h3>
       <div class="helptext" style="margin:-4px 0 12px;">Si dormiste partido, agrega los bloques que hagan falta.</div>
       ${d.sueno.map((b,i)=>`
         <div class="field-row sueno-fila" data-i="${i}" style="align-items:flex-end;">
@@ -5339,7 +5342,7 @@ function openSuenoModal(){
     });
     document.getElementById('guardarSueno').onclick = ()=>{
       d.sueno = leer().filter(b=>b.desde && b.hasta);
-      saveData(); closeSheet(); renderHoy();
+      saveData(); closeSheet(); renderAll(); refrescarDiaCalendario();
     };
   };
   pintar();
@@ -5492,7 +5495,32 @@ function bloquesFijos(fecha){
     out.push({ titulo:e.title, start:e.start, end:e.end,
       color:CATS[e.cat]?CATS[e.cat].color:'var(--text-dim)', lugar:e.lugar||'', ev:e });
   });
+  bloquesDeSueno(fecha).forEach(b=>out.push(b));
   return out.sort(porHora);
+}
+
+/* Lo que durmio tambien es una parte del dia, y la mas grande: si no sale en
+   el horario, la noche se ve como un hueco y el dia parece mas vacio de lo
+   que fue. Como la noche cruza la medianoche, cada dia se queda con su pedazo:
+   lo que anota el martes por la mañana ("me dormi 23:00, me levante 07:00")
+   pinta de 23:00 a medianoche el lunes y de medianoche a las 07:00 el martes. */
+function bloquesDeSueno(fecha){
+  const diario = DATA.diario || {};
+  const bloque = (start, end)=> ({ titulo:'Sueño', start, end, color:'var(--c-descanso)',
+    lugar:'', sueno:fecha, noche:true });
+  const out = [];
+  ((diario[fecha]||{}).sueno || []).forEach(b=>{
+    if(!b.desde || !b.hasta) return;
+    const cruza = minutosDe(b.hasta) <= minutosDe(b.desde);
+    out.push(cruza ? bloque('00:00', b.hasta) : bloque(b.desde, b.hasta));
+  });
+  const manana = fmtDate(addDays(parseDate(fecha), 1));
+  ((diario[manana]||{}).sueno || []).forEach(b=>{
+    if(!b.desde || !b.hasta) return;
+    if(minutosDe(b.hasta) <= minutosDe(b.desde))
+      out.push({ ...bloque(b.desde, '00:00'), sueno:manana });
+  });
+  return out.filter(b=>b.start);
 }
 
 /* Dos bloques encimados no ocupan el doble: se unen antes de contar. */
@@ -5597,7 +5625,8 @@ function tiraDelDia(fecha, opciones){
     const marca = b.ev ? `data-id="${b.ev.id}" data-sel-tipo="evento" data-sel-id="${b.ev.id}"`
       : b.rutina ? `data-rutina="${b.rutina.id}" data-sel-tipo="rutina" data-sel-id="${b.rutina.id}"`
       : b.materia ? `data-materia="${b.materia.id}" data-sel-tipo="materia" data-sel-id="${b.materia.id}"`
-      : b.pend ? `data-pend="${b.pend.id}" data-sel-tipo="pendiente" data-sel-id="${b.pend.id}"` : '';
+      : b.pend ? `data-pend="${b.pend.id}" data-sel-tipo="pendiente" data-sel-id="${b.pend.id}"`
+      : b.sueno ? `data-sueno="${b.sueno}"` : '';
     return `<div class="bloque${hecho?' hecho':''}${saltado?' saltado':''}${b.auto?' auto':''}${b.movidoPor?' movido':''}" ${marca} ${b.auto?`style="--raya:${b.color}"`:''}>
       <div class="hora mono">${esc(b.start)}${b.end?`<span class="hasta">${esc(b.end)}</span>`:''}</div>
       <div class="raya" style="background:${b.color};"></div>
@@ -5677,6 +5706,9 @@ function engancharTira(caja){
   });
   caja.querySelectorAll('[data-pend]').forEach(el=>{
     el.onclick = ()=>{ const p = DATA.pendientes.find(x=>x.id===el.dataset.pend); if(p) openPendienteModal(p); };
+  });
+  caja.querySelectorAll('[data-sueno]').forEach(el=>{
+    el.onclick = ()=> openSuenoModal(el.dataset.sueno);
   });
   caja.querySelectorAll('[data-dia-entero]').forEach(b=>{
     b.onclick = ()=> marcarLoQueYaPaso(b.dataset.diaEntero);
