@@ -563,7 +563,7 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 /* la semana cabe entera, sin correrla de lado: para leer los nombres completos
    esta la vista de Dia, que es a lo que sirve tener las tres */
 .gc-tabla{display:flex; width:100%;}
-.gc-colhoras{flex:0 0 30px; position:sticky; left:0; z-index:11; background:var(--surface);}
+.gc-colhoras{flex:0 0 24px; position:sticky; left:0; z-index:11; background:var(--surface);}
 .gc-esq{height:46px; position:sticky; top:0; z-index:13; background:var(--surface); border-bottom:1px solid var(--border);}
 .gc-diacol{flex:1 1 0; min-width:0; display:flex; flex-direction:column;}
 /* en la vista de Dia, la letra puede ser de verdad */
@@ -576,7 +576,7 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 .gc-dia.hoy .num{background:var(--accent); color:#fff;}
 .gc-dia.gc-elegido:not(.hoy) .num{background:var(--accent-soft); color:var(--accent);}
 .gc-scroll{max-height:62vh; overflow:auto; overscroll-behavior:contain;}
-.gc-hora{font-size:9.5px; color:var(--text-dim); text-align:right; padding-right:4px; line-height:1;}
+.gc-hora{font-size:9px; color:var(--text-dim); text-align:right; padding-right:4px; line-height:1;}
 .gc-hora span{position:relative; top:-5px;}
 .gc-hora.corta{font-size:8px; opacity:.55;}
 .gc-hora.corta span{top:-3px;}
@@ -588,7 +588,7 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 /* display:block y no el centrado que traen los botones: en un bloque largo, el
    nombre va arriba, donde empieza la cosa, no flotando a media tarde */
 .gc-ev{position:absolute; display:block; overflow:hidden; text-align:left; border:none; font:inherit; cursor:pointer;
-  border-radius:5px; padding:2px 4px 2px 5px; line-height:1.15; color:var(--text);
+  border-radius:4px; padding:2px 3px 2px 5px; line-height:1.15; color:var(--text);
   background:color-mix(in srgb, var(--c) 18%, var(--surface)); border-left:3px solid var(--c);}
 .gc-ev b{font-size:9.5px; font-weight:600; overflow-wrap:break-word;
   display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:var(--lineas, 3); overflow:hidden;}
@@ -1624,7 +1624,7 @@ function renderCalSemana(){
     const noche = items.filter(it=>it.b.noche);
     const despierta = items.filter(it=>!it.b.noche);
     const fondo = noche.map(it=>`<button class="gc-ev noche" data-sueno="${it.b.sueno}"
-      style="--c:${it.b.color}; top:${y(it.desde)}px; height:${Math.max(y(it.hasta) - y(it.desde), 13)}px; left:0; width:calc(100% - 2px); z-index:1;"
+      style="--c:${it.b.color}; top:${y(it.desde)}px; height:${Math.max(y(it.hasta) - y(it.desde), 13)}px; left:0; width:100%; z-index:1;"
       title="${esc(it.b.start)}–${esc(it.b.end)} ${esc(it.b.titulo)}">${unDia ? `<b>${esc(it.b.titulo)}</b>` : ''}</button>`).join('');
 
     const evs = fondo + acomodarEnCarriles(despierta).map(it=>{
@@ -1676,7 +1676,7 @@ function renderCalSemana(){
       const lineas = Math.max(1, conHora ? caben - 1 : caben);
       return `<button class="gc-ev${montado ? ' montado':''}${alto < 34 ? ' corto':''}${hecho?' hecho':''}${saltado?' saltado':''}${mueve?' mueve':''}" ${marca} ${mueve} data-dur="${it.hasta - it.desde}" data-desde="${it.desde}"
         style="--c:${b.color}; --lineas:${lineas}; top:${arriba}px; height:${alto}px;
-               left:${izq}%; width:calc(${ancho}% - 2px); z-index:${2 + it.carril};"
+               left:${izq}%; width:${ancho}%; z-index:${2 + it.carril};"
         title="${esc(b.start)}${b.end?'–'+esc(b.end):''} ${esc(b.titulo)}">
         <b>${esc(b.titulo)}</b>${conHora ? `<span class="h mono">${esc(b.start)}</span>` : ''}
         ${mueve && alto >= 30 ? '<span class="gc-asa" aria-hidden="true"></span>' : ''}
