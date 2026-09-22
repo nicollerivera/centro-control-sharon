@@ -6169,6 +6169,17 @@ function openSuscripcionModal(existente){
     saveData(); closeSheet(); renderPlata();
   };
 }
+/* Un prestamo mueve plata de verdad: prestar 10.000 por Nequi es 10.000 menos
+   en Nequi. Antes se anotaba la deuda y el saldo se quedaba igual, asi que
+   "Tengo ahora" decia de mas hasta que se lo devolvieran. */
+function selectBolsillo(id, valor){
+  return `<select id="${id}">${bolsillos().map(b=>
+    `<option value="${esc(b.nombre)}" ${valor===b.nombre?'selected':''}>${esc(b.nombre)}</option>`).join('')
+  }<option value="${SIN_BOLSILLO}" ${valor===SIN_BOLSILLO?'selected':''}>Sin tocar saldos</option></select>`;
+}
+/* +1 entra, -1 sale. Prestar saca plata; que te presten, la mete. */
+function signoDePrestamo(sentido){ return sentido==='meDeben' ? -1 : 1; }
+
 function openDeudaModal(existente){
   const d = existente || { id:null, nombre:'', sentido:'debo', monto:'', fecha:'', fechaHasta:'', aprox:true, nota:'', movs:[] };
   const saldo = existente ? saldoDeuda(d) : 0;
@@ -6190,6 +6201,11 @@ function openDeudaModal(existente){
       <option value="meDeben" ${d.sentido==='meDeben'?'selected':''}>Me deben a mí</option>
     </select></div>
     <div class="field"><label>Cuánto era al principio</label><input type="number" id="f_dmonto" inputmode="numeric" value="${d.monto}"></div>
+    ${existente ? '' : `<div class="field">
+      <label id="f_dbollbl">${d.sentido==='meDeben' ? '¿De dónde salió?' : '¿A dónde entró?'}</label>
+      ${selectBolsillo('f_dbol', bolsilloPorDefecto())}
+      <div class="helptext">Prestar 10.000 por Nequi le baja 10.000 a Nequi. Si no quieres que toque los saldos, ponlo en "Sin tocar saldos".</div>
+    </div>`}
     <div class="field-row">
       <div class="field"><label>Fecha (o desde)</label><input type="date" id="f_dfecha" value="${d.fecha}"></div>
       <div class="field"><label>Hasta (opcional)</label><input type="date" id="f_dhasta" value="${d.fechaHasta||''}"></div>
@@ -6201,6 +6217,11 @@ function openDeudaModal(existente){
       ${existente?`<button class="btn btn-ghost" id="delDeuda">Borrar</button>`:''}
       <button class="btn btn-primary" id="saveDeuda">Guardar</button>
     </div>`);
+  const sentidoSel = document.getElementById('f_dsentido');
+  const bolLbl = document.getElementById('f_dbollbl');
+  if(sentidoSel && bolLbl) sentidoSel.onchange = ()=>{
+    bolLbl.textContent = sentidoSel.value==='meDeben' ? '¿De dónde salió?' : '¿A dónde entró?';
+  };
   const mov = document.getElementById('addMov');
   if(mov) mov.onclick = ()=>openMovModal(existente);
   const saldar = document.getElementById('saldarDeuda');
@@ -6226,7 +6247,12 @@ function openDeudaModal(existente){
     };
     if(!datos.nombre){ alert('Ponle nombre.'); return; }
     if(existente) Object.assign(existente, datos);
-    else DATA.deudas.push(Object.assign({id:uid(), movs:[]}, datos));
+    else {
+      DATA.deudas.push(Object.assign({id:uid(), movs:[]}, datos));
+      /* solo al anotarlo: si despues lo edita, la plata ya se movio */
+      const bol = document.getElementById('f_dbol');
+      if(bol) aplicarABolsillo(bol.value, signoDePrestamo(datos.sentido) * datos.monto);
+    }
     saveData(); closeSheet(); renderPlata();
   };
 }
@@ -6238,6 +6264,8 @@ function openSaldarModal(d){
   openSheet(`<h3>¿${esc(d.nombre)} ya quedó paga?</h3>
     <div class="helptext" style="margin:-4px 0 14px;">${debo?'Le debías':'Te debía'} ${money(resta)}.</div>
     <div class="field"><label>Cuándo se cerró</label><input type="date" id="s_fecha" value="${todayStr()}"></div>
+    ${resta>0?`<div class="field"><label>${debo ? '¿De dónde salió?' : '¿A dónde entró?'}</label>
+      ${selectBolsillo('s_bol', bolsilloPorDefecto())}</div>`:''}
     ${resta>0?`<label class="field-check"><input type="checkbox" id="s_anotar" checked>
       <span>Anotarlo en los movimientos<br><span class="helptext" style="margin:2px 0 0;">Queda ${money(resta)} ${debo?'saliendo':'entrando'} en este mes. Quítale el visto si ya lo registraste aparte.</span></span></label>`:''}
     <div class="sheet-actions">
@@ -6248,11 +6276,16 @@ function openSaldarModal(d){
   document.getElementById('s_saldar').onclick = ()=>{
     const fecha = document.getElementById('s_fecha').value || todayStr();
     const anotar = document.getElementById('s_anotar');
+    const bol = document.getElementById('s_bol');
     if(resta>0 && anotar && anotar.checked){
       DATA.events.push({ id:uid(), cat:'finanzas', type: debo?'gasto':'ingreso', amount:resta, moneda:'COP',
         categoria: debo?'Otros':'', persona:d.nombre, title:(debo?'Pago de ':'Me pagó ')+d.nombre,
+        bolsillo: bol ? bol.value : '',
         date:fecha, notes:'Cierre del préstamo', start:'', end:'', status:'hecho' });
     }
+    /* la plata se mueve aunque no lo anote en los movimientos: el saldo del
+       lugar es lo que hay, no lo que quiso registrar */
+    if(resta>0 && bol) aplicarABolsillo(bol.value, (debo ? -1 : 1) * resta);
     d.movs = d.movs || [];
     if(resta !== 0) d.movs.push({ id:uid(), sentido: resta>0?'abono':'suma', monto:Math.abs(resta), fecha, nota:'cierre', cierre:true });
     d.saldada = true; d.saldadaFecha = fecha;
@@ -6296,15 +6329,30 @@ function openMovModal(deuda){
       <option value="suma">Se prestaron más — sube la deuda</option>
     </select></div>
     <div class="field"><label>Cuánto</label><input type="number" id="f_mmonto" inputmode="numeric"></div>
+    <div class="field"><label id="f_mbollbl">${deuda.sentido==='meDeben' ? '¿A dónde entró?' : '¿De dónde salió?'}</label>
+      ${selectBolsillo('f_mbol', bolsilloPorDefecto())}</div>
     <div class="field"><label>Cuándo</label><input type="date" id="f_mfecha" value="${todayStr()}"></div>
     <div class="field"><label>Nota (opcional)</label><input type="text" id="f_mnota"></div>
     <div class="sheet-actions"><button class="btn btn-primary" id="saveMov">Guardar</button></div>`);
+  /* el rotulo cambia con lo que paso: un abono a lo que te deben entra, y uno a
+     lo que debes sale */
+  const quePaso = document.getElementById('f_msentido');
+  const movLbl = document.getElementById('f_mbollbl');
+  const rotularMov = ()=>{
+    const entra = signoDePrestamo(deuda.sentido) * (quePaso.value==='abono' ? -1 : 1) > 0;
+    movLbl.textContent = entra ? '¿A dónde entró?' : '¿De dónde salió?';
+  };
+  quePaso.onchange = rotularMov;
+  rotularMov();
   document.getElementById('saveMov').onclick = ()=>{
     const monto = Number(document.getElementById('f_mmonto').value);
     if(!monto){ alert('Pon el monto.'); return; }
+    const sentido = quePaso.value;
     deuda.movs = deuda.movs || [];
-    deuda.movs.push({ id:uid(), sentido:document.getElementById('f_msentido').value, monto,
+    deuda.movs.push({ id:uid(), sentido, monto,
       fecha:document.getElementById('f_mfecha').value || todayStr(), nota:document.getElementById('f_mnota').value.trim() });
+    aplicarABolsillo(document.getElementById('f_mbol').value,
+      signoDePrestamo(deuda.sentido) * (sentido==='abono' ? -1 : 1) * monto);
     saveData(); closeSheet(); renderPlata();
   };
 }
