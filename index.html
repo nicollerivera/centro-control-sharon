@@ -5457,6 +5457,21 @@ function porRecibir(){
 function pagadoEsteMes(sus, mes){
   return (sus.pagados||[]).includes(mes || todayStr().slice(0,7));
 }
+/* El cobro de este mes, haya pasado ya o no. proximoCobro salta al mes que
+   sigue en cuanto pasa el dia, y por eso el de Claude quedaba sin poder
+   marcarse: el dia 19 ya se lo habian descontado y el boton "Pagué" solo
+   aparecia los tres dias de antes. */
+function cobroDeEsteMes(sus){
+  const dia = Number(sus.dia);
+  if(!dia) return null;
+  const hoy = new Date(), a = hoy.getFullYear(), m = hoy.getMonth();
+  return fmtDate(new Date(a, m, Math.min(dia, ultimoDiaDelMes(a, m))));
+}
+/* Ya te lo descontaron este mes y todavia no lo has marcado. */
+function yaSeCobro(sus){
+  const f = cobroDeEsteMes(sus);
+  return !!f && f <= todayStr() && !pagadoEsteMes(sus);
+}
 function proximoCobro(sus){
   const hoy = new Date(), dia = Number(sus.dia);
   if(!dia) return null;
@@ -5468,6 +5483,15 @@ function proximoCobro(sus){
   return fmtDate(f);
 }
 
+/* Lo que debes y lo que te deben, sumado de una sola manera. Estaba en dos
+   sitios con dos reglas: la pantalla de Plata sumaba los saldos tal cual y el
+   estimado los cortaba en cero, asi que una deuda sobrepagada daba dos totales
+   distintos y parecia que sumaba mal. */
+function totalDeudas(sentido){
+  return (DATA.deudas||[])
+    .filter(d=>!d.saldada && (sentido==='meDeben' ? d.sentido==='meDeben' : d.sentido!=='meDeben'))
+    .reduce((a,d)=>a + Math.max(0, saldoDeuda(d)), 0);
+}
 /* Lo de Jerson no es un numero quieto: si a veces le prestas tu, se descuenta. */
 function saldoDeuda(d){
   const movs = (d.movs||[]).reduce((a,m)=> a + (m.sentido==='abono' ? -Number(m.monto) : Number(m.monto)), 0);
@@ -5660,12 +5684,17 @@ function cuentaQuedaria(){
   if(tengo===null) return null;
   const hoy = todayStr(), en30 = fmtDate(addDays(new Date(), 30));
   const recibir = porRecibir().reduce((a,x)=>a+x.monto, 0);
-  const cobros = (DATA.suscripciones||[]).map(x=>({ x, f:proximoCobro(x) })).filter(o=>o.f && o.f<=en30)
+  /* solo lo que todavia no ha salido de la cuenta. El cobro de Claude del 19 ya
+     esta restado en lo que tienes: volver a restarlo -o restar el del mes que
+     viene- hacia que la cuenta no cuadrara con nada. */
+  const cobros = (DATA.suscripciones||[])
+    .map(x=>({ x, f: cobroDeEsteMes(x) }))
+    .filter(o=>o.f && o.f >= hoy && o.f <= en30 && !pagadoEsteMes(o.x))
     .reduce((a,o)=>a + (enPesos(o.x.monto, o.x.moneda) || Number(o.x.montoCOP) || 0), 0);
   const pagos = DATA.events.filter(e=>e.cat==='finanzas' && e.type==='pago' && e.status!=='hecho').reduce((a,e)=>a+Number(e.amount||0), 0);
-  const debes = (DATA.deudas||[]).filter(d=>!d.saldada && d.sentido!=='meDeben').reduce((a,d)=>a+Math.max(0,saldoDeuda(d)), 0);
+  const debes = totalDeudas('debo');
   const cuotas = (DATA.installments||[]).reduce((a,i)=>a + Math.max(0, Number(i.total) - i.payments.reduce((s,p)=>s+Number(p.amount),0)), 0);
-  const teDeben = (DATA.deudas||[]).filter(d=>!d.saldada && d.sentido==='meDeben').reduce((a,d)=>a+Math.max(0,saldoDeuda(d)), 0);
+  const teDeben = totalDeudas('meDeben');
   const total = tengo + recibir - cobros - pagos - debes - cuotas;
   return { total, recibir, cobros, pagos, debes, cuotas, teDeben };
 }
@@ -5779,16 +5808,28 @@ function renderPlata(){
   }
 
   if(DATA.suscripciones.length){
-    const porVencer = DATA.suscripciones.filter(x=>{ const pr=proximoCobro(x); return x.dia && pr && !pagadoEsteMes(x) && daysBetween(todayStr(), pr)<=3; });
+    const porVencer = DATA.suscripciones.filter(x=>{
+      if(!x.dia || pagadoEsteMes(x)) return false;
+      if(yaSeCobro(x)) return true;                       // ya salio y falta marcarlo
+      const pr = proximoCobro(x);
+      return pr && daysBetween(todayStr(), pr) <= 3;
+    });
     const susHtml = DATA.suscripciones.map(x=>{
       const prox = proximoCobro(x);
       const faltan = prox ? daysBetween(todayStr(), prox) : null;
       const pagado = x.dia && pagadoEsteMes(x);
-      const pronto = !pagado && faltan!==null && faltan<=3;
+      const salio = x.dia && yaSeCobro(x);
+      const pronto = !pagado && !salio && faltan!==null && faltan<=3;
+      /* mientras el mes no este marcado, el boton esta: el dia del cobro, el de
+         despues y el que sigue. Antes desaparecia justo cuando hacia falta. */
       return `<div class="fila-p sus-card" data-id="${x.id}" data-sel-tipo="suscripcion" data-sel-id="${x.id}">
         <span class="nom">${esc(x.nombre)}</span>
-        ${pronto ? `<button class="small-btn" data-pagar-sus="${x.id}">Pagué</button>` : ''}
-        <span class="cu ${pagado?'ok':pronto?'ojo':''}">${pagado ? '✓ pagado' : !x.dia ? 'sin día' : esc(cuandoCorto(prox))}</span>
+        ${!pagado && x.dia ? `<button class="small-btn" data-pagar-sus="${x.id}">Pagué</button>`
+                           : pagado ? `<button class="small-btn" data-despagar="${x.id}">Aún no</button>` : ''}
+        <span class="cu ${pagado?'ok':(salio||pronto)?'ojo':''}">${pagado ? '✓ pagado'
+          : !x.dia ? 'sin día'
+          : salio ? 'ya se cobró · ' + esc(cuandoCorto(cobroDeEsteMes(x)))
+          : esc(cuandoCorto(prox))}</span>
         <span class="mo" style="color:${pagado?'var(--text-dim)':'var(--urgent)'}">${x.moneda==='USD' ? 'US$'+x.monto : money(x.monto)}</span>
       </div>`;
     }).join('');
@@ -5800,8 +5841,8 @@ function renderPlata(){
   const deudasOrden = [...DATA.deudas].sort((a,b)=> (a.saldada?1:0) - (b.saldada?1:0));
   if(deudasOrden.length){
     const abiertas = deudasOrden.filter(d=>!d.saldada);
-    const debes = abiertas.filter(d=>d.sentido!=='meDeben').reduce((a,d)=>a+saldoDeuda(d),0);
-    const teDeben = abiertas.filter(d=>d.sentido==='meDeben').reduce((a,d)=>a+saldoDeuda(d),0);
+    const debes = totalDeudas('debo');
+    const teDeben = totalDeudas('meDeben');
     const partes = [];
     if(debes) partes.push('debes ' + money(debes));
     if(teDeben) partes.push('te deben ' + money(teDeben));
