@@ -5175,6 +5175,30 @@ async function suscripcionActual(){
   const reg = await navigator.serviceWorker.getRegistration();
   return reg ? await reg.pushManager.getSubscription() : null;
 }
+/* Si en Vercel cambian las llaves, la suscripcion que tiene el telefono queda
+   hablandole a la llave vieja y no llega nada, sin que nada lo diga. Se compara
+   con la que da el servidor y, si no son la misma, se rehace sola. */
+function llaveDe(sub){
+  const k = sub && sub.options && sub.options.applicationServerKey;
+  if(!k) return '';
+  return btoa(String.fromCharCode(...new Uint8Array(k)))
+    .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+async function alDiaConLaLlave(){
+  try{
+    const sub = await suscripcionActual();
+    if(!sub) return null;
+    const { publicKey } = await pushRequest('GET');
+    if(!publicKey || llaveDe(sub) === publicKey) return sub;
+    await pushRequest('POST', { subscription: sub.toJSON(), quitar: true }).catch(()=>{});
+    await sub.unsubscribe();
+    const reg = await navigator.serviceWorker.ready;
+    const nueva = await reg.pushManager.subscribe({
+      userVisibleOnly: true, applicationServerKey: b64aBytes(publicKey) });
+    await pushRequest('POST', { subscription: nueva.toJSON() });
+    return nueva;
+  }catch(err){ return await suscripcionActual(); }
+}
 
 async function renderAvisos(){
   const caja = document.getElementById('avisosBox');
@@ -5197,7 +5221,7 @@ async function renderAvisos(){
   }
 
   const permiso = Notification.permission;
-  const sub = await suscripcionActual();
+  const sub = permiso === 'granted' ? await alDiaConLaLlave() : await suscripcionActual();
   let estado, accion;
 
   if(permiso === 'denied'){
@@ -5221,11 +5245,19 @@ async function renderAvisos(){
   if(quitar) quitar.onclick = desactivarAvisos;
   const probar = document.getElementById('avisosProbar');
   if(probar) probar.onclick = async ()=>{
-    const reg = await navigator.serviceWorker.getRegistration();
-    reg.showNotification('Bitácora', {
-      body: 'Así se van a ver. Este es el único que te mando yo.',
-      icon: '/icons/icono-192.png', badge: '/icons/icono-192.png', tag: 'bitacora-prueba'
-    });
+    /* la prueba de antes se la pintaba el mismo telefono: salia bien aunque el
+       servidor no pudiera mandar nada. Esta hace el viaje completo. */
+    probar.disabled = true; probar.textContent = 'Mandando…';
+    try{
+      const r = await fetch('/api/avisos?momento=prueba', { cache:'no-store' });
+      const j = await r.json().catch(()=>({}));
+      if(!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+      if(!j.enviados) throw new Error('No hay ningún dispositivo guardado. Vuelve a activarlos.');
+      avisar('Mandado. Si no te llega en unos segundos, avísame.');
+    }catch(err){
+      alert('No llegó: ' + err.message);
+    }
+    probar.disabled = false; probar.textContent = 'Mandarme uno de prueba';
   };
 }
 
@@ -5261,6 +5293,26 @@ async function desactivarAvisos(){
     }
   }catch(err){ /* si falla el servidor, igual se quita del navegador */ }
   renderAvisos();
+}
+
+/* El aviso de la clase que empieza ya tiene que salir a su hora, y el cron de
+   Vercel solo corre una vez al dia: no alcanza. Mientras la app este abierta,
+   ella misma le pide al servidor que mire si hay algo para este rato. El
+   servidor se encarga de no mandar lo mismo dos veces. */
+let RELOJ_AVISOS = null;
+async function revisarAvisosDeAhora(){
+  if(!soportaAvisos() || Notification.permission !== 'granted') return;
+  /* de paso, si cambiaron las llaves, la suscripcion se rehace sin que ella
+     tenga que entrar a la pantalla de avisos */
+  await alDiaConLaLlave();
+  const mirar = ()=>{
+    if(document.hidden) return;
+    fetch('/api/avisos?momento=ahora', { cache:'no-store' }).catch(()=>{});
+  };
+  mirar();
+  if(RELOJ_AVISOS) clearInterval(RELOJ_AVISOS);
+  RELOJ_AVISOS = setInterval(mirar, 10*60*1000);
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) mirar(); });
 }
 
 /* Al tocar un aviso, la app abre donde toca. */
@@ -6871,6 +6923,7 @@ function renderAll(){
   volverDondeEstaba();
   document.querySelectorAll('.view.active .subtabs').forEach(marcarBordes);
   engancharAvisos();
+  revisarAvisosDeAhora();
 
   const temaBtn = document.getElementById('temaBtn');
   function pintarTema(){

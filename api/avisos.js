@@ -43,7 +43,9 @@ export default async function handler(req, res) {
   }
 
   try {
-    if (enSilencio()) return res.status(200).json({ ok: true, motivo: 'silencio' });
+    if (enSilencio() && req.query?.momento !== 'prueba') {
+      return res.status(200).json({ ok: true, motivo: 'silencio' });
+    }
 
     const guardado = await leerJson(RUTA_DATOS, null);
     const datos = guardado?.data ?? guardado ?? null;
@@ -52,7 +54,13 @@ export default async function handler(req, res) {
        el dia antes) y la de cada rato, que es la que alcanza a avisar de una
        clase antes de que empiece. */
     const alInstante = req.query?.momento === 'ahora';
-    let avisos = alInstante ? avisosDeAhora(datos) : avisosPara(datos);
+    /* La prueba tiene que salir del servidor y volver por el mismo camino que
+       los de verdad. La de antes se la pintaba el propio telefono: decia que
+       si aunque las llaves estuvieran rotas y no llegara nunca nada. */
+    const esPrueba = req.query?.momento === 'prueba';
+    let avisos = esPrueba
+      ? [{ tipo:'prueba', titulo:'Bitácora', cuerpo:'Prueba: los avisos te están llegando bien.', ir:'yo' }]
+      : alInstante ? avisosDeAhora(datos) : avisosPara(datos);
 
     /* lo de cada rato se repetiria en cada corrida: cada aviso se manda una vez */
     let yaEnviados = null;
@@ -93,7 +101,10 @@ export default async function handler(req, res) {
     if (muertas.length) {
       await escribirJson(RUTA_PUSH, { subs: subs.filter((s) => !muertas.includes(s.endpoint)) });
     }
-    return res.status(200).json({ ok: true, avisos: avisos.length, enviados, limpiadas: muertas.length });
+    return res.status(200).json({ ok: enviados > 0 || !avisos.length, avisos: avisos.length,
+      enviados, dispositivos: subs.length, limpiadas: muertas.length,
+      error: enviados === 0 && avisos.length
+        ? 'No se pudo entregar en ninguno de los ' + subs.length + ' dispositivos guardados.' : undefined });
   } catch (err) {
     console.error('[api/avisos]', err);
     return res.status(500).json({ error: err?.message || 'Error inesperado' });
