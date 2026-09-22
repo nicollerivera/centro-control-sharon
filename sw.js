@@ -10,7 +10,7 @@
    - /api/*: siempre la red, el service worker ni se mete
 */
 
-const VERSION = 'v4';
+const VERSION = 'v5';
 const CACHE = `bitacora-${VERSION}`;
 const CACHE_EXTERNO = `bitacora-externo-${VERSION}`;
 
@@ -50,7 +50,9 @@ self.addEventListener('activate', (evento) => {
 async function redPrimero(request) {
   const cache = await caches.open(CACHE);
   try {
-    const respuesta = await fetch(request);
+    /* sin no-store, el telefono podia contestar con la pagina que ya tenia
+       guardada en su propio cache y la version nueva no llegaba nunca */
+    const respuesta = await fetch(request, { cache: 'no-store' });
     if (respuesta && respuesta.ok && !respuesta.redirected) {
       cache.put('/', respuesta.clone());
     }

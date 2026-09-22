@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>Bitácora</title>
-<meta name="bitacora-build" content="20260918195629">
+<!-- referencia para mirar a ojo que version es esta; la que manda la da /api/version -->
+<meta name="bitacora-build" content="20260922110127">
 <script>
 /* Modo claro u oscuro (D55). La primera vez sigue al teléfono; después manda el botón. */
 /* Arranca en claro. El oscuro se elige con el boton, no lo decide el
@@ -7131,26 +7132,43 @@ if (navigator.storage && navigator.storage.persist) {
    vieja guardada y ella cree que el arreglo no llego. Asi que la app misma
    mira si hay una nueva y ofrece actualizar; nunca recarga sola, porque
    podria hacerlo mientras esta escribiendo algo. */
-const BUILD_ACTUAL = (document.querySelector('meta[name="bitacora-build"]')||{}).content || '';
+/* Cual version esta abierta aqui. Se apunta la primera vez que responde el
+   servidor: de ahi en adelante, si la de alla es otra, es que se publico algo
+   nuevo mientras ella tenia esto abierto.
+
+   El sello del index estaba escrito a mano y nadie lo volvio a tocar desde
+   septiembre, asi que la app se comparaba consigo misma, siempre daba igual, y
+   en el telefono se quedaba la version vieja sin que nada lo dijera. */
+let VERSION_ABIERTA = null;
 let avisandoVersion = false;
 async function mirarVersionNueva(){
-  if(avisandoVersion || !BUILD_ACTUAL || !navigator.onLine) return;
+  if(avisandoVersion || !navigator.onLine) return;
   try{
-    const r = await fetch('/?v=' + Date.now(), { cache:'no-store' });
+    const r = await fetch('/api/version', { cache:'no-store' });
     if(!r.ok) return;
-    const txt = await r.text();
-    const m = txt.match(/name="bitacora-build" content="([^"]+)"/);
-    if(!m || m[1] === BUILD_ACTUAL) return;
+    const { build } = await r.json();
+    if(!build) return;
+    if(VERSION_ABIERTA === null){ VERSION_ABIERTA = build; return; }
+    if(build === VERSION_ABIERTA) return;
     avisandoVersion = true;
     const caja = document.createElement('div');
     caja.className = 'aviso-version';
     caja.innerHTML = '<span>Hay una versión nueva de Bitácora.</span><button>Actualizar</button>';
-    caja.querySelector('button').onclick = ()=>location.reload();
+    /* se bota lo guardado antes de recargar: si no, el telefono podia volver a
+       servir la misma pagina vieja y el aviso salia otra vez */
+    caja.querySelector('button').onclick = async ()=>{
+      try{
+        const nombres = await caches.keys();
+        await Promise.all(nombres.map(n=>caches.delete(n)));
+      }catch(e){}
+      location.reload();
+    };
     document.body.appendChild(caja);
   }catch(e){}
 }
-setTimeout(mirarVersionNueva, 4000);
-setInterval(mirarVersionNueva, 15*60*1000);
+mirarVersionNueva();                       // apuntar cual esta abierta, de una
+setTimeout(mirarVersionNueva, 20000);
+setInterval(mirarVersionNueva, 5*60*1000);
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) mirarVersionNueva(); });
 
 if ('serviceWorker' in navigator) {
