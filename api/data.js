@@ -2,6 +2,11 @@ import { head, put } from '@vercel/blob';
 
 /* Un único archivo JSON con todo el estado de la app. */
 const BLOB_PATH = 'centro-control-sharon/data.json';
+/* La copia de justo antes, y una por dia. Aca no habia nada: el ultimo que
+   escribia ganaba y lo anterior se perdia para siempre, asi que un aparato que
+   se quedara atras borraba el trabajo del otro sin vuelta. */
+const BLOB_PREV = 'centro-control-sharon/data.prev.json';
+const BLOB_DIA = (dia) => `centro-control-sharon/respaldos/data-${dia}.json`;
 const MAX_BYTES = 4 * 1024 * 1024;
 
 /* Si existe APP_PASSWORD, hay que mandar ese PIN en el header x-app-password.
@@ -30,6 +35,44 @@ async function readBody(req) {
     chunks.push(chunk);
   }
   return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+}
+
+/* Guarda lo que hay ahora antes de pisarlo: siempre la anterior, y ademas la
+   primera de cada dia, que es la que sirve cuando se da cuenta al otro dia. */
+async function guardarCopia(anterior) {
+  if (!anterior) return;
+  const cuerpo = JSON.stringify(anterior);
+  const opts = { access: 'public', contentType: 'application/json',
+    addRandomSuffix: false, allowOverwrite: true, cacheControlMaxAge: 60 };
+  try {
+    await put(BLOB_PREV, cuerpo, opts);
+  } catch (err) {
+    console.error('[api/data] no se pudo guardar la copia anterior', err?.message);
+  }
+  const dia = new Date(Date.now() - 5 * 3600 * 1000).toISOString().slice(0, 10);
+  try {
+    await head(BLOB_DIA(dia));            // ya hay una de hoy: esa es la buena
+  } catch (err) {
+    if (!isNotFound(err)) return;
+    try {
+      await put(BLOB_DIA(dia), cuerpo, opts);
+    } catch (e) {
+      console.error('[api/data] no se pudo guardar la copia del dia', e?.message);
+    }
+  }
+}
+
+async function leerBlob(ruta) {
+  let meta;
+  try {
+    meta = await head(ruta);
+  } catch (err) {
+    if (isNotFound(err)) return null;
+    throw err;
+  }
+  const r = await fetch(`${meta.url}?v=${Date.now()}`, { cache: 'no-store' });
+  if (!r.ok) throw new Error(`No se pudo leer el blob (${r.status})`);
+  return { stored: await r.json(), meta };
 }
 
 async function writeBlob(payload) {
@@ -62,19 +105,20 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === 'GET') {
-      let meta;
-      try {
-        meta = await head(BLOB_PATH);
-      } catch (err) {
-        if (isNotFound(err)) return res.status(200).json({ data: null, updatedAt: null });
-        throw err;
-      }
-      const r = await fetch(`${meta.url}?v=${Date.now()}`, { cache: 'no-store' });
-      if (!r.ok) throw new Error(`No se pudo leer el blob (${r.status})`);
-      const stored = await r.json();
+      /* ?copia=prev trae la de justo antes; ?copia=2026-09-20, la de ese dia */
+      const copia = req.query?.copia;
+      const ruta = !copia ? BLOB_PATH
+        : copia === 'prev' ? BLOB_PREV
+        : /^\d{4}-\d{2}-\d{2}$/.test(copia) ? BLOB_DIA(copia)
+        : null;
+      if (!ruta) return res.status(400).json({ error: 'Copia no válida' });
+      const leido = await leerBlob(ruta);
+      if (!leido) return res.status(200).json({ data: null, updatedAt: null, copia: copia || null });
+      const { stored, meta } = leido;
       return res.status(200).json({
         data: stored?.data ?? stored ?? null,
         updatedAt: stored?.updatedAt ?? meta.uploadedAt ?? null,
+        copia: copia || null,
       });
     }
 
@@ -83,6 +127,13 @@ export default async function handler(req, res) {
       const data = body?.data ?? body;
       if (!data || typeof data !== 'object' || Array.isArray(data)) {
         return res.status(400).json({ error: 'Cuerpo inválido: se esperaba { data: {...} }' });
+      }
+      /* lo que habia se guarda antes de escribir encima */
+      try {
+        const antes = await leerBlob(BLOB_PATH);
+        if (antes) await guardarCopia(antes.stored);
+      } catch (err) {
+        console.error('[api/data] no se pudo leer lo anterior', err?.message);
       }
       const updatedAt = new Date().toISOString();
       const blob = await writeBlob(JSON.stringify({ updatedAt, data }));

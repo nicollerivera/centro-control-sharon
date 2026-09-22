@@ -852,6 +852,8 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
     <div id="avisosBox"></div>
     <div class="section-title" style="margin-top:28px;">Tus notas</div>
     <div id="sub-personal"></div>
+    <div class="section-title" style="margin-top:28px;">Copia de seguridad</div>
+    <div id="respaldoBox"></div>
   </div>
 
   <button class="fab" id="fabAdd">+</button>
@@ -950,6 +952,41 @@ function mergeInto(src){
   Object.keys(DATA).forEach(k=>{ if(k in src && src[k]!=null) DATA[k] = src[k]; });
   return true;
 }
+/* Cuanto hay guardado, en numero de cosas. No es exacto ni tiene que serlo:
+   sirve para darse cuenta de que una copia tiene mucho menos que la otra antes
+   de dejar que se pisen. */
+const LISTAS_DE_DATOS = ['events','subjects','routines','reminders','academicTasks','courseSchedule',
+  'courseTasks','courseModules','nexxaEvents','workClients','workSessions','installments',
+  'personalItems','pendientes','listas','turnos','deudas','suscripciones','marca'];
+function pesoDe(d){
+  if(!d || typeof d!=='object') return 0;
+  let n = 0;
+  LISTAS_DE_DATOS.forEach(k=>{ if(Array.isArray(d[k])) n += d[k].length; });
+  if(d.diario && typeof d.diario==='object') n += Object.keys(d.diario).length;
+  return n;
+}
+/* Cuando una copia tiene bastante menos que la otra, no se decide sola: la
+   decide ella. El sabado se perdio asi, con un aparato que se habia quedado
+   atras pisando al otro sin preguntar. */
+function preguntarCualCopia(remoto){
+  return new Promise(resolve=>{
+    const aqui = pesoDe(DATA), nube = pesoDe(remoto);
+    openSheet(`<h3>Hay dos copias distintas</h3>
+      <div class="helptext" style="margin:-4px 0 16px;">En este aparato hay <b>${aqui}</b> cosas anotadas y en la nube hay <b>${nube}</b>. Antes de que una pise a la otra: ¿cuál es la buena?</div>
+      <div class="sheet-actions" style="flex-direction:column; align-items:stretch; gap:8px;">
+        <button class="btn btn-primary" id="c_aqui">Dejar lo de este aparato (${aqui})</button>
+        <button class="btn btn-ghost" id="c_nube" style="border:1px solid var(--border);">Traer lo de la nube (${nube})</button>
+      </div>
+      <div class="helptext" style="margin-top:12px;">Si no estás segura, guarda antes una copia en Yo → Copia de seguridad, y así no se pierde ninguna de las dos.</div>`);
+    document.getElementById('c_aqui').onclick = async ()=>{
+      closeSheet(); setDirty(true); await pushRemote(); resolve('aqui');
+    };
+    document.getElementById('c_nube').onclick = ()=>{
+      mergeInto(remoto); cacheLocal(); setDirty(false); closeSheet(); renderAll(); resolve('nube');
+    };
+  });
+}
+
 function hasLocalData(){
   return !!(DATA.events.length || DATA.subjects.length || DATA.routines.length || DATA.reminders.length ||
     DATA.academicTasks.length || DATA.courseSchedule.length || DATA.courseTasks.length || DATA.courseModules.length ||
@@ -963,13 +1000,13 @@ function askPass(){
   lsSet(PASS_KEY, p.trim());
   return true;
 }
-async function apiRequest(method, body, retry){
+async function apiRequest(method, body, retry, cola){
   const headers = { 'Content-Type':'application/json' };
   const pass = lsGet(PASS_KEY);
   if(pass) headers['x-app-password'] = pass;
-  const res = await fetch(API_URL, { method, headers, cache:'no-store', body: body ? JSON.stringify(body) : undefined });
+  const res = await fetch(API_URL + (cola||''), { method, headers, cache:'no-store', body: body ? JSON.stringify(body) : undefined });
   if(res.status===401){
-    if(retry!==false && askPass()) return apiRequest(method, body, false);
+    if(retry!==false && askPass()) return apiRequest(method, body, false, cola);
     const err = new Error('PIN incorrecto'); err.code = 401; throw err;
   }
   if(!res.ok){
@@ -984,7 +1021,16 @@ async function pullRemote(){
   setSync('sync');
   try{
     const out = await apiRequest('GET');
-    if(out && out.data){ mergeInto(out.data); cacheLocal(); }
+    if(out && out.data){
+      /* si lo de la nube tiene bastante menos que lo de aquí, no se pisa solo:
+         asi fue como el portatil estuvo a punto de perder el sabado */
+      if(pesoDe(DATA) > pesoDe(out.data)){
+        setSync('sync');
+        await preguntarCualCopia(out.data);
+        return true;
+      }
+      mergeInto(out.data); cacheLocal();
+    }
     else if(hasLocalData()){ setDirty(true); }  // primera vez en la nube: sube lo que ya había acá
     setSync(dirty ? 'sync' : 'ok');
     return true;
@@ -1023,9 +1069,13 @@ async function loadData(){
   }catch(e){ console.warn('No se pudieron leer los datos locales', e); }
 
   if(lsGet(DIRTY_KEY)==='1'){
-    /* Quedó algo sin subir de la sesión anterior: no lo pisamos con lo remoto. */
+    /* Quedó algo sin subir de la sesión anterior. Antes se subía a ciegas, y si
+       este aparato se había quedado atrás se llevaba por delante lo que estaba
+       bien en la nube: eso fue lo que borró el sábado. Ahora se mira primero. */
     dirty = true;
-    await pushRemote();
+    const out = await apiRequest('GET').catch(()=>null);
+    if(out && out.data && pesoDe(out.data) > pesoDe(DATA)) await preguntarCualCopia(out.data);
+    else await pushRemote();
   }else{
     await pullRemote();
     if(dirty) await pushRemote();
@@ -5242,6 +5292,64 @@ function renderChoquesSemana(){
 }
 
 /* ============================================================
+   COPIA DE SEGURIDAD
+   Todo vive en un solo archivo en la nube, y el ultimo que escribe gana. Eso
+   basta mientras los dos aparatos vayan al dia, pero el dia que uno se queda
+   atras se lleva por delante lo del otro y no hay de donde sacarlo. Aca se
+   baja una copia a mano, y se vuelve a meter si hace falta.
+============================================================ */
+function renderRespaldo(){
+  const caja = document.getElementById('respaldoBox');
+  if(!caja) return;
+  caja.innerHTML = `<div class="card">
+    <div class="helptext" style="margin:0 0 10px;">Un archivo con todo lo que tienes anotado: ${pesoDe(DATA)} cosas. Guárdalo de vez en cuando, y sobre todo antes de andar cambiando cosas en dos aparatos.</div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button class="btn btn-primary" id="respaldoBajar">Guardar una copia</button>
+      <button class="small-btn" id="respaldoSubir">Restaurar de una copia</button>
+      <button class="small-btn" id="respaldoServidor">Traer una del servidor</button>
+    </div>
+    <input type="file" id="respaldoArchivo" accept="application/json,.json" hidden>
+    <div class="helptext" style="margin:10px 0 0;">El servidor guarda la versión de antes de cada guardado y la primera de cada día.</div>
+  </div>`;
+  document.getElementById('respaldoBajar').onclick = ()=>{
+    const nombre = 'bitacora-' + todayStr() + '.json';
+    const url = URL.createObjectURL(new Blob([JSON.stringify(DATA, null, 2)], { type:'application/json' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 4000);
+    avisar('Copia guardada: ' + nombre);
+  };
+  document.getElementById('respaldoServidor').onclick = async ()=>{
+    const cual = prompt('¿Cuál copia? Escribe "prev" para la de antes del último guardado, o una fecha como 2026-09-20.', 'prev');
+    if(cual===null) return;
+    try{
+      const r = await apiRequest('GET' , null, undefined, '?copia=' + encodeURIComponent(cual.trim()));
+      if(!r || !r.data){ alert('No hay copia guardada de eso.'); return; }
+      if(!confirm('Esa copia tiene ' + pesoDe(r.data) + ' cosas y aquí hay ' + pesoDe(DATA)
+        + '.\n\nSe reemplaza todo por la copia, en este aparato y en la nube. ¿Sigo?')) return;
+      mergeInto(r.data); cacheLocal(); setDirty(true); await pushRemote();
+      renderAll(); renderRespaldo();
+      avisar('Restaurado.');
+    }catch(e){ alert('No se pudo traer: ' + e.message); }
+  };
+  const archivo = document.getElementById('respaldoArchivo');
+  document.getElementById('respaldoSubir').onclick = ()=>archivo.click();
+  archivo.onchange = async ()=>{
+    const f = archivo.files && archivo.files[0];
+    archivo.value = '';
+    if(!f) return;
+    let leido = null;
+    try{ leido = JSON.parse(await f.text()); }catch(e){ alert('Ese archivo no se pudo leer.'); return; }
+    if(!leido || typeof leido!=='object'){ alert('Ese archivo no es una copia de Bitácora.'); return; }
+    if(!confirm('La copia tiene ' + pesoDe(leido) + ' cosas y aquí hay ' + pesoDe(DATA)
+      + '.\n\nSe reemplaza todo por lo de la copia, en este aparato y en la nube. ¿Sigo?')) return;
+    mergeInto(leido); cacheLocal(); setDirty(true); await pushRemote();
+    renderAll(); renderRespaldo();
+    avisar('Restaurado.');
+  };
+}
+
+/* ============================================================
    AVISOS
    Son cuatro, y se explican en la pantalla para que sepa exactamente
    que va a recibir antes de decir que si (D45, D46, D49, D07).
@@ -7133,7 +7241,7 @@ function renderAll(){
   if(active==='calendario'){ renderCalendar(); renderChoquesSemana(); renderTurnos(); renderRutinas(); }
   if(active==='pendientes'){ renderTareasView(); renderMaterias(); renderMarca(); renderNexxaGestion(); renderTrabajo(); }
   if(active==='plata') renderPlata();
-  if(active==='yo'){ renderYo(); renderAvisos(); renderPersonalGestion(); }
+  if(active==='yo'){ renderYo(); renderAvisos(); renderPersonalGestion(); renderRespaldo(); }
   pintarSeleccion();
 }
 
