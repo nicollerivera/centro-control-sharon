@@ -119,6 +119,18 @@ h1,h2,h3,.display{font-family:'Bricolage Grotesque','Helvetica Neue',Arial,sans-
 .bolsillo.nexxa{opacity:.85;}
 .bolsillo.nexxa .m{color:var(--text-muted);}
 
+/* la semana, dia por dia: cada uno con su cabecera pegajosa para saber donde
+   va una cuando lleva rato desplazando */
+.sem-lista{padding-bottom:6px;}
+.sem-dia{margin-bottom:6px;}
+.sem-cab{display:flex; align-items:baseline; gap:8px; width:100%; background:var(--surface);
+  border:none; border-bottom:1px solid var(--border); padding:10px 2px 7px; margin-bottom:4px;
+  position:sticky; top:0; z-index:5; text-align:left; cursor:pointer;}
+.sem-cab .dow{font-size:12px; font-weight:700; letter-spacing:.05em; color:var(--text-muted);}
+.sem-cab .num{font-size:16px; font-weight:700; letter-spacing:-0.02em;}
+.sem-dia.hoy .sem-cab .dow, .sem-dia.hoy .sem-cab .num{color:var(--accent);}
+.sem-cab .res{margin-left:auto; font-size:11.5px; font-weight:500; color:var(--text-dim);}
+
 /* la fila de la revision que ya cayo en el otro dia lo dice, para que no
    parezca que la madrugada fue del dia que conto */
 .contar-otrodia{grid-column:1/-1; font-size:11px; font-weight:600; color:var(--text-dim); margin:6px 0 -2px;}
@@ -1607,6 +1619,45 @@ function acomodarEnCarriles(items){
   cerrar();
   return items;
 }
+/* La semana era siete columnas de 44 pixeles: en 44 pixeles no cabe el nombre
+   de nada, y habia que adivinar por el color. Ahora es lo mismo que el dia,
+   siete veces: cada dia con su tira, su hora, su color y sus ratos libres, que
+   es la forma en que ella ya sabe leer un dia. La rejilla se queda para Dia,
+   donde la columna es toda la pantalla y ahi si sirve. */
+function renderSemanaComoDias(caja, hoy){
+  const lunes = lunesDe(calSelected);
+  const dias = diasEntre(lunes, fmtDate(addDays(parseDate(lunes), 6)));
+  document.getElementById('calTitle').textContent =
+    niceDateShort(lunes) + ' \u2013 ' + niceDateShort(dias[6]);
+
+  caja.innerHTML = `<div class="sem-lista">${dias.map(f=>{
+    const d = parseDate(f);
+    const { bloques, ocupado, libre } = resumenDelDia(f);
+    return `<section class="sem-dia${f===hoy?' hoy':''}">
+      <button class="sem-cab" data-abrir-dia="${f}">
+        <span class="dow">${DOW_SHORT[d.getDay()]}</span>
+        <span class="num">${d.getDate()}</span>
+        <span class="res">${bloques.length ? duracionLarga(ocupado) + ' ocupadas \u00b7 ' + libres(libre) : 'libre entero'}</span>
+      </button>
+      ${bloques.length ? tiraDelDia(f, {}) : ''}
+    </section>`;
+  }).join('')}</div>
+  <div class="gc-pie">Toca un rato libre y pones algo a esa hora. Toca el d\u00eda de arriba para abrirlo entero.</div>`;
+
+  engancharTira(caja);
+  caja.querySelectorAll('[data-abrir-dia]').forEach(b=>b.onclick = ()=>{
+    calSelected = b.dataset.abrirDia;
+    CAL_MODO = 'dia';
+    try{ localStorage.setItem('calModo', CAL_MODO); }catch(e){}
+    document.querySelectorAll('.cal-modo').forEach(x=>x.classList.toggle('activa', x.dataset.modo==='dia'));
+    renderCalendar(); renderCalDayList();
+  });
+  /* en la semana cada dia ya se ve entero: la lista de abajo seria lo mismo
+     otra vez */
+  const lista = document.getElementById('calDayList');
+  if(lista) lista.innerHTML = '';
+}
+
 /* La misma rejilla sirve para los siete dias o para uno solo: en el dia, la
    columna se abre a toda la pantalla y por fin cabe el nombre entero de las
    cosas, que es para lo que existe la vista de dia (D103). */
@@ -1615,6 +1666,7 @@ function renderCalSemana(){
   grid.hidden = true; caja.hidden = false;
   const hoy = todayStr();
   if(!calSelected) calSelected = hoy;
+  if(CAL_MODO === 'semana') return renderSemanaComoDias(caja, hoy);
   const unDia = CAL_MODO === 'dia';
   const lunes = unDia ? calSelected : lunesDe(calSelected);
   const dias = unDia ? [calSelected] : diasEntre(lunes, fmtDate(addDays(parseDate(lunes), 6)));
@@ -3155,7 +3207,7 @@ function renderMaterias(){
 
   let html = `<div class="period-pill" id="periodPill">${enVacaciones(todayStr())
     ? '🌴 De vacaciones' + ((DATA.vacaciones||{}).hasta ? ' hasta el ' + esc(niceDateShort(DATA.vacaciones.hasta)) : '')
-    : '📚 ' + (esc(DATA.period) || 'Sin período configurado')} <span style="font-size:11px;">✎</span></div>`;
+    : '📚 ' + (esc(DATA.period) || 'Período y vacaciones')} <span style="font-size:11px;">✎</span></div>`;
 
   /* ---- los dos números de arriba ---- */
   html += `<div class="summary-row">
@@ -4782,7 +4834,7 @@ function revisarLoQueConto(fecha, bloques, enVezDe, dias){
 
 function openPeriodModal(){
   const v = DATA.vacaciones || {};
-  openSheet(`<h3>Período académico</h3><div class="field"><label>Nombre del período</label><input type="text" id="f_period" value="${esc(DATA.period)}" placeholder="Ej: Trimestre 1 / Semestre A"></div>
+  openSheet(`<h3>Período y vacaciones</h3><div class="field"><label>Nombre del período</label><input type="text" id="f_period" value="${esc(DATA.period)}" placeholder="Ej: Trimestre 1 / Semestre A"></div>
     <div class="field"><label>Vacaciones</label>
       <div class="field-row" style="margin:0;">
         <div class="field"><label>Desde</label><input type="date" id="f_vacDesde" value="${esc(v.desde||'')}"></div>
