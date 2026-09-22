@@ -122,6 +122,12 @@ h1,h2,h3,.display{font-family:'Bricolage Grotesque','Helvetica Neue',Arial,sans-
 
 /* la fila de la revision que ya cayo en el otro dia lo dice, para que no
    parezca que la madrugada fue del dia que conto */
+/* el aviso de que eso ya estaba escrito, pegado encima de su fila */
+.contar-mismo{display:flex; align-items:flex-start; gap:7px; font-size:11.5px; color:var(--text-muted);
+  margin:12px 0 -6px; padding:7px 9px; border-radius:9px; background:var(--accent-soft);}
+.contar-mismo input{margin-top:1px; flex:none;}
+.contar-mismo b{color:var(--text);}
+
 .contar-otrodia{grid-column:1/-1; font-size:11px; font-weight:600; color:var(--text-dim); margin:6px 0 -2px;}
 .mono,.hora,.monto{font-variant-numeric:tabular-nums; letter-spacing:-0.01em;}
 button{font-family:inherit;}
@@ -4725,6 +4731,26 @@ function repartirLoSinHora(items){
 /* Lo que se conto pasada la medianoche ya es del dia siguiente. */
 function diaMasTarde(fecha, dia){ return dia ? fmtDate(addDays(parseDate(fecha), dia)) : fecha; }
 
+/* El turno de Infinity y "hice la decoracion en 2 horas" son el mismo rato: el
+   turno ya estaba escrito y al contar el dia se creaba otro encima, asi que el
+   sabado salia con dos bloques para lo mismo y las horas contadas dos veces.
+   Se busca lo que ya estaba a esa hora para poder preguntarlo. */
+function yaEstabaEscrito(fecha, fila){
+  const d = minutosDe(fila.start);
+  if(d === null) return null;
+  const h = fila.end ? finEnMinutos(fila.start, fila.end) : d + 60;
+  return bloquesDeFecha(fecha).filter(x=>{
+    /* solo lo que estaba puesto de antes: turnos, clases y lo que se repite.
+       Lo que ella misma conto otro dia no cuenta como duplicado. */
+    const deAntes = x.rutina || x.materia || (x.ev && x.ev.linkedType);
+    if(!deAntes || !x.start) return false;
+    const a = minutosDe(x.start), z = x.end ? finEnMinutos(x.start, x.end) : a + 60;
+    if(a === null) return false;
+    const cruce = Math.min(h, z) - Math.max(d, a);
+    return cruce > 0 && cruce >= Math.min(h - d, z - a) * 0.5;   // se montan por la mitad o mas
+  })[0] || null;
+}
+
 /* Las filas de la revision ya vienen de leerElDia: las que tienen hora y las
    que no (esas, con la casilla en blanco para que ella se la ponga). */
 function filasDeLoLeido(leido){ return leido.bloques; }
@@ -4775,6 +4801,9 @@ function revisarLoQueConto(fecha, bloques, enVezDe, dias){
       <div class="helptext" style="margin:-4px 0 12px;">Cámbiale lo que no quedó bien. Se guarda todo como hecho.${
         bloques.some(b=>!b.start) ? ' A lo que quedó sin hora, ponle la hora o quítalo: así no se guarda.' : ''}</div>
       ${bloques.map((b,i)=>`
+        ${(()=>{ const ya = b.start ? yaEstabaEscrito(diaMasTarde(fecha, b.dia || 0), b) : null;
+          return ya ? `<label class="contar-mismo"><input type="checkbox" data-mismo="${i}" checked>
+            <span>Es lo mismo que <b>${esc(ya.titulo)}</b>, que ya estaba a esa hora</span></label>` : ''; })()}
         <div class="contar-fila" data-i="${i}" data-dia="${b.dia || 0}">
           ${b.dia ? `<div class="contar-otrodia">Ya es ${esc(dias ? DOW[(dias[0] + b.dia) % 7] : niceDateShort(diaMasTarde(fecha, b.dia)))}</div>` : ''}
           <input type="time" data-campo="start" value="${esc(b.start)}" aria-label="Desde">
@@ -4795,7 +4824,8 @@ function revisarLoQueConto(fecha, bloques, enVezDe, dias){
       end: f.querySelector('[data-campo="end"]').value,
       titulo: f.querySelector('[data-campo="titulo"]').value.trim(),
       cat: f.querySelector('[data-campo="cat"]').value,
-      dia: Number(f.dataset.dia || 0)
+      dia: Number(f.dataset.dia || 0),
+      mismo: (()=>{ const c = sheet.querySelector(`[data-mismo="${f.dataset.i}"]`); return !!(c && c.checked); })()
     }));
     sheet.querySelectorAll('[data-quitar]').forEach(b=>b.onclick = ()=>{
       const v = leer(); v.splice(Number(b.dataset.quitar), 1);
@@ -4821,15 +4851,30 @@ function revisarLoQueConto(fecha, bloques, enVezDe, dias){
         avisar(v.length + ' cosas en tu semana.');
         return;
       }
+      let juntados = 0;
       v.forEach(b=>{
+        const dia = diaMasTarde(fecha, b.dia);
+        /* si es lo mismo que ya estaba escrito, no se crea otro bloque encima:
+           se le pone el visto al que ya estaba, y lo que ella escribio le queda
+           debajo como el nombre de lo que hizo en ese rato */
+        if(b.mismo){
+          const ya = yaEstabaEscrito(dia, b);
+          if(ya){
+            darPorHecho(dia, ya);
+            if(ya.ev && !ya.ev.lugar && ya.titulo.trim() !== b.titulo.trim()) ya.ev.lugar = b.titulo;
+            juntados++;
+            return;
+          }
+        }
         const dur = b.end ? finEnMinutos(b.start, b.end) - minutosDe(b.start) : 0;
         DATA.events.push({ id:uid(), creado:Date.now(), cat:b.cat, title:b.titulo,
-          date: diaMasTarde(fecha, b.dia),
+          date: dia,
           start:b.start, end:b.end || '', status:'hecho', estMin:null,
           actualMin: dur > 0 ? dur : null, notes:'' });
       });
       saveData(); closeSheet(); renderAll(); refrescarDiaCalendario();
-      avisar(v.length === 1 ? 'Anotado.' : v.length + ' cosas anotadas.');
+      avisar((v.length === 1 ? 'Anotado.' : v.length + ' cosas anotadas.')
+        + (juntados ? ' ' + juntados + (juntados===1 ? ' se juntó con lo que ya estaba.' : ' se juntaron con lo que ya estaba.') : ''));
     };
   };
   pintar();
@@ -6918,15 +6963,16 @@ function botonDiaEntero(fecha){
     Ya pasó como estaba escrito <span>${n} cosas</span>
   </button>`;
 }
+function darPorHecho(fecha, b){
+  if(b.ev){ b.ev.status = 'hecho'; syncSourceFromEvent(b.ev); return; }
+  if(b.pend){ b.pend.hecho = true; b.pend.hechoFecha = todayStr(); return; }
+  const idRep = b.rutina ? 'rutina:'+b.rutina.id : b.materia ? 'materia:'+b.materia.id : '';
+  if(idRep){ const d = diaDe(fecha); d.repetidos = d.repetidos || {}; d.repetidos[idRep] = 'hecho'; }
+}
 function marcarLoQueYaPaso(fecha){
   const bloques = loQueYaPaso(fecha);
   if(!bloques.length) return;
-  bloques.forEach(b=>{
-    if(b.ev){ b.ev.status = 'hecho'; syncSourceFromEvent(b.ev); return; }
-    if(b.pend){ b.pend.hecho = true; b.pend.hechoFecha = todayStr(); return; }
-    const idRep = b.rutina ? 'rutina:'+b.rutina.id : b.materia ? 'materia:'+b.materia.id : '';
-    if(idRep){ const d = diaDe(fecha); d.repetidos = d.repetidos || {}; d.repetidos[idRep] = 'hecho'; }
-  });
+  bloques.forEach(b=>darPorHecho(fecha, b));
   saveData(); renderAll(); refrescarDiaCalendario();
   avisar(bloques.length + (bloques.length===1 ? ' cosa marcada. Lo que no fue, tócalo y dile hoy no.'
                                               : ' cosas marcadas. Lo que no fue, tócalo y dile hoy no.'));
