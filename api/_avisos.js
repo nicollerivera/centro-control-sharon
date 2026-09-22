@@ -253,6 +253,76 @@ export function avisosDeAhora(data, ahora = new Date()) {
   return out.slice(0, TOPE_DIARIO);
 }
 
+/* Lo importante de HOY, en un solo aviso de la manana. El cron de Vercel en el
+   plan de siempre corre una vez al dia, y con uno solo -el de las 8 de la
+   noche, que cuenta lo de manana- se le pasaba todo lo del dia mismo. Este es
+   el segundo: lo que tiene hoy, apenas se levanta. */
+export function avisosDeHoy(data, ahora = new Date()) {
+  if (!data) return [];
+  const hoy = fechaEnColombia(ahora);
+  const out = [];
+
+  const clases = clasesDelDia(data, hoy);
+  if (clases.length) {
+    out.push({
+      tipo: 'clase',
+      clave: hoy + ':dia-clases',
+      titulo: clases.length === 1 ? clases[0].nombre : 'Hoy tienes ' + clases.length + ' clases',
+      cuerpo: clases.map((c) => c.start + ' ' + c.nombre).join(' · '),
+      ir: 'hoy',
+    });
+  }
+
+  (data.academicTasks || []).forEach((t) => {
+    if (t.done || t.date !== hoy) return;
+    out.push({
+      tipo: 'entrega',
+      clave: hoy + ':hoy-entrega:' + t.id,
+      titulo: 'Hoy: ' + t.name,
+      cuerpo: [t.subject, t.type].filter(Boolean).join(' \u00b7 ') || 'Universidad',
+      ir: 'pendientes',
+    });
+  });
+
+  (data.turnos || []).forEach((t) => {
+    if (t.fecha !== hoy || !t.entra) return;
+    out.push({
+      tipo: 'turno',
+      clave: hoy + ':hoy-turno:' + t.id,
+      titulo: 'Turno hoy ' + t.entra + (t.sale ? '\u2013' + t.sale : ''),
+      cuerpo: t.lugar || 'Trabajo',
+      ir: 'hoy',
+    });
+  });
+
+  (data.nexxaEvents || []).forEach((e) => {
+    if (e.date !== hoy || e.voy === false) return;
+    out.push({
+      tipo: 'nexxa',
+      clave: hoy + ':hoy-nexxa:' + e.id,
+      titulo: 'Evento hoy: ' + e.client,
+      cuerpo: [e.start, e.type].filter(Boolean).join(' \u00b7 ') || 'Nexxa',
+      ir: 'pendientes',
+    });
+  });
+
+  /* lo que se vence hoy y cuesta plata */
+  (data.suscripciones || []).forEach((x) => {
+    const dia = Number(x.dia);
+    if (!dia || Number(dia) !== Number(hoy.slice(8))) return;
+    if ((x.pagados || []).includes(hoy.slice(0, 7))) return;
+    out.push({
+      tipo: 'pago',
+      clave: hoy + ':hoy-cobro:' + x.id,
+      titulo: 'Hoy te cobran ' + x.nombre,
+      cuerpo: 'Cuando salga, m\u00e1rcalo en Plata.',
+      ir: 'plata',
+    });
+  });
+
+  return out.slice(0, TOPE_DIARIO);
+}
+
 /* El orden importa: si hay que recortar por el tope, se recorta por el final. */
 export function avisosPara(data, ahora = new Date()) {
   if (!data || enSilencio(ahora)) return [];

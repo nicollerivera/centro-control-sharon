@@ -1,6 +1,6 @@
 import webpush from 'web-push';
 import { leerJson, escribirJson } from './_blob.js';
-import { avisosPara, avisosDeAhora, enSilencio } from './_avisos.js';
+import { avisosPara, avisosDeAhora, avisosDeHoy, enSilencio } from './_avisos.js';
 
 /* El trabajo diario que manda los avisos. Lo dispara el cron de Vercel a las
    8 de la noche hora de Colombia: el dia antes (D85) y fuera del silencio (D46). */
@@ -58,13 +58,16 @@ export default async function handler(req, res) {
        los de verdad. La de antes se la pintaba el propio telefono: decia que
        si aunque las llaves estuvieran rotas y no llegara nunca nada. */
     const esPrueba = req.query?.momento === 'prueba';
+    /* el de la mañana: lo importante de hoy mismo */
+    const esDeHoy = req.query?.momento === 'hoy';
     let avisos = esPrueba
       ? [{ tipo:'prueba', titulo:'Bitácora', cuerpo:'Prueba: los avisos te están llegando bien.', ir:'yo' }]
+      : esDeHoy ? avisosDeHoy(datos)
       : alInstante ? avisosDeAhora(datos) : avisosPara(datos);
 
     /* lo de cada rato se repetiria en cada corrida: cada aviso se manda una vez */
     let yaEnviados = null;
-    if (alInstante && avisos.length) {
+    if ((alInstante || esDeHoy) && avisos.length) {
       yaEnviados = (await leerJson(RUTA_YA, { claves: [] }))?.claves || [];
       avisos = avisos.filter((a) => !yaEnviados.includes(a.clave));
     }
@@ -92,7 +95,7 @@ export default async function handler(req, res) {
     }
 
     /* se guarda lo mandado, con la fecha de hoy nada mas: lo viejo se cae solo */
-    if (alInstante && enviados) {
+    if ((alInstante || esDeHoy) && enviados) {
       const hoy = avisos[0].clave.slice(0, 10);
       const claves = [...(yaEnviados || []).filter((k) => k.startsWith(hoy)), ...avisos.map((a) => a.clave)];
       await escribirJson(RUTA_YA, { claves });

@@ -108,6 +108,16 @@ body{
   overscroll-behavior-y:none;
 }
 h1,h2,h3,.display{font-family:'Bricolage Grotesque','Helvetica Neue',Arial,sans-serif; letter-spacing:-0.01em;}
+/* los colchones de Nexxa: la misma pastilla, pero separada y en gris, para que
+   se vea de un golpe que esa plata esta ahi y no es suya */
+.nexxa-plata .lbl{font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--text-dim);}
+.nexxa-plata .saldo-num{font-size:30px; font-weight:800; letter-spacing:-0.02em; margin-top:2px;}
+.nexxa-filas{margin-top:12px; padding-top:8px; border-top:1px solid var(--border);}
+.colchones{margin-top:10px; padding-top:10px; border-top:1px dashed var(--border);}
+.colchones .rot{font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--text-dim); margin-bottom:6px;}
+.bolsillo.nexxa{opacity:.85;}
+.bolsillo.nexxa .m{color:var(--text-muted);}
+
 /* la fila de la revision que ya cayo en el otro dia lo dice, para que no
    parezca que la madrugada fue del dia que conto */
 .contar-otrodia{grid-column:1/-1; font-size:11px; font-weight:600; color:var(--text-dim); margin:6px 0 -2px;}
@@ -3517,10 +3527,38 @@ function openModuleModal(){
 }
 
 /* ---- Nexxa ---- */
+/* Lo que Nexxa tiene y lo que Nexxa espera, con numeros exactos y separados de
+   su plata: en los colchones esta lo que ya entro, y aparte lo que falta
+   cobrar de cada evento (lo pactado menos lo abonado). */
+function cuentaNexxa(){
+  const enColchon = plataDeNexxa();
+  let abonado = 0, pactado = 0, faltaCobrar = 0;
+  (DATA.nexxaEvents||[]).forEach(e=>{
+    if(e.status === 'cotizado') return;              // todavia no es plata de nadie
+    const v = Number(e.value||0), ab = Number(e.abonado||0);
+    pactado += v; abonado += ab;
+    faltaCobrar += Math.max(0, v - ab);
+  });
+  return { enColchon, abonado, pactado, faltaCobrar,
+    colchones: bolsillosNexxa(), hayColchon: bolsillosNexxa().length > 0 };
+}
 function renderNexxaGestion(){
   const box = document.getElementById('sub-nexxa');
   const evs = [...DATA.nexxaEvents].sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  const c = cuentaNexxa();
   box.innerHTML = `
+    <div class="card nexxa-plata">
+      <div class="lbl">La plata de Nexxa</div>
+      <div class="saldo-num mono">${c.hayColchon ? money(c.enColchon) : '\u2014'}</div>
+      <div class="helptext" style="margin:2px 0 0;">${c.hayColchon
+        ? 'En ' + esc(c.colchones.map(b=>b.nombre).join(' y ')) + '. No entra en tu plata.'
+        : 'Marca en Plata el lugar donde la guardas como colch\u00f3n de Nexxa y aqu\u00ed sale el n\u00famero exacto.'}</div>
+      <div class="nexxa-filas">
+        <div class="fila-res"><span class="que">Pactado</span><span class="val">${esc(money(c.pactado))}</span></div>
+        <div class="fila-res"><span class="que">Ya abonado</span><span class="val">${esc(money(c.abonado))}</span></div>
+        <div class="fila-res"><span class="que">Falta cobrar</span><span class="val" style="color:${c.faltaCobrar?'var(--urgent)':'inherit'}">${esc(money(c.faltaCobrar))}</span></div>
+      </div>
+    </div>
     ${evs.length ? evs.map(ev=>`
       <div class="nexxa-card" data-id="${ev.id}">
         <div class="head">
@@ -3529,6 +3567,7 @@ function renderNexxaGestion(){
         </div>
         ${ev.quienVa ? `<span class="mini-tag">👥 ${esc(ev.quienVa)}</span>` : ''}
         ${ev.material ? `<span class="mini-tag" style="background:var(--urgent-soft); color:var(--urgent);">🛒 Comprar: ${esc(ev.materialDesc||'material')}</span>` : ''}
+        ${Number(ev.value) ? `<div class="helptext" style="margin:8px 0 0;">${esc(money(ev.abonado||0))} abonado · faltan ${esc(money(Math.max(0, Number(ev.value) - Number(ev.abonado||0))))}</div>` : ''}
         <div style="display:flex; gap:8px; margin-top:10px;">
           <button class="small-btn" data-action="cycleNexxaStatus" data-id="${ev.id}">Cambiar estado</button>
           <button class="small-btn" data-action="delNexxa" data-id="${ev.id}" style="color:var(--urgent);">Eliminar</button>
@@ -3855,9 +3894,9 @@ function resumenDe(desde, hasta){
   const enRango = f => f >= desde && f <= hasta;
 
   /* horas trabajadas: los turnos mandan, porque es lo que de verdad hizo */
-  let minTrabajo = 0;
+  let minTurnos = 0;
   (DATA.turnos||[]).filter(t=>enRango(t.fecha) && t.entra && t.sale)
-    .forEach(t=>{ minTrabajo += Math.round(horasFromRange(t.entra, t.sale) * 60); });
+    .forEach(t=>{ minTurnos += Math.round(horasFromRange(t.entra, t.sale) * 60); });
 
   /* minutos por area: lo marcado hecho, sea evento o cosa que se repite */
   const porArea = {};
@@ -3866,7 +3905,9 @@ function resumenDe(desde, hasta){
      18 h, novio 15 h, celular 9 h" si. Lo que escribio con el mismo nombre se
      junta, sin importar mayusculas ni tildes. */
   const porCosa = {};
-  DATA.events.filter(e=>enRango(e.date) && e.status==='hecho').forEach(e=>{
+  /* el turno ya se conto arriba, y ademas deja su propio evento en la agenda:
+     contar los dos era contar el mismo turno dos veces */
+  DATA.events.filter(e=>enRango(e.date) && e.status==='hecho' && e.linkedType!=='turno').forEach(e=>{
     const min = Number(e.actualMin) || (e.start && e.end ? Math.round(horasFromRange(e.start, e.end)*60) : 0);
     sumar(e.cat, min);
     const k = sinTildes(e.title||'').trim();
@@ -3876,8 +3917,12 @@ function resumenDe(desde, hasta){
     }
   });
   dias.forEach(f=>{ const m = minutosRepetidosDe(f); Object.keys(m).forEach(c=>sumar(c, m[c])); });
-  sumar('trabajo', minTrabajo);
+  sumar('trabajo', minTurnos);
 
+  /* "Trabajaste" contaba solo los turnos, asi que los dias que ella conto su
+     trabajo escribiendolo -sin turno de por medio- no sumaban nada y el mes
+     salia corto. Es todo lo del area, venga de donde venga. */
+  const minTrabajo = porArea['trabajo'] || 0;
   const minEstudio = porArea['universidad'] || 0;
   const minDormido = dias.reduce((a,f)=>a + minutosDormidos(f), 0);
 
@@ -5276,10 +5321,19 @@ async function activarAvisos(){
       userVisibleOnly: true,
       applicationServerKey: b64aBytes(publicKey)
     });
-    await pushRequest('POST', { subscription: sub.toJSON() });
+    /* guardar el telefono en el servidor pide el PIN, igual que sincronizar. Si
+       en este aparato no esta puesto, la respuesta era un 401 y la pantalla
+       decia "no se pudieron activar" sin decir que faltaba el PIN. */
+    try{
+      await pushRequest('POST', { subscription: sub.toJSON() });
+    }catch(err){
+      if(!/PIN|401/i.test(err.message) || !askPass()) throw err;
+      await pushRequest('POST', { subscription: sub.toJSON() });
+    }
     renderAvisos();
   }catch(err){
-    alert('No se pudieron activar: ' + err.message);
+    alert('No se pudieron activar: ' + err.message
+      + (/denied|permission/i.test(err.message) ? '' : '\n\nSi sigue igual, mándame este mensaje tal cual.'));
     renderAvisos();
   }
 }
@@ -5356,14 +5410,24 @@ function bolsillos(){
   return P.bolsillos;
 }
 function bolsillosPuestos(){ return bolsillos().filter(b=>b.saldo!==null && b.saldo!==''); }
-/* la suma de lo que declaro. null si no ha puesto ninguno todavia */
+/* Un colchon de Nexxa es plata que esta ahi pero no es de ella: la del evento,
+   la del material, la que hay que repartir. Se guarda aparte para que no se
+   revuelva con la suya y para que Nexxa pueda decir cuanto hay exactamente. */
+function esDeNexxa(b){ return b && b.de === 'nexxa'; }
+function bolsillosMios(){ return bolsillosPuestos().filter(b=>!esDeNexxa(b)); }
+function bolsillosNexxa(){ return bolsillos().filter(esDeNexxa); }
+function plataDeNexxa(){
+  return bolsillosNexxa().reduce((a,b)=>a + (b.saldo===null||b.saldo==='' ? 0 : Number(b.saldo)), 0);
+}
+/* la suma de lo que declaro, sin los colchones de Nexxa. null si no ha puesto
+   ninguno todavia */
 function saldoTotal(){
-  const puestos = bolsillosPuestos();
+  const puestos = bolsillosMios();
   return puestos.length ? puestos.reduce((a,b)=>a+Number(b.saldo), 0) : null;
 }
 /* la fecha del numero mas viejo: es la que manda para el "hace X dias" (D122) */
 function saldoFecha(){
-  const fechas = bolsillosPuestos().map(b=>b.fecha).filter(Boolean).sort();
+  const fechas = bolsillosMios().map(b=>b.fecha).filter(Boolean).sort();
   return fechas[0] || '';
 }
 /* un paso de plata si mueve los numeros: no es adivinar nada, ella dijo de
@@ -5718,11 +5782,18 @@ function renderPlata(){
     <div class="lbl">Tengo ahora <span class="saldo-edad">${fechaSaldo ? esc(haceCuanto(fechaSaldo)) : 'toca para ponerlo'}</span></div>
     <div class="saldo-nota">toda tu plata, venga de este mes o de antes</div>
     <div class="saldo-num mono">${tengo===null ? '—' : money(tengo)}</div>
-    <div class="bolsillos">${bolsillos().map(b=>`
+    <div class="bolsillos">${bolsillos().filter(b=>!esDeNexxa(b)).map(b=>`
       <button class="bolsillo" data-bolsillo="${b.id}">
         <span class="n">${esc(b.nombre)}</span>
         <span class="m mono ${b.saldo===null||b.saldo===''?'vacio':''}">${b.saldo===null||b.saldo==='' ? 'poner' : money(b.saldo)}</span>
       </button>`).join('')}</div>
+    ${bolsillosNexxa().length ? `<div class="colchones">
+      <div class="rot">De Nexxa · no es tuyo</div>
+      ${bolsillosNexxa().map(b=>`<button class="bolsillo nexxa" data-bolsillo="${b.id}">
+        <span class="n">${esc(b.nombre)}</span>
+        <span class="m mono ${b.saldo===null||b.saldo===''?'vacio':''}">${b.saldo===null||b.saldo==='' ? 'poner' : money(b.saldo)}</span>
+      </button>`).join('')}
+    </div>` : ''}
     ${(q=>q && (q.recibir||q.cobros||q.pagos||q.debes||q.cuotas) ? `<div class="quedaria">
       <div class="fila" style="justify-content:flex-start; gap:6px; flex-wrap:wrap;"><span style="font-size:13px; color:var(--text-muted);">Si pagas todo lo que debes, te queda</span><span class="n mono" style="color:${q.total<0?'var(--urgent)':'inherit'}">${q.total<0?'−':''}${money(Math.abs(q.total))}</span></div>
       <div class="por-que">${q.total<0 ? 'Es un estimado: hoy debes más de lo que tienes.' : 'Es un estimado, no la plata que tienes.'} <b>Ver de dónde sale ›</b></div>
@@ -5943,6 +6014,8 @@ function openBolsilloModal(id){
   openSheet(`<h3>¿Cuánto tienes en ${esc(b.nombre)}?</h3>
     <div class="field"><label>Lo que hay hoy en ${esc(b.nombre)}</label><input type="number" id="f_bol" inputmode="numeric" value="${b.saldo??''}" placeholder="$"></div>
     <div class="helptext">${b.fecha ? 'Lo pusiste ' + esc(haceCuanto(b.fecha)) + '.' : ''} Bitácora no lo calcula sola: lo corriges cuando te des cuenta.</div>
+    <label class="field-check"><input type="checkbox" id="f_bolnexxa" ${esDeNexxa(b)?'checked':''}>
+      <span>Este es un colchón de Nexxa<br><span class="helptext" style="margin:2px 0 0;">No entra en "Tengo ahora": es plata de los eventos, no tuya. Se ve aparte, y Nexxa dice cuánto hay.</span></span></label>
     <div class="sheet-actions">
       <button class="btn btn-ghost" id="verTodos">Ver todos</button>
       <button class="btn btn-primary" id="saveBol">Guardar</button>
@@ -5951,11 +6024,16 @@ function openBolsilloModal(id){
   document.getElementById('saveBol').onclick = ()=>{
     const v = document.getElementById('f_bol').value;
     const antes = b.saldo;
+    const eraDeNexxa = esDeNexxa(b);
+    if(document.getElementById('f_bolnexxa').checked) b.de = 'nexxa'; else delete b.de;
     b.saldo = v==='' ? null : Number(v)||0;
     b.fecha = v==='' ? '' : todayStr();
     DATA.plata.saldo = saldoTotal(); DATA.plata.saldoFecha = saldoFecha();
     saveData(); closeSheet(); renderPlata();
-    if(antes!==null && antes!=='' && b.saldo!==null) preguntarPorLaDiferencia(b, Number(antes) - Number(b.saldo));
+    /* si acaba de sacarlo de su plata -o de devolverlo-, el numero no "falta":
+       cambio de lado. No tiene sentido preguntarle en que se le fue. */
+    if(eraDeNexxa === esDeNexxa(b) && antes!==null && antes!=='' && b.saldo!==null)
+      preguntarPorLaDiferencia(b, Number(antes) - Number(b.saldo));
   };
 }
 
