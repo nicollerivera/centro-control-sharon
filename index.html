@@ -4334,6 +4334,32 @@ function limpiarLoQueDijo(s){
 }
 /* De lo que escribio salen bloques con hora. Lo que no tiene hora no se
    inventa: se devuelve aparte para que ella decida. */
+/* El texto que queda entre dos horas es de alguna de las dos, y decidirlo mal
+   era correr el dia entero: "desayune 7 a 7:30, clase 8 a 10" dejaba el
+   desayuno sin hora y ponia la clase a las siete. Lo que va antes de la primera
+   coma es la cola de la hora de atras; lo que va despues de la ultima es el
+   nombre de la que sigue. Lo de en medio no tiene hora y se devuelve aparte.
+   Sin coma ni punto ni renglon de por medio, si la de atras todavia no tiene
+   nombre el texto es suyo; si ya lo tiene, es de la que sigue. */
+const RE_CORTE = /[,;.\n\u00b7|]+/;
+function repartirEntreHoras(marcas, crudo){
+  const antes = marcas.map(()=>''), luego = marcas.map(()=>''), sueltos = [];
+  antes[0] = limpiarLoQueDijo(crudo.slice(0, marcas[0].ini));
+  marcas.forEach((k, i)=>{
+    const medio = crudo.slice(k.fin, i+1 < marcas.length ? marcas[i+1].ini : crudo.length);
+    if(i+1 === marcas.length){ luego[i] = limpiarLoQueDijo(medio); return; }
+    const partes = medio.split(RE_CORTE).map(limpiarLoQueDijo);
+    if(partes.length === 1){
+      if(antes[i] || luego[i]) antes[i+1] = partes[0];
+      else luego[i] = partes[0];
+      return;
+    }
+    luego[i] = partes[0];
+    antes[i+1] = partes[partes.length - 1];
+    partes.slice(1, -1).forEach(p=>{ if(p) sueltos.push(p); });
+  });
+  return { antes, luego, sueltos };
+}
 function leerElDia(texto, fecha){
   const bloques = [], sinHora = [];
   const crudo = String(texto || '');
@@ -4351,12 +4377,14 @@ function leerElDia(texto, fecha){
     if(solo) sinHora.push(solo);
     return { bloques, sinHora };
   }
+  const { antes, luego, sueltos } = repartirEntreHoras(marcas, crudo);
+  sueltos.forEach(s=>sinHora.push(s));
   let ultimoFin = null;
   marcas.forEach((k, i)=>{
-    const antes = limpiarLoQueDijo(crudo.slice(i ? marcas[i-1].fin : 0, k.ini));
-    const luego = limpiarLoQueDijo(crudo.slice(k.fin, i+1 < marcas.length ? marcas[i+1].ini : crudo.length));
-    /* "almorce de 1 a 2" y "de 1 a 2 almorce" dicen lo mismo */
-    const titulo = (luego || antes || '').replace(/\s+/g,' ').slice(0, 90);
+    /* "almorce de 1 a 2" y "de 1 a 2 almorce" dicen lo mismo: el nombre esta de
+       un lado o del otro. Si esta de los dos, manda el de antes, que es el que
+       dice que hizo ("almorce de 1 a 2 en casa"). */
+    const titulo = (antes[i] || luego[i] || '').replace(/\s+/g,' ').slice(0, 90);
     /* la pista de si fue mañana o tarde, y de que area es, sale de lo que dijo
        de esa cosa: mirar la frase de al lado hacia que "cene" cayera en la
        universidad porque antes venia "estudie para el parcial" */
@@ -4411,7 +4439,11 @@ function engancharContar(caja){
         return;
       }
       txt.value = '';
-      revisarLoQueConto(box.dataset.contar, leido.bloques);
+      /* lo que quedo sin hora en medio ("desayune 7 a 7:30, ordene la pieza,
+         clase 8 a 10") no se tira: va a la revision con la hora en blanco,
+         para que ella se la ponga o lo quite. */
+      revisarLoQueConto(box.dataset.contar, leido.bloques.concat(
+        leido.sinHora.map(t=>({ titulo:t.charAt(0).toUpperCase() + t.slice(1), start:'', end:'', cat:areaDeLoQueDijo(t) }))));
     };
     box.querySelector('.contar-ok').onclick = mandar;
     /* enter manda, shift+enter sigue escribiendo: como en cualquier chat */
@@ -4423,7 +4455,7 @@ function engancharContar(caja){
 function revisarLoQueConto(fecha, bloques){
   const pintar = ()=>{
     openSheet(`<h3>¿Así fue tu ${fecha===todayStr() ? 'día' : 'día ' + niceDateShort(fecha)}?</h3>
-      <div class="helptext" style="margin:-4px 0 12px;">Cámbiale lo que no quedó bien. Se guarda todo como hecho.</div>
+      <div class="helptext" style="margin:-4px 0 12px;">Cámbiale lo que no quedó bien. Se guarda todo como hecho.${bloques.some(b=>!b.start) ? ' Lo que quedó sin hora se guarda solo si se la pones.' : ''}</div>
       ${bloques.map((b,i)=>`
         <div class="contar-fila" data-i="${i}">
           <input type="time" data-campo="start" value="${esc(b.start)}" aria-label="Desde">
