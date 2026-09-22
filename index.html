@@ -4133,6 +4133,7 @@ function openEventModal(existing, preset){
   const e = existing || Object.assign(
     {cat:'personal', date: calSelected && document.getElementById('view-calendario').classList.contains('active') ? calSelected : todayStr(), status:'pendiente'},
     preset||{});
+  const repartible = isEdit ? sePuedeRepartir(e) : null;
   openSheet(`
     <h3>${isEdit ? 'Editar' : 'Agregar'}</h3>
     <div class="field"><label>Categoría</label><div class="chiprow" id="catChips">
@@ -4171,6 +4172,8 @@ function openEventModal(existing, preset){
       </div>
     </div>
     <div class="field"><label>Notas</label><textarea id="f_notes" placeholder="Opcional">${esc(e.notes)}</textarea></div>
+    ${repartible ? `<div class="helptext" style="margin:-6px 0 14px;">Aquí adentro hay ${repartible.bloques.length} horas distintas: parece el día entero en un solo bloque.
+      <button class="btn btn-ghost" id="repartirEvento" style="padding:4px 0; display:block;">Repartirlo en ${repartible.bloques.length} bloques</button></div>` : ''}
     <div class="sheet-actions">
       ${isEdit ? '<button class="btn btn-danger" id="delEvent">Eliminar</button>' : ''}
       <button class="btn btn-primary" id="saveEvent">Guardar</button>
@@ -4194,6 +4197,8 @@ function openEventModal(existing, preset){
       c.onclick = ()=>{ c.classList.toggle('active'); const d=Number(c.dataset.day); if(repeatDays.includes(d)) repeatDays=repeatDays.filter(x=>x!==d); else repeatDays.push(d); };
     });
   }
+  if(repartible) document.getElementById('repartirEvento').onclick = ()=>
+    revisarLoQueConto(e.date, filasDeLoLeido(repartible), e.id);
   document.getElementById('f_type').onchange = (ev)=>{
     document.getElementById('personaField').style.display = (ev.target.value==='prestamo_dado'||ev.target.value==='prestamo_recibido') ? 'block' : 'none';
     document.getElementById('categoriaField').style.display = ev.target.value==='gasto' ? 'block' : 'none';
@@ -4201,6 +4206,16 @@ function openEventModal(existing, preset){
   document.getElementById('saveEvent').onclick = ()=>{
     const title = document.getElementById('f_title').value.trim();
     if(!title){ alert('Ponle un título'); return; }
+    /* varias horas dentro del titulo no son un bloque: son el dia contado de
+       corrido. Se ofrece repartirlo antes de guardarlo todo junto. */
+    if(selectedCat !== 'finanzas' && repeatMode !== 'weekly'){
+      const fecha = document.getElementById('f_date').value || todayStr();
+      const leido = leerElDia([title, document.getElementById('f_notes').value].filter(Boolean).join('. '), fecha);
+      if(leido.bloques.length >= 2 && confirm('Ahí hay ' + leido.bloques.length + ' horas distintas. ¿Lo reparto en ' + leido.bloques.length + ' bloques?')){
+        revisarLoQueConto(fecha, filasDeLoLeido(leido), isEdit ? e.id : null);
+        return;
+      }
+    }
     if(repeatMode==='weekly'){
       if(!repeatDays.length){ alert('Selecciona al menos un día'); return; }
       DATA.routines.push({ id:uid(), cat:selectedCat, title, days:[...repeatDays], start:document.getElementById('f_start').value, end:document.getElementById('f_end').value });
@@ -4418,6 +4433,21 @@ function leerElDia(texto, fecha){
   return { bloques: bloques.map(b=>({ titulo:b.titulo, start:hhmm(b.desde), end:hhmm(b.hasta), cat:b.cat })), sinHora };
 }
 
+/* Lo que quedo sin hora no se tira: va a la revision con la casilla en blanco,
+   para que ella se la ponga o lo quite. */
+function filasDeLoLeido(leido){
+  return leido.bloques.concat(leido.sinHora.map(t=>({
+    titulo: t.charAt(0).toUpperCase() + t.slice(1), start:'', end:'', cat:areaDeLoQueDijo(t) })));
+}
+/* Un dia entero escrito de corrido dentro de un solo bloque no hay que volver a
+   escribirlo: si en lo que quedo guardado hay dos horas o mas, se reparte desde
+   el bloque mismo. */
+function sePuedeRepartir(e){
+  if(!e || !e.id || e.cat === 'finanzas') return null;
+  const leido = leerElDia([e.title, e.notes].filter(Boolean).join('. '), e.date);
+  return leido.bloques.length >= 2 ? leido : null;
+}
+
 /* La caja donde lo escribe. La misma en Hoy y en el dia que este mirando. */
 function cajaContar(fecha){
   const cuando = fecha === todayStr() ? 'hoy' : niceDateShort(fecha);
@@ -4439,11 +4469,7 @@ function engancharContar(caja){
         return;
       }
       txt.value = '';
-      /* lo que quedo sin hora en medio ("desayune 7 a 7:30, ordene la pieza,
-         clase 8 a 10") no se tira: va a la revision con la hora en blanco,
-         para que ella se la ponga o lo quite. */
-      revisarLoQueConto(box.dataset.contar, leido.bloques.concat(
-        leido.sinHora.map(t=>({ titulo:t.charAt(0).toUpperCase() + t.slice(1), start:'', end:'', cat:areaDeLoQueDijo(t) }))));
+      revisarLoQueConto(box.dataset.contar, filasDeLoLeido(leido));
     };
     box.querySelector('.contar-ok').onclick = mandar;
     /* enter manda, shift+enter sigue escribiendo: como en cualquier chat */
@@ -4452,7 +4478,7 @@ function engancharContar(caja){
 }
 
 /* Lo que entendio, antes de guardarlo. Todo se puede corregir aca mismo. */
-function revisarLoQueConto(fecha, bloques){
+function revisarLoQueConto(fecha, bloques, enVezDe){
   const pintar = ()=>{
     openSheet(`<h3>¿Así fue tu ${fecha===todayStr() ? 'día' : 'día ' + niceDateShort(fecha)}?</h3>
       <div class="helptext" style="margin:-4px 0 12px;">Cámbiale lo que no quedó bien. Se guarda todo como hecho.${bloques.some(b=>!b.start) ? ' Lo que quedó sin hora se guarda solo si se la pones.' : ''}</div>
@@ -4485,6 +4511,9 @@ function revisarLoQueConto(fecha, bloques){
     });
     document.getElementById('contarGuardar').onclick = ()=>{
       const v = leer().filter(b=>b.titulo && b.start);
+      /* si esto salio de un bloque que tenia el dia entero adentro, ese bloque
+         se va: lo reemplazan los que acaban de salir de el */
+      if(enVezDe) DATA.events = DATA.events.filter(x=>x.id !== enVezDe);
       v.forEach(b=>{
         const dur = b.end ? finEnMinutos(b.start, b.end) - minutosDe(b.start) : 0;
         DATA.events.push({ id:uid(), creado:Date.now(), cat:b.cat, title:b.titulo, date:fecha,
