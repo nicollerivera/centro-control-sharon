@@ -178,7 +178,15 @@ function minutosAhora(ahora = new Date()) {
   const d = new Date(ahora.getTime() - 5 * 3600 * 1000);
   return d.getUTCHours() * 60 + d.getUTCMinutes();
 }
+/* En vacaciones no hay clases, asi que tampoco hay avisos de clase: el
+   telefono le sonaba cada manana por una materia que esa semana no existe. */
+function enVacaciones(data, fecha) {
+  const v = data && data.vacaciones;
+  if (!v || !v.desde) return false;
+  return fecha >= v.desde && (!v.hasta || fecha <= v.hasta);
+}
 function clasesDelDia(data, fecha) {
+  if (enVacaciones(data, fecha)) return [];
   const [a, m, d] = fecha.split('-').map(Number);
   const dow = new Date(Date.UTC(a, m - 1, d)).getUTCDay();
   const out = [];

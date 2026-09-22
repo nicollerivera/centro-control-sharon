@@ -1085,11 +1085,21 @@ function horasFromRange(start,end){
   if(mins<=0) mins += 24*60; // cruza medianoche
   return Math.round((mins/60)*100)/100;
 }
-function weekdayItems(dayIdx){
+/* En vacaciones no hay clases. Seguia marcandolas todos los dias, y tocaba
+   decirle "hoy no" a cada una: la semana de descanso es una sola cosa, se dice
+   una vez y la universidad deja de aparecer hasta que vuelva. */
+function enVacaciones(fecha){
+  const v = DATA.vacaciones;
+  if(!fecha || !v || !v.desde) return false;
+  return fecha >= v.desde && (!v.hasta || fecha <= v.hasta);
+}
+function esDeLaU(r){ return r.auto==='universidad' || r.cat==='universidad'; }
+function weekdayItems(dayIdx, fecha){
   const items=[];
-  const hayClases = DATA.subjects.some(s=>s.day===dayIdx);
-  DATA.subjects.filter(s=>s.day===dayIdx).forEach(s=>items.push({name:s.name, start:s.start, end:s.end, color:'var(--c-uni)', tag:'clase', materia:s}));
-  DATA.routines.filter(r=>r.days.includes(dayIdx)).forEach(r=>{
+  const vacas = enVacaciones(fecha);
+  const hayClases = !vacas && DATA.subjects.some(s=>s.day===dayIdx);
+  if(!vacas) DATA.subjects.filter(s=>s.day===dayIdx).forEach(s=>items.push({name:s.name, start:s.start, end:s.end, color:'var(--c-uni)', tag:'clase', materia:s}));
+  DATA.routines.filter(r=>r.days.includes(dayIdx) && !(vacas && esDeLaU(r))).forEach(r=>{
     /* si ya cargo las materias de ese dia, el bloque generico de Universidad
        sobra: seria la misma cosa dos veces */
     if(r.auto==='universidad' && hayClases) return;
@@ -1475,7 +1485,7 @@ function renderCalendar(){
     const d = new Date(calDate.getFullYear(), calDate.getMonth(), day);
     const ds = fmtDate(d);
     const dayEvents = DATA.events.filter(e=>e.date===ds && !esMovimientoDePlata(e));
-    const wdItems = weekdayItems(d.getDay());
+    const wdItems = weekdayItems(d.getDay(), ds);
     let dotColors = [...new Set([...dayEvents.map(colorDeEvento), ...pendientesConFecha(ds).map(colorDeLista)])];
     wdItems.forEach(it=>{ if(!dotColors.includes(it.color)) dotColors.push(it.color); });
     dotColors = dotColors.slice(0,3);
@@ -2560,7 +2570,7 @@ function flexPill(r){
   return `<span class="tentativo" style="background:color-mix(in srgb, ${color} 15%, transparent); color:${color};">${FLEX[f].corto}</span>`;
 }
 
-function openRoutineModal(existente){
+function openRoutineModal(existente, fecha){
   const r = existente || { id:null, cat:'personal', title:'', days:[], start:'', end:'', flex:'firme' };
   const repartible = existente ? sePuedeRepartir(existente) : null;
   openSheet(`<h3>${existente ? 'Editar' : 'Rutina semanal'}</h3>
@@ -2589,10 +2599,34 @@ function openRoutineModal(existente){
     revisarLoQueConto(todayStr(), filasDeLoLeido(repartible), existente.id, existente.days);
 
   const borrarR = document.getElementById('delRoutine');
-  if(borrarR) borrarR.onclick = ()=>{
-    if(!confirm(`¿Borrar "${existente.title}"? Deja de aparecer todas las semanas.`)) return;
+  const borrarSiempre = ()=>{
     DATA.routines = DATA.routines.filter(x=>x.id!==existente.id);
     saveData(); closeSheet(); renderAll(); renderCalDayList();
+  };
+  if(borrarR) borrarR.onclick = ()=>{
+    /* borrar desde un dia era borrarlo de todas las semanas: ese dia no tenia
+       clase, y Joel dejo de existir los demas dias tambien. Si se abrio desde
+       un dia, primero se pregunta de cual de las dos se trata. */
+    if(!fecha){
+      if(confirm(`¿Borrar "${existente.title}"? Deja de aparecer todas las semanas.`)) borrarSiempre();
+      return;
+    }
+    openSheet(`<h3>Borrar "${esc(existente.title)}"</h3>
+      <div class="helptext" style="margin:-4px 0 16px;">Se repite cada semana. ¿Es solo por esta vez?</div>
+      <div class="sheet-actions" style="flex-direction:column; align-items:stretch; gap:8px;">
+        <button class="btn btn-primary" id="rutSoloHoy">Solo el ${esc(niceDateShort(fecha))}</button>
+        <button class="btn btn-danger" id="rutSiempre" style="margin:0; padding-left:16px;">Borrarla de todas las semanas</button>
+      </div>`);
+    document.getElementById('rutSoloHoy').onclick = ()=>{
+      /* se fija, no se alterna: si ya estaba saltado, saltado se queda */
+      if(estadoRepetido(fecha, 'rutina:'+existente.id) !== 'saltado')
+        marcarRepetido(fecha, 'rutina:'+existente.id, 'saltado');
+      saveData(); closeSheet(); renderAll(); renderCalDayList(); refrescarDiaCalendario();
+      avisar(`El ${niceDateShort(fecha)} no. Los demás días sigue.`);
+    };
+    document.getElementById('rutSiempre').onclick = ()=>{
+      if(confirm(`¿Borrar "${existente.title}" de todas las semanas?`)) borrarSiempre();
+    };
   };
 
   let rcat=r.cat, rdays=[...r.days], rflex=flexDe(r);
@@ -3108,7 +3142,9 @@ function renderMaterias(){
   const prom = promedioCarrera();
   const fallas = fallasTotales();
 
-  let html = `<div class="period-pill" id="periodPill">📚 ${esc(DATA.period) || 'Sin período configurado'} <span style="font-size:11px;">✎</span></div>`;
+  let html = `<div class="period-pill" id="periodPill">${enVacaciones(todayStr())
+    ? '🌴 De vacaciones' + ((DATA.vacaciones||{}).hasta ? ' hasta el ' + esc(niceDateShort(DATA.vacaciones.hasta)) : '')
+    : '📚 ' + (esc(DATA.period) || 'Sin período configurado')} <span style="font-size:11px;">✎</span></div>`;
 
   /* ---- los dos números de arriba ---- */
   html += `<div class="summary-row">
@@ -4318,7 +4354,7 @@ const RE_CLASE_SUELTA = /^(?:(?:me\s+)?(?:entre|fui|sali|estuve|llegue|regrese|v
 function claseDeEseRato(fecha, desde, hasta){
   const d = parseDate(fecha);
   if(!d) return null;
-  return weekdayItems(d.getDay()).find(c=>{
+  return weekdayItems(d.getDay(), fecha).find(c=>{
     if(!c.start) return false;
     if(!c.materia && !/clase|universidad|sena|curso/.test(sinTildes(c.name))) return false;
     const a = minutosDe(c.start), b = c.end ? finEnMinutos(c.start, c.end) : a + 60;
@@ -4699,9 +4735,22 @@ function revisarLoQueConto(fecha, bloques, enVezDe, dias){
 }
 
 function openPeriodModal(){
+  const v = DATA.vacaciones || {};
   openSheet(`<h3>Período académico</h3><div class="field"><label>Nombre del período</label><input type="text" id="f_period" value="${esc(DATA.period)}" placeholder="Ej: Trimestre 1 / Semestre A"></div>
+    <div class="field"><label>Vacaciones</label>
+      <div class="field-row" style="margin:0;">
+        <div class="field"><label>Desde</label><input type="date" id="f_vacDesde" value="${esc(v.desde||'')}"></div>
+        <div class="field"><label>Hasta</label><input type="date" id="f_vacHasta" value="${esc(v.hasta||'')}"></div>
+      </div>
+      <div class="helptext">Esos días no te marca clases ni lo de la universidad. Déjalo en blanco cuando vuelvas.</div>
+    </div>
     <div class="sheet-actions"><button class="btn btn-primary" id="savePeriod">Guardar</button></div>`);
-  document.getElementById('savePeriod').onclick = ()=>{ DATA.period = document.getElementById('f_period').value.trim(); saveData(); closeSheet(); renderMaterias(); };
+  document.getElementById('savePeriod').onclick = ()=>{
+    DATA.period = document.getElementById('f_period').value.trim();
+    DATA.vacaciones = { desde: document.getElementById('f_vacDesde').value,
+                        hasta: document.getElementById('f_vacHasta').value };
+    saveData(); closeSheet(); renderAll(); renderMaterias();
+  };
 }
 function openSubjectModal(){
   openSheet(`<h3>Agregar materia</h3><div class="field"><label>Nombre</label><input type="text" id="f_sname" placeholder="Ej: Marketing Digital"></div>
@@ -6325,7 +6374,7 @@ function bloquesDeFecha(fecha){
 function bloquesFijos(fecha){
   const d = parseDate(fecha), dow = d.getDay();
   const out = [];
-  const items = weekdayItems(dow).filter(c=>c.start);
+  const items = weekdayItems(dow, fecha).filter(c=>c.start);
   /* "Universidad" de 6 a 10 y la materia de esa noche son la misma cosa: si la
      clase cae dentro de la franja, la franja sobra y se muestra la clase, que
      dice mas. El ingles del SENA y la clase con Leslie son a otras horas, asi
@@ -6479,7 +6528,7 @@ function tiraDelDia(fecha, opciones){
       : b.materia ? `data-materia="${b.materia.id}" data-sel-tipo="materia" data-sel-id="${b.materia.id}"`
       : b.pend ? `data-pend="${b.pend.id}" data-sel-tipo="pendiente" data-sel-id="${b.pend.id}"`
       : b.sueno ? `data-sueno="${b.sueno}"` : '';
-    return `<div class="bloque${hecho?' hecho':''}${saltado?' saltado':''}${b.auto?' auto':''}${b.movidoPor?' movido':''}" ${marca} ${b.auto?`style="--raya:${b.color}"`:''}>
+    return `<div class="bloque${hecho?' hecho':''}${saltado?' saltado':''}${b.auto?' auto':''}${b.movidoPor?' movido':''}" ${marca} data-fecha="${fecha}" ${b.auto?`style="--raya:${b.color}"`:''}>
       <div class="hora mono">${esc(b.start)}${b.end?`<span class="hasta">${esc(b.end)}</span>`:''}</div>
       <div class="raya" style="background:${b.color};"></div>
       <div class="cuerpo">
@@ -6553,7 +6602,7 @@ function marcarLoQueYaPaso(fecha){
 /* Los bloques y huecos de un dia se tocan igual en todos lados. */
 function engancharTira(caja){
   caja.querySelectorAll('[data-rutina]').forEach(el=>{
-    el.onclick = ()=> openRoutineModal(DATA.routines.find(r=>r.id===el.dataset.rutina));
+    el.onclick = ()=> openRoutineModal(DATA.routines.find(r=>r.id===el.dataset.rutina), el.dataset.fecha);
   });
   caja.querySelectorAll('[data-materia]').forEach(el=>{
     el.onclick = ()=> openMateriaModal(DATA.subjects.find(m=>m.id===el.dataset.materia));
