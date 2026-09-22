@@ -4325,69 +4325,199 @@ const RE_TRAMO = /(\bde(?:sde)?\s+(?:las?\s+)?|\ba\s+las?\s+|\bentre\s+(?:las?\s
 
 function limpiarLoQueDijo(s){
   return (s||'')
-    .replace(/^[\s,;.:y-]+/i, '')
-    .replace(/^(?:y\s+)?(?:luego|despues|después|mas tarde|más tarde|al rato|entonces|ya|pues|tambien|también|de ahi|de ahí)\b[\s,;:]*/i, '')
+    .replace(/^[\s,;.:-]+/, '')
+    /* un "y" suelto al empezar se va; el de "yoga" se queda (antes quitaba la
+       letra y dejaba "oga") */
+    .replace(/^(?:y|e)\s+/i, '')
+    .replace(/^(?:luego|despues|después|mas tarde|más tarde|al rato|entonces|ya|pues|tambien|también|de ahi|de ahí)\b[\s,;:]*/i, '')
     .replace(/^(?:me\s+)?(?:quede|quedé)\b\s*/i, '')
-    .replace(/[\s,;.:]*\b(?:y|e)?\s*(?:luego|despues|después|mas tarde|más tarde|al rato|entonces|tambien|también|ahi|ahí)\s*$/i, '')
-    .replace(/[\s,;.:y]+$/i, '')
+    .replace(/\s+(?:y|e)?\s*(?:luego|despues|después|mas tarde|más tarde|al rato|entonces|tambien|también|ahi|ahí)[\s,;.:]*$/i, '')
+    .replace(/[\s,;.:]+$/, '')
+    /* igual al final: "Infinity" terminaba en "Infinit" */
+    .replace(/\s+(?:y|e)$/i, '')
     .trim();
 }
-/* De lo que escribio salen bloques con hora. Lo que no tiene hora no se
-   inventa: se devuelve aparte para que ella decida. */
-function leerElDia(texto, fecha){
-  const bloques = [], sinHora = [];
-  const crudo = String(texto || '');
-  RE_TRAMO.lastIndex = 0;
-  const marcas = [];
+
+/* Cada cosa que hizo es una frase, y se corta donde ella hace la pausa: las
+   comas, los "y", los "luego". Antes se leia todo el parrafo de una y el texto
+   que habia entre dos horas se le pegaba a las dos, mientras el verbo de la
+   primera se perdia: "me desperte a las 8, me bañe" dejaba el bloque de las 8
+   llamado "me bañe" y "me desperte" no quedaba en ninguna parte. */
+function frasesDeLoQueDijo(crudo){
+  const re = /\s*[,;.]+\s*|\s+(?:y|e)\s+|\s+(?:luego|despues|después|entonces|mas tarde|más tarde|al rato|de ahi|de ahí)\s+/gi;
+  const cortes = [];
   let m;
-  while((m = RE_TRAMO.exec(crudo)) !== null){
+  while((m = re.exec(crudo)) !== null){
+    if(!m[0].length){ re.lastIndex++; continue; }
+    /* "8,30" o "8 y 30" es una hora, no dos frases */
+    if(/\d\s*$/.test(crudo.slice(0, m.index)) && /^\s*\d/.test(crudo.slice(m.index + m[0].length))) continue;
+    cortes.push(m);
+  }
+  const frases = [];
+  let p = 0;
+  cortes.forEach(c=>{ frases.push(crudo.slice(p, c.index)); p = c.index + c[0].length; });
+  frases.push(crudo.slice(p));
+  return frases.filter(f=>f.trim());
+}
+
+/* Los verbos que cierran algo: lo que dicen es a que hora se acabo. */
+const RE_REMATE = /^(?:ya\s+)?(?:me\s+)?(?:sali|salimos|termine|terminamos|acabe|acabamos|me fui|nos fuimos)\b/;
+
+/* Las horas que trae una frase, con la misma regla de siempre: una hora tiene
+   que venir anunciada o traer su propia marca. */
+function marcasDeHora(frase){
+  const marcas = [];
+  RE_TRAMO.lastIndex = 0;
+  let m;
+  while((m = RE_TRAMO.exec(frase)) !== null){
     const anunciada = !!m[1], tieneFin = m[5] !== undefined, marcada = !!(m[3] || m[4] || m[6] || m[7]);
-    if(!anunciada && !tieneFin && !marcada) continue;           // un numero suelto no es una hora
+    if(!anunciada && !tieneFin && !marcada) continue;
     if(Number(m[2]) > 23) continue;
     marcas.push({ m, ini:m.index, fin:m.index + m[0].length });
   }
-  if(!marcas.length){
-    const solo = limpiarLoQueDijo(crudo);
-    if(solo) sinHora.push(solo);
-    return { bloques, sinHora };
-  }
+  return marcas;
+}
+
+/* De lo que escribio salen bloques con hora, en el mismo orden en que lo conto.
+   Lo que no tiene hora no se inventa de la nada, pero tampoco se tira: si cayo
+   entre dos horas que si dijo, se reparte ese rato; y si no se puede saber
+   cuando fue, sale en la revision con la hora en blanco para que ella la ponga. */
+function leerElDia(texto, fecha){
+  const crudo = String(texto || '');
+  const frases = frasesDeLoQueDijo(crudo);
+  const items = [];
   let ultimoFin = null;
-  marcas.forEach((k, i)=>{
-    const antes = limpiarLoQueDijo(crudo.slice(i ? marcas[i-1].fin : 0, k.ini));
-    const luego = limpiarLoQueDijo(crudo.slice(k.fin, i+1 < marcas.length ? marcas[i+1].ini : crudo.length));
-    /* "almorce de 1 a 2" y "de 1 a 2 almorce" dicen lo mismo */
-    const titulo = (luego || antes || '').replace(/\s+/g,' ').slice(0, 90);
-    /* la pista de si fue mañana o tarde, y de que area es, sale de lo que dijo
-       de esa cosa: mirar la frase de al lado hacia que "cene" cayera en la
-       universidad porque antes venia "estudie para el parcial" */
-    const contexto = titulo;
-    const desde = aMinutos24(k.m[2], k.m[3], k.m[4], contexto, ultimoFin);
-    if(desde === null) return;
-    let hasta = k.m[5] !== undefined ? aMinutos24(k.m[5], k.m[6], k.m[7], contexto, desde) : null;
-    const loDijo = hasta !== null && hasta > desde;
-    if(!loDijo) hasta = desde + 60;                             // provisional: lo arregla el encadenado
-    ultimoFin = hasta;
-    if(!titulo){ return; }
-    /* si lo que dijo fue "entre a clase" a secas, la clase que tenia a esa hora
-       le pone el nombre */
-    const clase = fecha && RE_CLASE_SUELTA.test(sinTildes(titulo).trim())
-      ? claseDeEseRato(fecha, desde, hasta) : null;
-    bloques.push({ titulo: clase ? clase.name : titulo.charAt(0).toUpperCase() + titulo.slice(1),
-      desde, hasta, loDijo, cat: clase ? (clase.materia ? 'universidad' : areaDeLoQueDijo(clase.name)) : areaDeLoQueDijo(contexto) });
+
+  frases.forEach(frase=>{
+    const marcas = marcasDeHora(frase);
+    if(!marcas.length){
+      const solo = limpiarLoQueDijo(frase);
+      if(solo) items.push({ titulo:enMayuscula(solo), cat:areaDeLoQueDijo(solo), sinHora:true });
+      return;
+    }
+    /* los trozos de texto de la frase: el de antes de cada hora y el de la cola */
+    const segs = [];
+    for(let i=0; i<=marcas.length; i++){
+      const ini = i ? marcas[i-1].fin : 0;
+      const fin = i < marcas.length ? marcas[i].ini : frase.length;
+      segs.push(limpiarLoQueDijo(frase.slice(ini, fin)));
+    }
+    /* cada trozo es de una sola hora: la que lo reclama primero se lo lleva.
+       "me desperte a las 8" mira hacia atras; "de 1 a 2 almorce", hacia
+       adelante, que es como se dice cada una. */
+    const usado = segs.map(()=>false);
+    const titulos = marcas.map(()=>'');
+    marcas.forEach((k,i)=>{
+      const deRango = /de|desde|entre/i.test(k.m[1] || '');
+      const orden = deRango ? [i+1, i] : [i, i+1];
+      for(const j of orden){
+        if(segs[j] && !usado[j]){ titulos[i] = segs[j]; usado[j] = true; break; }
+      }
+    });
+
+    /* y se emite todo en el orden en que aparece en la frase */
+    for(let i=0; i<=marcas.length; i++){
+      if(segs[i] && !usado[i]){
+        items.push({ titulo:enMayuscula(segs[i]), cat:areaDeLoQueDijo(segs[i]), sinHora:true });
+        usado[i] = true;
+      }
+      if(i === marcas.length) break;
+      const k = marcas[i], titulo = (titulos[i] || '').replace(/\s+/g,' ').slice(0, 90);
+      if(!titulo) continue;
+      const desde = aMinutos24(k.m[2], k.m[3], k.m[4], titulo, ultimoFin);
+      if(desde === null) continue;
+      let hasta = k.m[5] !== undefined ? aMinutos24(k.m[5], k.m[6], k.m[7], titulo, desde) : null;
+      const loDijo = hasta !== null && hasta > desde;
+      if(!loDijo) hasta = desde + 60;                            // provisional: lo arregla el encadenado
+      ultimoFin = hasta;
+      /* si lo que dijo fue "entre a clase" a secas, la clase que tenia a esa
+         hora le pone el nombre */
+      const clase = fecha && RE_CLASE_SUELTA.test(sinTildes(titulo).trim())
+        ? claseDeEseRato(fecha, desde, hasta) : null;
+      items.push({ titulo: clase ? clase.name : enMayuscula(titulo), desde, hasta, loDijo,
+        cat: clase ? (clase.materia ? 'universidad' : areaDeLoQueDijo(clase.name)) : areaDeLoQueDijo(titulo) });
+    }
   });
 
-  /* Cuando no dice a que hora termino algo, no termino una hora despues: termino
-     cuando empezo lo siguiente. Poner una hora fija abria un hueco falso entre
-     cada cosa, como si en ese rato no hubiera hecho nada. */
-  bloques.forEach((b, i)=>{
-    const sigue = bloques[i+1];
-    if(!b.loDijo && sigue && sigue.desde > b.desde) b.hasta = sigue.desde;
+  repartirLoSinHora(items);
+
+  /* Cuando no dice a que hora termino algo, no termino una hora despues:
+     termino cuando empezo lo siguiente. Poner una hora fija abria un hueco
+     falso entre cada cosa, como si en ese rato no hubiera hecho nada. */
+  const conHora = items.filter(b=>!b.sinHora);
+  conHora.forEach((b,i)=>{
+    const sigue = conHora[i+1];
+    /* "sali a las 3" es el final de algo, no algo que durara hasta la noche:
+       eso dejaba un bloque "Sali" de tres horas tapandole el rato libre */
+    if(!b.loDijo && RE_REMATE.test(sinTildes(b.titulo).trim())) b.hasta = b.desde + 15;
+    else if(!b.loDijo && sigue && sigue.desde > b.desde) b.hasta = sigue.desde;
     else if(!b.loDijo && !sigue) b.hasta = Math.min(b.desde + 60, 24*60 - 1);
     /* y si lo que dijo se monta sobre lo siguiente, manda lo que dijo */
     b.hasta = Math.max(b.desde + 5, Math.min(b.hasta, 24*60 - 1));
   });
 
-  return { bloques: bloques.map(b=>({ titulo:b.titulo, start:hhmm(b.desde), end:hhmm(b.hasta), cat:b.cat })), sinHora };
+  return {
+    bloques: items.map(b=>({ titulo:b.titulo, start:b.sinHora ? '' : hhmm(b.desde),
+      end:b.sinHora ? '' : hhmm(b.hasta), cat:b.cat })),
+    sinHora: items.filter(b=>b.sinHora).map(b=>b.titulo)
+  };
+}
+
+function enMayuscula(s){ return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+function aCinco(min){ return Math.round(min/5)*5; }
+
+/* Lo que conto sin hora igual paso: entre lo de las 8 y lo de las 10 hay dos
+   horas, y ahi caben "me bañe" y "desayune". Se parten ese rato en partes
+   iguales, en el orden en que lo conto, y despues ella lo corrige si quiere. */
+function repartirLoSinHora(items){
+  const MIN_PARTE = 10;
+  for(let i=0; i<items.length; i++){
+    if(!items[i].sinHora) continue;
+    let j = i;
+    while(j < items.length && items[j].sinHora) j++;
+    const antes = i > 0 ? items[i-1] : null;       // si existe, tiene hora
+    const luego = j < items.length ? items[j] : null;
+    const cuantos = j - i;
+    const colocar = (x, desde, hasta)=>{
+      items[i+x].desde = desde; items[i+x].hasta = hasta;
+      items[i+x].loDijo = true; items[i+x].sinHora = false;
+    };
+    if(antes && luego){
+      const ini = antes.loDijo ? Math.max(antes.hasta, antes.desde) : antes.desde;
+      const partes = antes.loDijo ? cuantos : cuantos + 1;
+      const paso = aCinco((luego.desde - ini) / partes);
+      if(paso >= MIN_PARTE){
+        let cursor = ini;
+        if(!antes.loDijo){ antes.hasta = ini + paso; antes.loDijo = true; cursor = antes.hasta; }
+        for(let x=0; x<cuantos; x++){
+          const fin = x === cuantos - 1 ? luego.desde : Math.min(cursor + paso, luego.desde);
+          colocar(x, cursor, fin);
+          cursor = fin;
+        }
+      }
+    } else if(antes){
+      /* la cola de la historia: media hora cada cosa, que es lo que dura algo
+         de lo que no se dice la hora */
+      let cursor = antes.loDijo ? antes.hasta : antes.desde + 30;
+      if(!antes.loDijo){ antes.hasta = cursor; antes.loDijo = true; }
+      for(let x=0; x<cuantos; x++){
+        const fin = Math.min(cursor + 30, 24*60 - 1);
+        if(fin - cursor < MIN_PARTE) break;
+        colocar(x, cursor, fin);
+        cursor = fin;
+      }
+    } else if(luego){
+      /* y lo que conto antes de la primera hora, contando hacia atras */
+      let fin = luego.desde;
+      for(let x=cuantos-1; x>=0; x--){
+        const ini = Math.max(0, fin - 30);
+        if(fin - ini < MIN_PARTE) break;
+        colocar(x, ini, fin);
+        fin = ini;
+      }
+    }
+    i = j - 1;
+  }
 }
 
 /* La caja donde lo escribe. La misma en Hoy y en el dia que este mirando. */
@@ -4404,7 +4534,8 @@ function engancharContar(caja){
     const txt = box.querySelector('.contar-txt');
     const mandar = ()=>{
       const leido = leerElDia(txt.value, box.dataset.contar);
-      if(!leido.bloques.length){
+      /* alguna hora tiene que haber: si no, no hay donde poner nada */
+      if(!leido.bloques.some(b=>b.start)){
         avisar(leido.sinHora.length
           ? 'No le vi la hora a eso. Escríbelo como "de 3 a 4 ' + leido.sinHora[0].slice(0,24) + '".'
           : 'Cuéntame con horas: "de 1 a 2 almorcé".');
@@ -4423,7 +4554,8 @@ function engancharContar(caja){
 function revisarLoQueConto(fecha, bloques){
   const pintar = ()=>{
     openSheet(`<h3>¿Así fue tu ${fecha===todayStr() ? 'día' : 'día ' + niceDateShort(fecha)}?</h3>
-      <div class="helptext" style="margin:-4px 0 12px;">Cámbiale lo que no quedó bien. Se guarda todo como hecho.</div>
+      <div class="helptext" style="margin:-4px 0 12px;">Cámbiale lo que no quedó bien. Se guarda todo como hecho.${
+        bloques.some(b=>!b.start) ? ' A lo que quedó sin hora, ponle la hora o quítalo: así no se guarda.' : ''}</div>
       ${bloques.map((b,i)=>`
         <div class="contar-fila" data-i="${i}">
           <input type="time" data-campo="start" value="${esc(b.start)}" aria-label="Desde">
