@@ -2559,6 +2559,7 @@ function flexPill(r){
 
 function openRoutineModal(existente){
   const r = existente || { id:null, cat:'personal', title:'', days:[], start:'', end:'', flex:'firme' };
+  const repartible = existente ? sePuedeRepartir(existente) : null;
   openSheet(`<h3>${existente ? 'Editar' : 'Rutina semanal'}</h3>
     <div class="field"><label>Categoría</label><div class="chiprow" id="catChipsR">
       ${Object.entries(CATS).map(([k,v])=>`<div class="chip ${k===r.cat?'active':''}" data-cat="${k}" style="--chip-color:${v.color}; --chip-color-soft:${v.color}22;">${v.emoji} ${v.label}</div>`).join('')}
@@ -2575,10 +2576,14 @@ function openRoutineModal(existente){
       </div>
       <div class="helptext" id="flexNota">${FLEX[flexDe(r)].nota}</div>
     </div>
+    ${repartible ? `<div class="helptext" style="margin:-6px 0 14px;">Aquí adentro hay ${conHoraPropia(repartible)} horas distintas: parece la rutina entera en un solo bloque.
+      <button class="btn btn-ghost" id="repartirRutina" style="padding:4px 0; display:block;">Repartirla en ${repartible.bloques.length} bloques</button></div>` : ''}
     <div class="sheet-actions">
       ${existente?`<button class="btn btn-ghost" id="delRoutine">Borrar</button>`:''}
       <button class="btn btn-primary" id="saveRoutine">Guardar</button>
     </div>`);
+  if(repartible) document.getElementById('repartirRutina').onclick = ()=>
+    revisarLoQueConto(todayStr(), filasDeLoLeido(repartible), existente.id, existente.days);
 
   const borrarR = document.getElementById('delRoutine');
   if(borrarR) borrarR.onclick = ()=>{
@@ -2596,6 +2601,12 @@ function openRoutineModal(existente){
     const title = document.getElementById('f_rtitle').value.trim();
     if(!title){ alert('Escribe qué es'); return; }
     if(!rdays.length){ alert('Selecciona al menos un día'); return; }
+    /* la rutina entera escrita de corrido no cabe en un bloque: se reparte */
+    const leido = leerElDia(title, null);
+    if(conHoraPropia(leido) >= 2 && confirm('Ahí hay ' + conHoraPropia(leido) + ' horas distintas. ¿La reparto en ' + leido.bloques.length + ' bloques?')){
+      revisarLoQueConto(todayStr(), filasDeLoLeido(leido), existente ? existente.id : null, [...rdays].sort());
+      return;
+    }
     const datos = { cat:rcat, title, days:[...rdays].sort(), start:document.getElementById('f_rstart').value, end:document.getElementById('f_rend').value, flex:rflex };
     if(existente) Object.assign(existente, datos);
     else DATA.routines.push(Object.assign({ id:uid(), notes:'' }, datos));
@@ -4172,7 +4183,7 @@ function openEventModal(existing, preset){
       </div>
     </div>
     <div class="field"><label>Notas</label><textarea id="f_notes" placeholder="Opcional">${esc(e.notes)}</textarea></div>
-    ${repartible ? `<div class="helptext" style="margin:-6px 0 14px;">Aquí adentro hay ${repartible.bloques.length} horas distintas: parece el día entero en un solo bloque.
+    ${repartible ? `<div class="helptext" style="margin:-6px 0 14px;">Aquí adentro hay ${conHoraPropia(repartible)} horas distintas: parece el día entero en un solo bloque.
       <button class="btn btn-ghost" id="repartirEvento" style="padding:4px 0; display:block;">Repartirlo en ${repartible.bloques.length} bloques</button></div>` : ''}
     <div class="sheet-actions">
       ${isEdit ? '<button class="btn btn-danger" id="delEvent">Eliminar</button>' : ''}
@@ -4208,11 +4219,13 @@ function openEventModal(existing, preset){
     if(!title){ alert('Ponle un título'); return; }
     /* varias horas dentro del titulo no son un bloque: son el dia contado de
        corrido. Se ofrece repartirlo antes de guardarlo todo junto. */
-    if(selectedCat !== 'finanzas' && repeatMode !== 'weekly'){
+    if(selectedCat !== 'finanzas'){
       const fecha = document.getElementById('f_date').value || todayStr();
-      const leido = leerElDia([title, document.getElementById('f_notes').value].filter(Boolean).join('. '), fecha);
-      if(leido.bloques.length >= 2 && confirm('Ahí hay ' + leido.bloques.length + ' horas distintas. ¿Lo reparto en ' + leido.bloques.length + ' bloques?')){
-        revisarLoQueConto(fecha, filasDeLoLeido(leido), isEdit ? e.id : null);
+      const semanal = repeatMode === 'weekly' && repeatDays.length;
+      const leido = leerElDia([title, document.getElementById('f_notes').value].filter(Boolean).join('. '),
+        semanal ? null : fecha);
+      if(conHoraPropia(leido) >= 2 && confirm('Ahí hay ' + conHoraPropia(leido) + ' horas distintas. ¿Lo reparto en ' + leido.bloques.length + ' bloques?')){
+        revisarLoQueConto(fecha, filasDeLoLeido(leido), isEdit ? e.id : null, semanal ? repeatDays : null);
         return;
       }
     }
@@ -4262,6 +4275,13 @@ function openYaHiceModal(preset){
   document.getElementById('f_yguardar').onclick = ()=>{
     const title = document.getElementById('f_ytitle').value.trim();
     if(!title){ alert('Escribe qué hiciste.'); return; }
+    /* el dia entero escrito aqui no cabe en un bloque: se reparte */
+    const dia = document.getElementById('f_yfecha').value || todayStr();
+    const leido = leerElDia(title, dia);
+    if(conHoraPropia(leido) >= 2 && confirm('Ahí hay ' + conHoraPropia(leido) + ' horas distintas. ¿Lo reparto en ' + leido.bloques.length + ' bloques?')){
+      revisarLoQueConto(dia, filasDeLoLeido(leido));
+      return;
+    }
     DATA.events.push({ id:uid(), creado:Date.now(), cat, title,
       date: document.getElementById('f_yfecha').value || todayStr(),
       start: document.getElementById('f_ydesde').value,
@@ -4340,112 +4360,212 @@ const RE_TRAMO = /(\bde(?:sde)?\s+(?:las?\s+)?|\ba\s+las?\s+|\bentre\s+(?:las?\s
 
 function limpiarLoQueDijo(s){
   return (s||'')
-    .replace(/^[\s,;.:y-]+/i, '')
-    .replace(/^(?:y\s+)?(?:luego|despues|después|mas tarde|más tarde|al rato|entonces|ya|pues|tambien|también|de ahi|de ahí)\b[\s,;:]*/i, '')
+    .replace(/^[\s,;.:-]+/, '')
+    /* un "y" suelto al empezar se va; el de "yoga" se queda (antes quitaba la
+       letra y dejaba "oga") */
+    .replace(/^(?:y|e)\s+/i, '')
+    .replace(/^(?:luego|despues|después|mas tarde|más tarde|al rato|entonces|ya|pues|tambien|también|de ahi|de ahí)\b[\s,;:]*/i, '')
     .replace(/^(?:me\s+)?(?:quede|quedé)\b\s*/i, '')
-    .replace(/[\s,;.:]*\b(?:y|e)?\s*(?:luego|despues|después|mas tarde|más tarde|al rato|entonces|tambien|también|ahi|ahí)\s*$/i, '')
-    .replace(/[\s,;.:y]+$/i, '')
+    .replace(/\s+(?:y|e)?\s*(?:luego|despues|después|mas tarde|más tarde|al rato|entonces|tambien|también|ahi|ahí)[\s,;.:]*$/i, '')
+    .replace(/[\s,;.:]+$/, '')
+    /* igual al final: "Infinity" terminaba en "Infinit" */
+    .replace(/\s+(?:y|e)$/i, '')
     .trim();
 }
-/* De lo que escribio salen bloques con hora. Lo que no tiene hora no se
-   inventa: se devuelve aparte para que ella decida. */
-/* El texto que queda entre dos horas es de alguna de las dos, y decidirlo mal
-   era correr el dia entero: "desayune 7 a 7:30, clase 8 a 10" dejaba el
-   desayuno sin hora y ponia la clase a las siete. Lo que va antes de la primera
-   coma es la cola de la hora de atras; lo que va despues de la ultima es el
-   nombre de la que sigue. Lo de en medio no tiene hora y se devuelve aparte.
-   Sin coma ni punto ni renglon de por medio, si la de atras todavia no tiene
-   nombre el texto es suyo; si ya lo tiene, es de la que sigue. */
-const RE_CORTE = /[,;.\n\u00b7|]+/;
-function repartirEntreHoras(marcas, crudo){
-  const antes = marcas.map(()=>''), luego = marcas.map(()=>''), sueltos = [];
-  antes[0] = limpiarLoQueDijo(crudo.slice(0, marcas[0].ini));
-  marcas.forEach((k, i)=>{
-    const medio = crudo.slice(k.fin, i+1 < marcas.length ? marcas[i+1].ini : crudo.length);
-    if(i+1 === marcas.length){ luego[i] = limpiarLoQueDijo(medio); return; }
-    const partes = medio.split(RE_CORTE).map(limpiarLoQueDijo);
-    if(partes.length === 1){
-      if(antes[i] || luego[i]) antes[i+1] = partes[0];
-      else luego[i] = partes[0];
-      return;
-    }
-    luego[i] = partes[0];
-    antes[i+1] = partes[partes.length - 1];
-    partes.slice(1, -1).forEach(p=>{ if(p) sueltos.push(p); });
-  });
-  return { antes, luego, sueltos };
-}
-function leerElDia(texto, fecha){
-  const bloques = [], sinHora = [];
-  const crudo = String(texto || '');
-  RE_TRAMO.lastIndex = 0;
-  const marcas = [];
+
+/* Cada cosa que hizo es una frase, y se corta donde ella hace la pausa: las
+   comas, los "y", los "luego". Antes se leia todo el parrafo de una y el texto
+   que habia entre dos horas se le pegaba a las dos, mientras el verbo de la
+   primera se perdia: "me desperte a las 8, me bañe" dejaba el bloque de las 8
+   llamado "me bañe" y "me desperte" no quedaba en ninguna parte. */
+function frasesDeLoQueDijo(crudo){
+  const re = /\s*[,;.]+\s*|\s+(?:y|e)\s+|\s+(?:luego|despues|después|entonces|mas tarde|más tarde|al rato|de ahi|de ahí)\s+/gi;
+  const cortes = [];
   let m;
-  while((m = RE_TRAMO.exec(crudo)) !== null){
+  while((m = re.exec(crudo)) !== null){
+    if(!m[0].length){ re.lastIndex++; continue; }
+    /* "8,30" o "8 y 30" es una hora, no dos frases */
+    if(/\d\s*$/.test(crudo.slice(0, m.index)) && /^\s*\d/.test(crudo.slice(m.index + m[0].length))) continue;
+    cortes.push(m);
+  }
+  const frases = [];
+  let p = 0;
+  cortes.forEach(c=>{ frases.push(crudo.slice(p, c.index)); p = c.index + c[0].length; });
+  frases.push(crudo.slice(p));
+  return frases.filter(f=>f.trim());
+}
+
+/* Los verbos que cierran algo: lo que dicen es a que hora se acabo. */
+const RE_REMATE = /^(?:ya\s+)?(?:me\s+)?(?:sali|salimos|termine|terminamos|acabe|acabamos|me fui|nos fuimos)\b/;
+
+/* Las horas que trae una frase, con la misma regla de siempre: una hora tiene
+   que venir anunciada o traer su propia marca. */
+function marcasDeHora(frase){
+  const marcas = [];
+  RE_TRAMO.lastIndex = 0;
+  let m;
+  while((m = RE_TRAMO.exec(frase)) !== null){
     const anunciada = !!m[1], tieneFin = m[5] !== undefined, marcada = !!(m[3] || m[4] || m[6] || m[7]);
-    if(!anunciada && !tieneFin && !marcada) continue;           // un numero suelto no es una hora
+    if(!anunciada && !tieneFin && !marcada) continue;
     if(Number(m[2]) > 23) continue;
     marcas.push({ m, ini:m.index, fin:m.index + m[0].length });
   }
-  if(!marcas.length){
-    const solo = limpiarLoQueDijo(crudo);
-    if(solo) sinHora.push(solo);
-    return { bloques, sinHora };
-  }
-  const { antes, luego, sueltos } = repartirEntreHoras(marcas, crudo);
-  sueltos.forEach(s=>sinHora.push(s));
+  return marcas;
+}
+
+/* De lo que escribio salen bloques con hora, en el mismo orden en que lo conto.
+   Lo que no tiene hora no se inventa de la nada, pero tampoco se tira: si cayo
+   entre dos horas que si dijo, se reparte ese rato; y si no se puede saber
+   cuando fue, sale en la revision con la hora en blanco para que ella la ponga. */
+function leerElDia(texto, fecha){
+  const crudo = String(texto || '');
+  const frases = frasesDeLoQueDijo(crudo);
+  const items = [];
   let ultimoFin = null;
-  marcas.forEach((k, i)=>{
-    /* "almorce de 1 a 2" y "de 1 a 2 almorce" dicen lo mismo: el nombre esta de
-       un lado o del otro. Si esta de los dos, manda el de antes, que es el que
-       dice que hizo ("almorce de 1 a 2 en casa"). */
-    const titulo = (antes[i] || luego[i] || '').replace(/\s+/g,' ').slice(0, 90);
-    /* la pista de si fue mañana o tarde, y de que area es, sale de lo que dijo
-       de esa cosa: mirar la frase de al lado hacia que "cene" cayera en la
-       universidad porque antes venia "estudie para el parcial" */
-    const contexto = titulo;
-    const desde = aMinutos24(k.m[2], k.m[3], k.m[4], contexto, ultimoFin);
-    if(desde === null) return;
-    let hasta = k.m[5] !== undefined ? aMinutos24(k.m[5], k.m[6], k.m[7], contexto, desde) : null;
-    const loDijo = hasta !== null && hasta > desde;
-    if(!loDijo) hasta = desde + 60;                             // provisional: lo arregla el encadenado
-    ultimoFin = hasta;
-    if(!titulo){ return; }
-    /* si lo que dijo fue "entre a clase" a secas, la clase que tenia a esa hora
-       le pone el nombre */
-    const clase = fecha && RE_CLASE_SUELTA.test(sinTildes(titulo).trim())
-      ? claseDeEseRato(fecha, desde, hasta) : null;
-    bloques.push({ titulo: clase ? clase.name : titulo.charAt(0).toUpperCase() + titulo.slice(1),
-      desde, hasta, loDijo, cat: clase ? (clase.materia ? 'universidad' : areaDeLoQueDijo(clase.name)) : areaDeLoQueDijo(contexto) });
+
+  frases.forEach(frase=>{
+    const marcas = marcasDeHora(frase);
+    if(!marcas.length){
+      const solo = limpiarLoQueDijo(frase);
+      if(solo) items.push({ titulo:enMayuscula(solo), cat:areaDeLoQueDijo(solo), sinHora:true });
+      return;
+    }
+    /* los trozos de texto de la frase: el de antes de cada hora y el de la cola */
+    const segs = [];
+    for(let i=0; i<=marcas.length; i++){
+      const ini = i ? marcas[i-1].fin : 0;
+      const fin = i < marcas.length ? marcas[i].ini : frase.length;
+      segs.push(limpiarLoQueDijo(frase.slice(ini, fin)));
+    }
+    /* cada trozo es de una sola hora: la que lo reclama primero se lo lleva.
+       "me desperte a las 8" mira hacia atras; "de 1 a 2 almorce", hacia
+       adelante, que es como se dice cada una. */
+    const usado = segs.map(()=>false);
+    const titulos = marcas.map(()=>'');
+    marcas.forEach((k,i)=>{
+      const deRango = /de|desde|entre/i.test(k.m[1] || '');
+      const orden = deRango ? [i+1, i] : [i, i+1];
+      for(const j of orden){
+        if(segs[j] && !usado[j]){ titulos[i] = segs[j]; usado[j] = true; break; }
+      }
+    });
+
+    /* y se emite todo en el orden en que aparece en la frase */
+    for(let i=0; i<=marcas.length; i++){
+      if(segs[i] && !usado[i]){
+        items.push({ titulo:enMayuscula(segs[i]), cat:areaDeLoQueDijo(segs[i]), sinHora:true });
+        usado[i] = true;
+      }
+      if(i === marcas.length) break;
+      const k = marcas[i], titulo = (titulos[i] || '').replace(/\s+/g,' ').slice(0, 90);
+      if(!titulo) continue;
+      const desde = aMinutos24(k.m[2], k.m[3], k.m[4], titulo, ultimoFin);
+      if(desde === null) continue;
+      let hasta = k.m[5] !== undefined ? aMinutos24(k.m[5], k.m[6], k.m[7], titulo, desde) : null;
+      const loDijo = hasta !== null && hasta > desde;
+      if(!loDijo) hasta = desde + 60;                            // provisional: lo arregla el encadenado
+      ultimoFin = hasta;
+      /* si lo que dijo fue "entre a clase" a secas, la clase que tenia a esa
+         hora le pone el nombre */
+      const clase = fecha && RE_CLASE_SUELTA.test(sinTildes(titulo).trim())
+        ? claseDeEseRato(fecha, desde, hasta) : null;
+      items.push({ titulo: clase ? clase.name : enMayuscula(titulo), desde, hasta, loDijo,
+        cat: clase ? (clase.materia ? 'universidad' : areaDeLoQueDijo(clase.name)) : areaDeLoQueDijo(titulo) });
+    }
   });
 
-  /* Cuando no dice a que hora termino algo, no termino una hora despues: termino
-     cuando empezo lo siguiente. Poner una hora fija abria un hueco falso entre
-     cada cosa, como si en ese rato no hubiera hecho nada. */
-  bloques.forEach((b, i)=>{
-    const sigue = bloques[i+1];
-    if(!b.loDijo && sigue && sigue.desde > b.desde) b.hasta = sigue.desde;
+  repartirLoSinHora(items);
+
+  /* Cuando no dice a que hora termino algo, no termino una hora despues:
+     termino cuando empezo lo siguiente. Poner una hora fija abria un hueco
+     falso entre cada cosa, como si en ese rato no hubiera hecho nada. */
+  const conHora = items.filter(b=>!b.sinHora);
+  conHora.forEach((b,i)=>{
+    const sigue = conHora[i+1];
+    /* "sali a las 3" es el final de algo, no algo que durara hasta la noche:
+       eso dejaba un bloque "Sali" de tres horas tapandole el rato libre */
+    if(!b.loDijo && RE_REMATE.test(sinTildes(b.titulo).trim())) b.hasta = b.desde + 15;
+    else if(!b.loDijo && sigue && sigue.desde > b.desde) b.hasta = sigue.desde;
     else if(!b.loDijo && !sigue) b.hasta = Math.min(b.desde + 60, 24*60 - 1);
     /* y si lo que dijo se monta sobre lo siguiente, manda lo que dijo */
     b.hasta = Math.max(b.desde + 5, Math.min(b.hasta, 24*60 - 1));
   });
 
-  return { bloques: bloques.map(b=>({ titulo:b.titulo, start:hhmm(b.desde), end:hhmm(b.hasta), cat:b.cat })), sinHora };
+  return {
+    bloques: items.map(b=>({ titulo:b.titulo, start:b.sinHora ? '' : hhmm(b.desde),
+      end:b.sinHora ? '' : hhmm(b.hasta), cat:b.cat })),
+    sinHora: items.filter(b=>b.sinHora).map(b=>b.titulo)
+  };
 }
 
-/* Lo que quedo sin hora no se tira: va a la revision con la casilla en blanco,
-   para que ella se la ponga o lo quite. */
-function filasDeLoLeido(leido){
-  return leido.bloques.concat(leido.sinHora.map(t=>({
-    titulo: t.charAt(0).toUpperCase() + t.slice(1), start:'', end:'', cat:areaDeLoQueDijo(t) })));
+function enMayuscula(s){ return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+function aCinco(min){ return Math.round(min/5)*5; }
+
+/* Lo que conto sin hora igual paso: entre lo de las 8 y lo de las 10 hay dos
+   horas, y ahi caben "me bañe" y "desayune". Se parten ese rato en partes
+   iguales, en el orden en que lo conto, y despues ella lo corrige si quiere. */
+function repartirLoSinHora(items){
+  const MIN_PARTE = 10;
+  for(let i=0; i<items.length; i++){
+    if(!items[i].sinHora) continue;
+    let j = i;
+    while(j < items.length && items[j].sinHora) j++;
+    const antes = i > 0 ? items[i-1] : null;       // si existe, tiene hora
+    const luego = j < items.length ? items[j] : null;
+    const cuantos = j - i;
+    const colocar = (x, desde, hasta)=>{
+      items[i+x].desde = desde; items[i+x].hasta = hasta;
+      items[i+x].loDijo = true; items[i+x].sinHora = false;
+    };
+    if(antes && luego){
+      const ini = antes.loDijo ? Math.max(antes.hasta, antes.desde) : antes.desde;
+      const partes = antes.loDijo ? cuantos : cuantos + 1;
+      const paso = aCinco((luego.desde - ini) / partes);
+      if(paso >= MIN_PARTE){
+        let cursor = ini;
+        if(!antes.loDijo){ antes.hasta = ini + paso; antes.loDijo = true; cursor = antes.hasta; }
+        for(let x=0; x<cuantos; x++){
+          const fin = x === cuantos - 1 ? luego.desde : Math.min(cursor + paso, luego.desde);
+          colocar(x, cursor, fin);
+          cursor = fin;
+        }
+      }
+    } else if(antes){
+      /* la cola de la historia: media hora cada cosa, que es lo que dura algo
+         de lo que no se dice la hora */
+      let cursor = antes.loDijo ? antes.hasta : antes.desde + 30;
+      if(!antes.loDijo){ antes.hasta = cursor; antes.loDijo = true; }
+      for(let x=0; x<cuantos; x++){
+        const fin = Math.min(cursor + 30, 24*60 - 1);
+        if(fin - cursor < MIN_PARTE) break;
+        colocar(x, cursor, fin);
+        cursor = fin;
+      }
+    } else if(luego){
+      /* y lo que conto antes de la primera hora, contando hacia atras */
+      let fin = luego.desde;
+      for(let x=cuantos-1; x>=0; x--){
+        const ini = Math.max(0, fin - 30);
+        if(fin - ini < MIN_PARTE) break;
+        colocar(x, ini, fin);
+        fin = ini;
+      }
+    }
+    i = j - 1;
+  }
 }
+
+/* Las filas de la revision ya vienen de leerElDia: las que tienen hora y las
+   que no (esas, con la casilla en blanco para que ella se la ponga). */
+function filasDeLoLeido(leido){ return leido.bloques; }
 /* Un dia entero escrito de corrido dentro de un solo bloque no hay que volver a
    escribirlo: si en lo que quedo guardado hay dos horas o mas, se reparte desde
    el bloque mismo. */
+function conHoraPropia(leido){ return leido.bloques.filter(b=>b.start).length; }
 function sePuedeRepartir(e){
   if(!e || !e.id || e.cat === 'finanzas') return null;
-  const leido = leerElDia([e.title, e.notes].filter(Boolean).join('. '), e.date);
-  return leido.bloques.length >= 2 ? leido : null;
+  const leido = leerElDia([e.title, e.notes].filter(Boolean).join('. '), e.date || null);
+  return conHoraPropia(leido) >= 2 ? leido : null;
 }
 
 /* La caja donde lo escribe. La misma en Hoy y en el dia que este mirando. */
@@ -4462,7 +4582,8 @@ function engancharContar(caja){
     const txt = box.querySelector('.contar-txt');
     const mandar = ()=>{
       const leido = leerElDia(txt.value, box.dataset.contar);
-      if(!leido.bloques.length){
+      /* alguna hora tiene que haber: si no, no hay donde poner nada */
+      if(!leido.bloques.some(b=>b.start)){
         avisar(leido.sinHora.length
           ? 'No le vi la hora a eso. Escríbelo como "de 3 a 4 ' + leido.sinHora[0].slice(0,24) + '".'
           : 'Cuéntame con horas: "de 1 a 2 almorcé".');
@@ -4478,10 +4599,11 @@ function engancharContar(caja){
 }
 
 /* Lo que entendio, antes de guardarlo. Todo se puede corregir aca mismo. */
-function revisarLoQueConto(fecha, bloques, enVezDe){
+function revisarLoQueConto(fecha, bloques, enVezDe, dias){
   const pintar = ()=>{
-    openSheet(`<h3>¿Así fue tu ${fecha===todayStr() ? 'día' : 'día ' + niceDateShort(fecha)}?</h3>
-      <div class="helptext" style="margin:-4px 0 12px;">Cámbiale lo que no quedó bien. Se guarda todo como hecho.${bloques.some(b=>!b.start) ? ' Lo que quedó sin hora se guarda solo si se la pones.' : ''}</div>
+    openSheet(`<h3>${dias ? '¿Así es tu semana?' : '¿Así fue tu ' + (fecha===todayStr() ? 'día' : 'día ' + niceDateShort(fecha))+'?'}</h3>
+      <div class="helptext" style="margin:-4px 0 12px;">Cámbiale lo que no quedó bien. Se guarda todo como hecho.${
+        bloques.some(b=>!b.start) ? ' A lo que quedó sin hora, ponle la hora o quítalo: así no se guarda.' : ''}</div>
       ${bloques.map((b,i)=>`
         <div class="contar-fila" data-i="${i}">
           <input type="time" data-campo="start" value="${esc(b.start)}" aria-label="Desde">
@@ -4513,7 +4635,18 @@ function revisarLoQueConto(fecha, bloques, enVezDe){
       const v = leer().filter(b=>b.titulo && b.start);
       /* si esto salio de un bloque que tenia el dia entero adentro, ese bloque
          se va: lo reemplazan los que acaban de salir de el */
-      if(enVezDe) DATA.events = DATA.events.filter(x=>x.id !== enVezDe);
+      if(enVezDe){
+        DATA.events = DATA.events.filter(x=>x.id !== enVezDe);
+        DATA.routines = DATA.routines.filter(x=>x.id !== enVezDe);
+      }
+      /* una rutina escrita de corrido se reparte en rutinas, no en un solo dia */
+      if(dias){
+        v.forEach(b=>DATA.routines.push({ id:uid(), cat:b.cat, title:b.titulo,
+          days:[...dias], start:b.start, end:b.end || '' }));
+        saveData(); closeSheet(); renderAll(); refrescarDiaCalendario();
+        avisar(v.length + ' cosas en tu semana.');
+        return;
+      }
       v.forEach(b=>{
         const dur = b.end ? finEnMinutos(b.start, b.end) - minutosDe(b.start) : 0;
         DATA.events.push({ id:uid(), creado:Date.now(), cat:b.cat, title:b.titulo, date:fecha,
