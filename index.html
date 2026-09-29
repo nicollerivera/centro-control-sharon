@@ -6207,11 +6207,28 @@ function renderPlata(){
   const resumenMes = (ingresos || gastos)
     ? `<span style="color:${colorNeto}; font-weight:600;">${neto<0?'−':'+'}${money(Math.abs(neto))}</span>`
     : 'nada todavía';
+  /* "Faltó este mes −$19.079" con "$30.802" arriba parecia una contradiccion:
+     gastaste de mas y todavia tienes plata. No se contradicen, son dos
+     preguntas distintas -lo que se movio este mes, y lo que hay hoy- y la
+     diferencia es lo que traias de antes. El letrero decia "no es lo que
+     tienes", que avisa pero no explica. */
+  const tengoAhora = saldoTotal();
+  const explicaNeto = neto<0 && tengoAhora!==null && tengoAhora>0
+    ? `Es solo la resta de este mes. Tienes ${money(tengoAhora)} porque también traías plata de antes.`
+    : neto>0 && tengoAhora!==null
+    ? `Es solo la resta de este mes, no la plata que tienes.`
+    : '';
+  /* y lo otro que separa las dos cuentas: lo que se anoto sin decir de donde
+     salia. Cuenta en el mes y no movio ningun saldo, y antes eso no se veia. */
+  const sinLugar = movidos.filter(e=>!(e.bolsillo && e.bolsillo!==SIN_BOLSILLO));
+  const explicaSinLugar = sinLugar.length
+    ? `${sinLugar.length===1 ? '1 movimiento no dice' : sinLugar.length + ' movimientos no dicen'} de qué lugar salió o a cuál entró, así que ${sinLugar.length===1?'cuenta':'cuentan'} en esta resta pero no ${sinLugar.length===1?'movió':'movieron'} tu saldo.`
+    : '';
   const totalHtml = (ingresos || gastos) ? `<div class="fila-p" style="cursor:default; border-top:none;">
       <span class="nom">${neto<0 ? 'Faltó este mes' : 'Sobró este mes'}</span>
-      <span class="cu">entró <b style="color:var(--done); font-weight:600;">${money(ingresos)}</b> · salió <b style="color:var(--urgent); font-weight:600;">${money(gastos)}</b> · no es lo que tienes</span>
+      <span class="cu">entró <b style="color:var(--done); font-weight:600;">${money(ingresos)}</b> · salió <b style="color:var(--urgent); font-weight:600;">${money(gastos)}</b></span>
       <span class="mo" style="color:${colorNeto}">${neto<0?'−':'+'}${money(Math.abs(neto))}</span>
-    </div>` : '';
+    </div>${(explicaNeto || explicaSinLugar) ? `<div class="helptext" style="margin:-4px 0 6px;">${esc(explicaNeto)}${explicaNeto&&explicaSinLugar?' ':''}${esc(explicaSinLugar)}</div>` : ''}` : '';
 
   html += plegable('mes', 'Este mes', resumenMes, totalHtml + movsHtml);
 
