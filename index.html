@@ -3816,15 +3816,31 @@ function openInstallmentModal(){
   };
 }
 function openPayModal(instId){
-  openSheet(`<h3>Registrar pago</h3>
+  const inst = DATA.installments.find(i=>i.id===instId);
+  const pagado = inst.payments.reduce((a,p)=>a+Number(p.amount),0);
+  const falta = Math.max(0, Number(inst.total) - pagado);
+  const sugerido = Number(inst.cuotas) > 0 ? Math.min(falta, Math.round(Number(inst.total)/Number(inst.cuotas))) : falta;
+  openSheet(`<h3>Pagar cuota de ${esc(inst.name)}</h3>
+    <div class="helptext" style="margin:-4px 0 14px;">Llevas ${inst.payments.length} de ${esc(inst.cuotas)}. Te faltan ${money(falta)}.</div>
+    <div class="field"><label>Monto pagado</label><input type="number" id="f_pamount" inputmode="numeric" value="${sugerido||''}" placeholder="$"></div>
     <div class="field"><label>Fecha</label><input type="date" id="f_pdate" value="${todayStr()}"></div>
-    <div class="field"><label>Monto pagado</label><input type="number" id="f_pamount" placeholder="$"></div>
+    <div class="field"><label>¿De dónde salió?</label>${selectBolsillo('f_pbol', bolsilloPorDefecto())}</div>
+    <div class="helptext">Se le resta a ese lugar y queda anotado en los movimientos del mes.</div>
     <div class="sheet-actions"><button class="btn btn-primary" id="savePay">Guardar</button></div>`);
   document.getElementById('savePay').onclick = ()=>{
-    const amount = document.getElementById('f_pamount').value;
+    const amount = Number(document.getElementById('f_pamount').value)||0;
     if(!amount){ alert('Pon el monto'); return; }
-    const inst = DATA.installments.find(i=>i.id===instId);
-    inst.payments.push({ date:document.getElementById('f_pdate').value, amount });
+    const fecha = document.getElementById('f_pdate').value || todayStr();
+    const bolsillo = document.getElementById('f_pbol').value;
+    inst.payments.push({ date:fecha, amount });
+    /* la cuota es plata que sale, como cualquier otro gasto: si no se anotaba,
+       lo que faltaba bajaba pero el bolsillo y el mes seguian igual */
+    DATA.events.push({ id:uid(), cat:'finanzas', type:'gasto', amount, moneda:'COP',
+      categoria:'Otros', title:'Cuota · ' + inst.name, date:fecha,
+      notes:'Cuota ' + inst.payments.length + ' de ' + inst.cuotas,
+      start:'', end:'', status:'hecho', bolsillo, creado:Date.now(), deCuota:inst.id });
+    aplicarABolsillo(bolsillo, -amount);
+    if(bolsillo !== SIN_BOLSILLO) DATA.plata.ultimoBolsillo = bolsillo;
     saveData(); closeSheet(); renderPlata();
   };
 }
@@ -4001,9 +4017,9 @@ function resumenDe(desde, hasta){
   const clientesNuevos = deMarca.filter(c=>c.creado && enRango(c.creado)).length;
 
   /* plata del rango */
-  const movs = DATA.events.filter(e=>e.cat==='finanzas' && enRango(e.date));
-  const entro = movs.filter(e=>e.type==='ingreso').reduce((a,e)=>a+Number(e.amount||0),0);
-  const salio = movs.filter(e=>e.type==='gasto').reduce((a,e)=>a+Number(e.amount||0),0);
+  const movs = DATA.events.filter(e=>plataYaSeMovio(e) && enRango(fechaDelMovimiento(e)));
+  const entro = movs.filter(e=>signoDelTipo(e.type)>0).reduce((a,e)=>a+Number(e.amount||0),0);
+  const salio = movs.filter(e=>signoDelTipo(e.type)<0).reduce((a,e)=>a+Number(e.amount||0),0);
 
   const focoEntradas = Object.entries(porArea).sort((a,b)=>b[1]-a[1]);
   const cosas = Object.values(porCosa).sort((a,b)=>b.min - a.min);
@@ -5619,6 +5635,20 @@ function signoDelTipo(tipo){
   if(tipo==='gasto' || tipo==='pago' || tipo==='prestamo_dado') return -1;
   return 0;
 }
+/* La fecha en que la plata de verdad se movio. Un pago pendiente se vence un
+   dia y se paga otro: la cuota que vencia el 5 y pagaste el 20 cuenta el 20,
+   que es cuando salio de tu bolsillo. */
+function fechaDelMovimiento(e){
+  return (e.type==='pago' && e.status==='hecho' && e.pagadoFecha) ? e.pagadoFecha : e.date;
+}
+/* Si esto ya subio o bajo un bolsillo. Un paso de plata no (la misma plata
+   cambio de lugar) y un pago que todavia no has marcado tampoco. Antes la
+   resta del mes solo miraba 'gasto' e 'ingreso', asi que una cuota pagada, un
+   prestamo que te hicieron o uno que diste se veian en la lista pero no
+   entraban en el "entro / salio": la plata se movia y el mes no se enteraba. */
+function plataYaSeMovio(e){
+  return e.cat==='finanzas' && signoDelTipo(e.type)!==0 && !(e.type==='pago' && e.status!=='hecho');
+}
 /* El de siempre: el ultimo que uso, y si no, el primero con numero puesto. */
 function bolsilloPorDefecto(){
   const guardado = DATA.plata.ultimoBolsillo;
@@ -5724,7 +5754,7 @@ function saldoDeuda(d){
 function gastosDelMes(){
   const mes = todayStr().slice(0,7);
   const out = {};
-  DATA.events.filter(e=>e.cat==='finanzas' && e.type==='gasto' && e.date.startsWith(mes)).forEach(e=>{
+  DATA.events.filter(e=>plataYaSeMovio(e) && signoDelTipo(e.type)<0 && fechaDelMovimiento(e).startsWith(mes)).forEach(e=>{
     const c = e.categoria || 'Otros';
     out[c] = (out[c]||0) + Number(e.amount||0);
   });
@@ -5846,7 +5876,9 @@ function openMovimientoModalCon(pre, existente){
         categoria: e.type==='gasto' ? e.categoria : '',
         persona: e.persona || '', title:e.title, date:e.date, notes:e.notes,
         start:'', end:'',
-        status: e.type==='pago' ? 'pendiente' : 'hecho'
+        /* si ya lo habias marcado, sigue pagado: abrirlo para corregir el
+           monto no puede devolverlo a pendiente cuando la plata ya salio */
+        status: e.type==='pago' ? (existente && existente.status==='hecho' ? 'hecho' : 'pendiente') : 'hecho'
       };
       if(existente) Object.assign(existente, obj);
       else {
@@ -5964,15 +5996,18 @@ function renderPlata(){
   /* 2 · lo demas va plegado: cerrado se ve el nombre y un resumen, y se abre
      tocandolo. Lo vacio no aparece. */
   const mes = todayStr().slice(0,7);
-  const evMes = DATA.events.filter(e=>e.cat==='finanzas' && e.date.startsWith(mes));
-  const ingresos = evMes.filter(e=>e.type==='ingreso').reduce((a,e)=>a+Number(e.amount||0),0);
-  const gastos = evMes.filter(e=>e.type==='gasto').reduce((a,e)=>a+Number(e.amount||0),0);
+  /* el mes de un movimiento es el mes en que la plata se movio, no el que
+     tenga escrito: asi la lista y la resta de abajo cuentan lo mismo */
+  const evMes = DATA.events.filter(e=>e.cat==='finanzas' && fechaDelMovimiento(e).startsWith(mes));
+  const movidos = evMes.filter(plataYaSeMovio);
+  const ingresos = movidos.filter(e=>signoDelTipo(e.type)>0).reduce((a,e)=>a+Number(e.amount||0),0);
+  const gastos = movidos.filter(e=>signoDelTipo(e.type)<0).reduce((a,e)=>a+Number(e.amount||0),0);
   /* como en Nequi: lo mas reciente arriba. A igual fecha manda lo ultimo
      anotado (lo viejo no tiene hora guardada, y ahi vale el orden de la lista). */
   const orden = new Map(DATA.events.map((e,i)=>[e.id, i]));
   const cuandoSeAnoto = (e)=>{ const c = e.creado; const n = typeof c==='number' ? c : c ? Date.parse(c) : 0; return n || 0; };
   const movs = evMes.slice().sort((a,b)=>
-    b.date.localeCompare(a.date)
+    fechaDelMovimiento(b).localeCompare(fechaDelMovimiento(a))
     || (cuandoSeAnoto(b) - cuandoSeAnoto(a))
     || (orden.get(b.id) - orden.get(a.id)));
   const movsHtml = movs.length ? movs.map(m=>{
@@ -5981,7 +6016,7 @@ function renderPlata(){
     const pendiente = m.type==='pago' && m.status!=='hecho';
     return `<div class="fila-p mov-card" data-id="${m.id}" data-sel-tipo="movimiento" data-sel-id="${m.id}">
       <span class="nom">${esc(m.title)}</span>
-      ${pendiente ? `<button class="small-btn" data-pagado="${m.id}">Pagué</button>` : `<span class="cu">${esc(cuandoCorto(m.date))}${paso?' · solo cambió de lugar':m.bolsillo && m.bolsillo!==SIN_BOLSILLO?' · '+esc(m.bolsillo):''}</span>`}
+      ${pendiente ? `<button class="small-btn" data-pagado="${m.id}">Pagué</button>` : `<span class="cu">${esc(cuandoCorto(fechaDelMovimiento(m)))}${paso?' · solo cambió de lugar':m.bolsillo && m.bolsillo!==SIN_BOLSILLO?' · '+esc(m.bolsillo):''}</span>`}
       <span class="mo" style="color:${pendiente?'var(--ambar)':paso?'var(--text-dim)':entra?'var(--done)':'var(--urgent)'}">${paso?'':entra?'+':'−'}${m.montoOriginal?'US$'+m.montoOriginal:money(m.amount)}</span>
     </div>`;
   }).join('') : '<div class="helptext" style="margin:0;">Nada todavía este mes.</div>';
@@ -6440,7 +6475,7 @@ function openSaldarModal(d){
       DATA.events.push({ id:uid(), cat:'finanzas', type: debo?'gasto':'ingreso', amount:resta, moneda:'COP',
         categoria: debo?'Otros':'', persona:d.nombre, title:(debo?'Pago de ':'Me pagó ')+d.nombre,
         bolsillo: bol ? bol.value : '',
-        date:fecha, notes:'Cierre del préstamo', start:'', end:'', status:'hecho' });
+        date:fecha, notes:'Cierre del préstamo', start:'', end:'', status:'hecho', creado:Date.now() });
     }
     /* la plata se mueve aunque no lo anote en los movimientos: el saldo del
        lugar es lo que hay, no lo que quiso registrar */
@@ -6460,6 +6495,8 @@ function openPagarSuscripcion(x){
     <div class="helptext" style="margin:-4px 0 14px;">El cobro de este mes.</div>
     <div class="field"><label>Cuánto te descontaron</label><input type="number" id="p_monto" inputmode="numeric" value="${pesos||''}"></div>
     <div class="field"><label>Cuándo</label><input type="date" id="p_fecha" value="${todayStr()}"></div>
+    <div class="field"><label>¿De dónde salió?</label>${selectBolsillo('p_bol', SIN_BOLSILLO)}</div>
+    <div class="helptext">Estos cobros se descuentan solos, así que muchas veces el saldo que pusiste ya los tiene. Si todavía no, escoge de dónde salió y se le resta.</div>
     <label class="field-check"><input type="checkbox" id="p_anotar" checked>
       <span>Anotarlo en los movimientos<br><span class="helptext" style="margin:2px 0 0;">Cuenta contra el tope de Datos y celular.</span></span></label>
     <div class="sheet-actions">
@@ -6470,11 +6507,13 @@ function openPagarSuscripcion(x){
   document.getElementById('p_pagar').onclick = ()=>{
     const monto = Number(document.getElementById('p_monto').value)||0;
     const fecha = document.getElementById('p_fecha').value || todayStr();
+    const bolsillo = document.getElementById('p_bol').value;
     if(document.getElementById('p_anotar').checked && monto){
       DATA.events.push({ id:uid(), cat:'finanzas', type:'gasto', amount:monto, moneda:'COP',
         categoria:'Datos y celular', title:x.nombre, date:fecha, notes:'Cobro mensual',
-        start:'', end:'', status:'hecho', creado:Date.now() });
+        bolsillo, start:'', end:'', status:'hecho', creado:Date.now() });
     }
+    aplicarABolsillo(bolsillo, -monto);
     x.pagados = x.pagados || [];
     if(!x.pagados.includes(mes)) x.pagados.push(mes);
     saveData(); closeSheet(); renderPlata();
@@ -6508,10 +6547,19 @@ function openMovModal(deuda){
     if(!monto){ alert('Pon el monto.'); return; }
     const sentido = quePaso.value;
     deuda.movs = deuda.movs || [];
-    deuda.movs.push({ id:uid(), sentido, monto,
-      fecha:document.getElementById('f_mfecha').value || todayStr(), nota:document.getElementById('f_mnota').value.trim() });
-    aplicarABolsillo(document.getElementById('f_mbol').value,
-      signoDePrestamo(deuda.sentido) * (sentido==='abono' ? -1 : 1) * monto);
+    const fecha = document.getElementById('f_mfecha').value || todayStr();
+    const nota = document.getElementById('f_mnota').value.trim();
+    const bolsillo = document.getElementById('f_mbol').value;
+    const signo = signoDePrestamo(deuda.sentido) * (sentido==='abono' ? -1 : 1);
+    deuda.movs.push({ id:uid(), sentido, monto, fecha, nota });
+    /* como el cierre del prestamo: la plata que se mueve queda anotada en el
+       mes, no solo dentro de la deuda */
+    DATA.events.push({ id:uid(), cat:'finanzas', type: signo>0 ? 'ingreso' : 'gasto',
+      amount:monto, moneda:'COP', categoria: signo>0 ? '' : 'Otros', persona:deuda.nombre,
+      title: (sentido==='abono' ? (signo>0 ? 'Me abonó ' : 'Le abonaste a ') : (signo>0 ? 'Te prestó ' : 'Le prestaste a ')) + deuda.nombre,
+      bolsillo, date:fecha, notes: nota || 'Movimiento del préstamo',
+      start:'', end:'', status:'hecho', creado:Date.now(), deDeuda:deuda.id });
+    aplicarABolsillo(bolsillo, signo * monto);
     saveData(); closeSheet(); renderPlata();
   };
 }
