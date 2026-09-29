@@ -6022,6 +6022,42 @@ function openMovimientoModalCon(pre, existente){
   pintar();
 }
 
+/* Marcar un pago pendiente como pagado. Antes era un toque y ya: restaba del
+   bolsillo que el pago trajera anotado, y si no traia ninguno -o ese lugar
+   estaba sin numero puesto- no restaba de nada y no lo decia. El pago quedaba
+   marcado, salia en el mes, y "Tengo ahora" seguia igual. */
+function openPagarPendiente(m){
+  if(!m) return;
+  const guardado = m.bolsillo && m.bolsillo!==SIN_BOLSILLO ? m.bolsillo : bolsilloPorDefecto();
+  openSheet(`<h3>¿Ya pagaste ${esc(m.title)}?</h3>
+    <div class="helptext" style="margin:-4px 0 14px;">Lo tenías pendiente${m.date ? ' desde el ' + esc(niceDateShort(m.date)) : ''}.</div>
+    <div class="field"><label>Cuánto pagaste</label><input type="number" id="pp_monto" inputmode="numeric" value="${Number(m.amount)||''}"></div>
+    <div class="field"><label>Cuándo</label><input type="date" id="pp_fecha" value="${todayStr()}"></div>
+    <div class="field"><label>¿De dónde salió?</label>${selectBolsillo('pp_bol', guardado)}</div>
+    <div class="helptext">Se le resta a ese lugar. Si el lugar está sin número puesto, no hay de dónde restarlo: ponle primero cuánto tienes ahí.</div>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" id="pp_volver">Todavía no</button>
+      <button class="btn btn-primary" id="pp_pagar">Ya lo pagué</button>
+    </div>`);
+  document.getElementById('pp_volver').onclick = closeSheet;
+  document.getElementById('pp_pagar').onclick = ()=>{
+    const monto = Number(document.getElementById('pp_monto').value)||0;
+    if(!monto){ alert('Pon el monto.'); return; }
+    const bolsillo = document.getElementById('pp_bol').value;
+    const b = bolsillos().find(x=>x.nombre===bolsillo);
+    /* si no hay de donde restarlo, se dice antes y no despues */
+    if(bolsillo!==SIN_BOLSILLO && (!b || b.saldo===null || b.saldo==='')
+       && !confirm(`${bolsillo} está sin número puesto, así que "Tengo ahora" no va a bajar.\n\n¿Lo marco igual?`)) return;
+    m.status='hecho';
+    m.amount = monto;
+    m.pagadoFecha = document.getElementById('pp_fecha').value || todayStr();
+    m.bolsillo = bolsillo;
+    aplicarABolsillo(bolsillo, -monto);
+    if(bolsillo !== SIN_BOLSILLO) DATA.plata.ultimoBolsillo = bolsillo;
+    saveData(); closeSheet(); renderPlata();
+  };
+}
+
 /* Turno trabajado y pago recibido son dos cosas distintas (D77). Cuando le
    pagan, corrige el estimado con lo que de verdad entro (D36). */
 function openCobroModal(t){
@@ -6078,7 +6114,13 @@ function cuentaQuedaria(){
   const cuotas = (DATA.installments||[]).reduce((a,i)=>a + Math.max(0, Number(i.total) - i.payments.reduce((s,p)=>s+Number(p.amount),0)), 0);
   const teDeben = totalDeudas('meDeben');
   const total = tengo + recibir - cobros - pagos - debes - cuotas;
-  return { total, recibir, cobros, pagos, debes, cuotas, teDeben };
+  /* los nombres de lo que se esta restando: sin esto, lo mismo anotado dos
+     veces se resta dos veces y no hay como darse cuenta */
+  const nPagos = DATA.events.filter(e=>e.cat==='finanzas' && e.type==='pago' && e.status!=='hecho').map(e=>e.title);
+  const nCuotas = (DATA.installments||[])
+    .filter(i=>Number(i.total) - i.payments.reduce((s,p)=>s+Number(p.amount),0) > 0).map(i=>i.name);
+  const nDebes = (DATA.deudas||[]).filter(d=>!d.saldada && d.sentido!=='meDeben' && saldoDeuda(d)>0).map(d=>d.nombre);
+  return { total, recibir, cobros, pagos, debes, cuotas, teDeben, nPagos, nCuotas, nDebes };
 }
 
 /* hoy · mañana · en 3 días · 19 sep */
@@ -6115,7 +6157,13 @@ function renderPlata(){
     ${(q=>q && (q.recibir||q.cobros||q.pagos||q.debes||q.cuotas) ? `<div class="quedaria">
       <div class="fila" style="justify-content:flex-start; gap:6px; flex-wrap:wrap;"><span style="font-size:13px; color:var(--text-muted);">Si pagas todo lo que debes, te queda</span><span class="n mono" style="color:${q.total<0?'var(--urgent)':'inherit'}">${q.total<0?'−':''}${money(Math.abs(q.total))}</span></div>
       <div class="por-que">${q.total<0 ? 'Es un estimado: hoy debes más de lo que tienes.' : 'Es un estimado, no la plata que tienes.'} <b>Ver de dónde sale ›</b></div>
-      <div class="det" hidden><b>${money(saldoTotal()||0)}</b> que tienes ahora<br>${[q.recibir&&`<span style="color:var(--done)">+ ${money(q.recibir)}</span> por recibir`, q.cobros&&`<span style="color:var(--urgent)">− ${money(q.cobros)}</span> cobros del mes`, q.pagos&&`<span style="color:var(--urgent)">− ${money(q.pagos)}</span> pagos pendientes`, q.debes&&`<span style="color:var(--urgent)">− ${money(q.debes)}</span> que debes`, q.cuotas&&`<span style="color:var(--urgent)">− ${money(q.cuotas)}</span> en cuotas`].filter(Boolean).join('<br>')}${q.teDeben?`<br><span style="color:var(--text-dim)">Sin contar ${money(q.teDeben)} que te deben.</span>`:''}</div>
+      <div class="det" hidden><b>${money(saldoTotal()||0)}</b> que tienes ahora<br>${[
+        q.recibir&&`<span style="color:var(--done)">+ ${money(q.recibir)}</span> por recibir`,
+        q.cobros&&`<span style="color:var(--urgent)">− ${money(q.cobros)}</span> cobros del mes`,
+        q.pagos&&`<span style="color:var(--urgent)">− ${money(q.pagos)}</span> pagos pendientes${q.nPagos.length?`<span style="color:var(--text-dim)"> · ${esc(q.nPagos.join(', '))}</span>`:''}`,
+        q.debes&&`<span style="color:var(--urgent)">− ${money(q.debes)}</span> que debes${q.nDebes.length?`<span style="color:var(--text-dim)"> · ${esc(q.nDebes.join(', '))}</span>`:''}`,
+        q.cuotas&&`<span style="color:var(--urgent)">− ${money(q.cuotas)}</span> en cuotas${q.nCuotas.length?`<span style="color:var(--text-dim)"> · ${esc(q.nCuotas.join(', '))}</span>`:''}`
+      ].filter(Boolean).join('<br>')}<br><b style="color:${q.total<0?'var(--urgent)':'var(--done)'}">= ${q.total<0?'−':''}${money(Math.abs(q.total))}</b> te quedaría${q.teDeben?`<br><span style="color:var(--text-dim)">Sin contar ${money(q.teDeben)} que te deben.</span>`:''}<br><span style="color:var(--text-dim)">Si ves algo dos veces en esta lista, está restado dos veces: bórralo de donde sobre.</span></div>
     </div>` : '')(cuentaQuedaria())}
   </div>
   <div class="pleg-lista">`;
@@ -6310,10 +6358,7 @@ function renderPlata(){
   });
   box.querySelectorAll('[data-pagado]').forEach(b=>b.onclick=(ev)=>{
     ev.stopPropagation();
-    const m = DATA.events.find(x=>x.id===b.dataset.pagado);
-    m.status='hecho'; m.pagadoFecha = todayStr();
-    aplicarABolsillo(m.bolsillo, -Number(m.amount||0));
-    saveData(); renderPlata();
+    openPagarPendiente(DATA.events.find(x=>x.id===b.dataset.pagado));
   });
   const _b_addInstallmentBtn = document.getElementById('addInstallmentBtn'); if(_b_addInstallmentBtn) _b_addInstallmentBtn.onclick = openInstallmentModal;
   box.querySelectorAll('.sus-card').forEach(c=>c.onclick=()=>openSuscripcionModal(DATA.suscripciones.find(x=>x.id===c.dataset.id)));
