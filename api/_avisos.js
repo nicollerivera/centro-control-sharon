@@ -132,8 +132,10 @@ function bloquesDelDia(data, fecha) {
     if (e.cat === 'nexxa' && e.noVoy) return;
     out.push({ desde: minutosDe(e.start), hasta: finEnMinutos(e.start, e.end || e.start) });
   });
+  const vacas = enVacaciones(data, fecha);
   (data.routines || []).forEach((r) => {
     if (!r.days || !r.days.includes(dow) || !r.start) return;
+    if (vacas && r.cat === 'universidad') return;   // en descanso esa franja esta libre
     out.push({ desde: minutosDe(r.start), hasta: finEnMinutos(r.start, r.end || r.start) });
   });
   return out.filter((b) => b.desde !== null && b.hasta !== null).sort((x, y) => x.desde - y.desde);

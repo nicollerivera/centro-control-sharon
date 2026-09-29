@@ -1170,6 +1170,18 @@ function enVacaciones(fecha){
   return fecha >= v.desde && (!v.hasta || fecha <= v.hasta);
 }
 function esDeLaU(r){ return r.auto==='universidad' || r.cat==='universidad'; }
+/* El lunes y el domingo de la semana en la que cae ese dia: un descanso se
+   piensa por semanas, no por fechas sueltas. */
+function semanaDe(fecha){
+  const d = parseDate(fecha || todayStr());
+  const lunes = addDays(d, -((d.getDay() + 6) % 7));
+  return { desde: fmtDate(lunes), hasta: fmtDate(addDays(lunes, 6)) };
+}
+/* Un descanso que ya se acabo no sigue mandando. */
+function descansoTerminado(){
+  const v = DATA.vacaciones;
+  return !!(v && v.desde && v.hasta && v.hasta < todayStr());
+}
 function weekdayItems(dayIdx, fecha){
   const items=[];
   const vacas = enVacaciones(fecha);
@@ -1470,7 +1482,16 @@ function renderHoy(){
       sub:money(saldoDeuda(d)), color:'var(--urgent)', tarde:false });
   });
 
-  document.getElementById('hoyUrgent').innerHTML = vencen.length ? `
+  /* si volvio del descanso y las materias siguen siendo las de antes, se lo
+     pregunta aca: en Universidad no entra sola */
+  const preguntaU = (descansoTerminado() && (DATA.subjects||[]).length
+      && (DATA.vacaciones.preguntado||'') !== DATA.vacaciones.hasta)
+    ? `<div class="card" id="volvisteU" style="border-left:3px solid var(--c-uni); cursor:pointer;">
+        <div style="font-weight:700; font-size:15px;">¿Sigues con las mismas materias?</div>
+        <div class="helptext" style="margin:4px 0 0;">Volviste del descanso el ${esc(niceDateShort(DATA.vacaciones.hasta))} y tu día sigue con ${esc((DATA.subjects||[]).map(x=>x.name).join(', '))}. Tócale para cambiarlas.</div>
+      </div>` : '';
+
+  document.getElementById('hoyUrgent').innerHTML = preguntaU + (vencen.length ? `
     <div class="vence">
       ${vencen.map(v=>`
         <div class="vence-fila">
@@ -1478,7 +1499,9 @@ function renderHoy(){
           <span class="que">${esc(v.titulo)}</span>
           <span class="cuando">${esc(v.cuando)}</span>
         </div>`).join('')}
-    </div>` : '';
+    </div>` : '');
+  const volvisteU = document.getElementById('volvisteU');
+  if(volvisteU) volvisteU.onclick = ()=>goToSubtab('materias');
 
   /* ---- 2 · tu día: la misma tira que usa el calendario ---- */
   const resumen = resumenDelDia(t);
@@ -2687,8 +2710,12 @@ function openRoutineModal(existente, fecha){
       <div class="helptext" style="margin:-4px 0 16px;">Se repite cada semana. ¿Es solo por esta vez?</div>
       <div class="sheet-actions" style="flex-direction:column; align-items:stretch; gap:8px;">
         <button class="btn btn-primary" id="rutSoloHoy">Solo el ${esc(niceDateShort(fecha))}</button>
+        ${esDeLaU(existente) ? `<button class="btn btn-ghost" id="rutDescanso" style="margin:0;">Estoy en semana de descanso</button>` : ''}
         <button class="btn btn-danger" id="rutSiempre" style="margin:0; padding-left:16px;">Borrarla de todas las semanas</button>
       </div>`);
+    /* la semana de descanso es una sola cosa: se dice una vez y no dia por dia */
+    const rutD = document.getElementById('rutDescanso');
+    if(rutD) rutD.onclick = ()=>openDescansoModal(fecha);
     document.getElementById('rutSoloHoy').onclick = ()=>{
       /* se fija, no se alterna: si ya estaba saltado, saltado se queda */
       if(estadoRepetido(fecha, 'rutina:'+existente.id) !== 'saltado')
@@ -3215,8 +3242,25 @@ function renderMaterias(){
   const fallas = fallasTotales();
 
   let html = `<div class="period-pill" id="periodPill">${enVacaciones(todayStr())
-    ? '🌴 De vacaciones' + ((DATA.vacaciones||{}).hasta ? ' hasta el ' + esc(niceDateShort(DATA.vacaciones.hasta)) : '')
-    : '📚 ' + (esc(DATA.period) || 'Período y vacaciones')} <span style="font-size:11px;">✎</span></div>`;
+    ? '🌴 En descanso' + ((DATA.vacaciones||{}).hasta ? ' hasta el ' + esc(niceDateShort(DATA.vacaciones.hasta)) : '')
+    : '📚 ' + (esc(DATA.period) || 'Período y vacaciones')} <span style="font-size:11px;">✎</span></div>
+    <div class="pleg-acciones" style="margin:-4px 0 12px;">
+      <button class="small-btn" id="descansoBtn">${enVacaciones(todayStr()) ? 'Ya volví' : 'Estoy en descanso'}</button>
+      <button class="small-btn" id="cambiarMatBtn">Cambié de materias</button>
+    </div>`;
+
+  /* Volvio del descanso y el tablero sigue con las materias de antes: se
+     pregunta una vez, no cada dia, y desde aca se cambian. */
+  if(descansoTerminado() && subs.length && (DATA.vacaciones.preguntado||'') !== DATA.vacaciones.hasta){
+    html += `<div class="card" style="border-left:3px solid var(--c-uni); background:var(--accent-soft);">
+      <div style="font-weight:700; font-size:15px;">Volviste del descanso</div>
+      <div class="helptext" style="margin:4px 0 10px;">Siguen puestas ${subs.length===1?'la materia':'las '+subs.length+' materias'} de antes: ${esc(subs.map(x=>x.name).join(', '))}. ¿Son las mismas que estás viendo ahora?</div>
+      <div class="sheet-actions" style="margin:0;">
+        <button class="btn btn-ghost" id="mismasMatBtn">Sí, las mismas</button>
+        <button class="btn btn-primary" id="cambieMatBtn">Cambié de materias</button>
+      </div>
+    </div>`;
+  }
 
   /* ---- los dos números de arriba ---- */
   html += `<div class="summary-row">
@@ -3299,6 +3343,15 @@ function renderMaterias(){
 
   box.innerHTML = html;
   document.getElementById('periodPill').onclick = openPeriodModal;
+  document.getElementById('descansoBtn').onclick = ()=>openDescansoModal(todayStr());
+  document.getElementById('cambiarMatBtn').onclick = cambiarMaterias;
+  const mismas = document.getElementById('mismasMatBtn');
+  if(mismas) mismas.onclick = ()=>{
+    DATA.vacaciones.preguntado = DATA.vacaciones.hasta;
+    saveData(); renderMaterias(); renderHoy();
+  };
+  const cambie = document.getElementById('cambieMatBtn');
+  if(cambie) cambie.onclick = cambiarMaterias;
   const _b_addSubjectBtn = document.getElementById('addSubjectBtn'); if(_b_addSubjectBtn) _b_addSubjectBtn.onclick = openSubjectModal;
   const _b_addTaskBtn = document.getElementById('addTaskBtn'); if(_b_addTaskBtn) _b_addTaskBtn.onclick = openTaskModal;
   document.getElementById('fallasBox').onclick = openUniAjustes;
@@ -4914,6 +4967,78 @@ function openPeriodModal(){
     saveData(); closeSheet(); renderAll(); renderMaterias();
   };
 }
+/* El descanso se decia escondido en "Período y vacaciones", adentro de la
+   pestaña de Universidad. Ahora se dice desde donde estorba: tocando el bloque
+   de Universidad en tu día, o desde el botón de arriba. Y se piensa por
+   semanas, que es como se descansa. */
+function openDescansoModal(fecha){
+  const sem = semanaDe(fecha);
+  const otra = semanaDe(fmtDate(addDays(parseDate(sem.desde), 7)));
+  const v = DATA.vacaciones || {};
+  const enDescanso = enVacaciones(todayStr());
+  openSheet(`<h3>${enDescanso ? 'Estás en descanso' : '¿Estás en descanso?'}</h3>
+    <div class="helptext" style="margin:-4px 0 14px;">Esos días no te marca clases ni nada de la universidad, y un turno encima no te sale en rojo.</div>
+    ${enDescanso ? '' : `<div class="sheet-actions" style="flex-direction:column; align-items:stretch; gap:8px; margin-bottom:16px;">
+      <button class="btn btn-primary" id="d_estaSem">Toda esta semana</button>
+      <button class="btn btn-ghost" id="d_dosSem" style="margin:0;">Esta semana y la que viene</button>
+    </div>`}
+    <div class="field-row" style="margin:0;">
+      <div class="field"><label>Desde</label><input type="date" id="d_desde" value="${esc(v.desde || sem.desde)}"></div>
+      <div class="field"><label>Hasta</label><input type="date" id="d_hasta" value="${esc(v.hasta || sem.hasta)}"></div>
+    </div>
+    <div class="sheet-actions">
+      ${enDescanso ? `<button class="btn btn-ghost" id="d_volvi">Ya volví</button>` : ''}
+      <button class="btn btn-primary" id="d_guardar">Guardar</button>
+    </div>`);
+  const poner = (desde, hasta)=>{
+    DATA.vacaciones = { desde, hasta };
+    saveData(); closeSheet(); renderAll(); renderMaterias(); refrescarDiaCalendario();
+    avisar('En descanso hasta el ' + niceDateShort(hasta) + '. La universidad no te aparece.');
+  };
+  const est = document.getElementById('d_estaSem');
+  if(est) est.onclick = ()=>poner(sem.desde, sem.hasta);
+  const dos = document.getElementById('d_dosSem');
+  if(dos) dos.onclick = ()=>poner(sem.desde, otra.hasta);
+  const volvi = document.getElementById('d_volvi');
+  if(volvi) volvi.onclick = ()=>{
+    DATA.vacaciones = { desde:'', hasta:'' };
+    saveData(); closeSheet(); renderAll(); renderMaterias(); refrescarDiaCalendario();
+    avisar('Listo, vuelve la universidad.');
+  };
+  document.getElementById('d_guardar').onclick = ()=>{
+    const desde = document.getElementById('d_desde').value;
+    const hasta = document.getElementById('d_hasta').value;
+    if(!desde){ alert('Ponle desde cuándo.'); return; }
+    if(hasta && hasta < desde){ alert('El "hasta" va después del "desde".'); return; }
+    poner(desde, hasta);
+  };
+}
+
+/* Cambiar de materias no es borrarlas una por una: se cierra el bimestre que
+   termina con las notas que tenga, y el tablero queda limpio para el nuevo.
+   Lo que ya no cursas no puede seguir apareciendo en tu día. */
+function cambiarMaterias(){
+  const subs = DATA.subjects || [];
+  const materias = subs.map(s=>({ name:s.name, nota:estadoMateria(s).nota }));
+  const conNota = materias.filter(m=>m.nota!==null);
+  const sinNota = materias.length - conNota.length;
+  if(subs.length){
+    const aviso = sinNota ? `\n\n${sinNota} de ellas están sin nota y no van a contar en el promedio. Si quieres ponérselas primero, toca "Poner definitivas".` : '';
+    if(!confirm(`¿Ya no ves estas ${subs.length} materias?\n\n${subs.map(x=>'· '+x.name).join('\n')}\n\nSalen de tu día y sus notas pasan al promedio de la carrera.${aviso}`)) return;
+    uniCfg().historial.push({ periodo: DATA.period || ('Bimestre ' + (uniCfg().historial.length+1)),
+      materias: conNota, cerrado: todayStr() });
+  }
+  const viejas = new Set(subs.map(x=>x.name));
+  DATA.subjects = [];
+  /* las entregas de las materias que ya no ves se van con ellas: si no,
+     seguian saliendo en "vence hoy" con el nombre de una materia que ya pasó */
+  DATA.academicTasks = (DATA.academicTasks||[]).filter(t=>!(t.subject && viejas.has(t.subject)) && !t.done);
+  if(DATA.vacaciones) DATA.vacaciones.preguntado = DATA.vacaciones.hasta || '';
+  saveData(); renderAll(); renderMaterias();
+  avisar('Listo. Ahora ponle las materias nuevas.', ()=>openSubjectModal());
+  openSubjectModal();
+}
+
 function openSubjectModal(){
   openSheet(`<h3>Agregar materia</h3><div class="field"><label>Nombre</label><input type="text" id="f_sname" placeholder="Ej: Marketing Digital"></div>
     <div class="field"><label>Día</label><select id="f_sday">${DOW.map((d,i)=>`<option value="${i}">${d}</option>`).join('')}</select></div>
@@ -5009,8 +5134,10 @@ function bloquesDelDia(fecha, exceptoTurnoId){
     if(e.cat==='nexxa' && e.noVoy) return;        // si no vas, no te ocupa el tiempo (D129)
     out.push({ titulo:e.title, desde:minutosDe(e.start), hasta: e.end ? finEnMinutos(e.start, e.end) : minutosDe(e.start), fuente:'evento', flex:flexDe(e), ref:e });
   });
+  const vacas = enVacaciones(fecha);
   (DATA.routines||[]).forEach(r=>{
     if(!r.days || !r.days.includes(dow) || !r.start) return;
+    if(vacas && esDeLaU(r)) return;                 // en descanso no hay clase con que chocar
     out.push({ titulo:r.title, desde:minutosDe(r.start), hasta:finEnMinutos(r.start, r.end||r.start), fuente:'rutina', flex:flexDe(r), ref:r });
   });
   return out.filter(b=>b.desde!==null && b.hasta!==null);
