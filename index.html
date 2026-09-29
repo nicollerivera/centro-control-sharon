@@ -6173,7 +6173,9 @@ function renderPlata(){
   const mes = todayStr().slice(0,7);
   /* el mes de un movimiento es el mes en que la plata se movio, no el que
      tenga escrito: asi la lista y la resta de abajo cuentan lo mismo */
-  const evMes = DATA.events.filter(e=>e.cat==='finanzas' && fechaDelMovimiento(e).startsWith(mes));
+  const pendienteDePago = e=>e.cat==='finanzas' && e.type==='pago' && e.status!=='hecho';
+  const evMes = DATA.events.filter(e=>e.cat==='finanzas'
+    && (fechaDelMovimiento(e).startsWith(mes) || pendienteDePago(e)));
   const movidos = evMes.filter(plataYaSeMovio);
   const ingresos = movidos.filter(e=>signoDelTipo(e.type)>0).reduce((a,e)=>a+Number(e.amount||0),0);
   const gastos = movidos.filter(e=>signoDelTipo(e.type)<0).reduce((a,e)=>a+Number(e.amount||0),0);
@@ -6191,7 +6193,8 @@ function renderPlata(){
     const pendiente = m.type==='pago' && m.status!=='hecho';
     return `<div class="fila-p mov-card" data-id="${m.id}" data-sel-tipo="movimiento" data-sel-id="${m.id}">
       <span class="nom">${esc(m.title)}</span>
-      ${pendiente ? `<button class="small-btn" data-pagado="${m.id}">Pagué</button>` : `<span class="cu">${esc(cuandoCorto(fechaDelMovimiento(m)))}${paso?' · solo cambió de lugar':m.bolsillo && m.bolsillo!==SIN_BOLSILLO?' · '+esc(m.bolsillo):''}</span>`}
+      ${pendiente ? `<span class="cu ${m.date < todayStr() ? 'ojo' : ''}">sin pagar · vence ${esc(cuandoCorto(m.date))}</span><button class="small-btn" data-pagado="${m.id}">Pagué</button>`
+                  : `<span class="cu">${esc(cuandoCorto(fechaDelMovimiento(m)))}${paso?' · solo cambió de lugar':m.bolsillo && m.bolsillo!==SIN_BOLSILLO?' · '+esc(m.bolsillo):''}</span>`}
       <span class="mo" style="color:${pendiente?'var(--ambar)':paso?'var(--text-dim)':entra?'var(--done)':'var(--urgent)'}">${paso?'':entra?'+':'−'}${m.montoOriginal?'US$'+m.montoOriginal:money(m.amount)}</span>
     </div>`;
   }).join('') : '<div class="helptext" style="margin:0;">Nada todavía este mes.</div>';
