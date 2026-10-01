@@ -239,6 +239,8 @@ button{font-family:inherit;}
 .suelto .punto{width:7px; height:7px; border-radius:50%; flex:none; margin:0 8px;}
 .suelto .que{flex:1; min-width:0; font-size:14.5px; font-weight:500;}
 .suelto .de{flex:none; font-size:12px; color:var(--text-dim);}
+.suelto.listo .que{color:var(--text-muted); text-decoration:line-through; text-decoration-thickness:1px;}
+.suelto.listo .punto{opacity:.4;}
 
 /* ---------- la mañana y el cierre ---------- */
 .agregar-opciones{display:grid; gap:8px;}
@@ -1546,7 +1548,11 @@ function renderHoy(){
   }
 
   /* ---- 3 · lo flexible de hoy: sin hora ---- */
-  const sueltos = DATA.events.filter(e=>e.date===t && !e.start && e.status!=='hecho');
+  /* Lo sin hora, lo que falta y lo que ya hizo. Antes lo hecho sin hora no se
+     veia en ningun lado, asi que anotarlo sin hora era perderlo — y ver lo que
+     avanzo es la mitad del trabajo de Bitacora (D03). */
+  const sueltos = DATA.events.filter(e=>e.date===t && !e.start && !esMovimientoDePlata(e))
+    .sort((a,b)=>(a.status==='hecho'?1:0) - (b.status==='hecho'?1:0));
   const lugarHoy = acomodarDia(t).lugar;
   const pendHoy = pendientesConFecha(t).filter(p=>!p.hora && !lugarHoy[p.id]);
   const urgentes = (DATA.pendientes||[]).filter(p=>!p.hecho && p.urgencia==='urgente' && !(p.fecha===t));
@@ -1555,7 +1561,7 @@ function renderHoy(){
     <div class="rotulo" style="margin-top:22px;"><span>Sin hora</span></div>
     ${pendHoy.map(sueltoPendiente).join('')}
     ${sueltos.map(e=>`
-      <div class="suelto" data-id="${e.id}" data-sel-tipo="evento" data-sel-id="${e.id}">
+      <div class="suelto${e.status==='hecho'?' listo':''}" data-id="${e.id}" data-sel-tipo="evento" data-sel-id="${e.id}">
         <span class="punto" style="background:${CATS[e.cat]?CATS[e.cat].color:'var(--text-dim)'};"></span>
         <span class="que">${esc(e.title)}</span>
       </div>`).join('')}
@@ -2017,7 +2023,8 @@ function renderCalDayList(){
       : `<div class="empty-card">Este día lo tienes libre entero.</div>`) +
     ((sinHora.length || pendSinHora.length) ? `<div class="rotulo" style="margin-top:20px;"><span>Sin hora</span></div>` +
       pendSinHora.map(sueltoPendiente).join('') + sinHora.map(itemHTML).join('') : '') +
-    `<div class="rotulo" style="margin-top:20px;"><span>${ds < todayStr() ? 'Cuéntame cómo fue' : 'Cuéntame tu día'}</span></div>` +
+    `<div class="rotulo" style="margin-top:20px;"><span>${
+      ds < todayStr() ? 'Cuéntame cómo fue' : ds > todayStr() ? 'Qué tienes ese día' : 'Cuéntame tu día'}</span></div>` +
     cajaContar(ds);
 
   engancharTira(box);
@@ -4712,7 +4719,12 @@ function leerElDia(texto, fecha){
       if(i === marcas.length) break;
       const k = marcas[i], titulo = (titulos[i] || '').replace(/\s+/g,' ').slice(0, 90);
       if(!titulo) continue;
-      const enSuDia = aMinutos24(k.m[2], k.m[3], k.m[4], titulo,
+      /* "de 7 a 8 pm" son las siete de la NOCHE, no las siete de la manana:
+         cuando solo el final trae la marca y el rango no va para atras, la marca
+         vale para los dos. Sin esto "de 6 a 10 pm universidad" se guardaba de
+         6 de la manana a 10 de la noche: dieciseis horas de clase. */
+      const sufIni = k.m[4] || (k.m[7] && Number(k.m[2]) <= Number(k.m[5]) ? k.m[7] : undefined);
+      const enSuDia = aMinutos24(k.m[2], k.m[3], sufIni, titulo,
         ultimoFin === null ? null : ultimoFin - dia*1440, dia > 0);
       if(enSuDia === null) continue;
       /* si la hora se fue para atras y cae de madrugada, es que paso la
@@ -4797,26 +4809,12 @@ function repartirLoSinHora(items){
           cursor = fin;
         }
       }
-    } else if(antes){
-      /* la cola de la historia: media hora cada cosa, que es lo que dura algo
-         de lo que no se dice la hora */
-      let cursor = antes.loDijo ? antes.hasta : antes.desde + 30;
-      if(!antes.loDijo){ antes.hasta = cursor; antes.loDijo = true; }
-      for(let x=0; x<cuantos; x++){
-        const fin = Math.min(cursor + 30, finDeSuDia(cursor));
-        if(fin - cursor < MIN_PARTE) break;
-        colocar(x, cursor, fin);
-        cursor = fin;
-      }
-    } else if(luego){
-      /* y lo que conto antes de la primera hora, contando hacia atras */
-      let fin = luego.desde;
-      for(let x=cuantos-1; x>=0; x--){
-        const ini = Math.max(Math.floor(fin/1440)*1440, fin - 30);
-        if(fin - ini < MIN_PARTE) break;
-        colocar(x, ini, fin);
-        fin = ini;
-      }
+    } else {
+      /* Fuera de ese rato no se reparte nada. Antes la cola y la cabeza de la
+         historia se rellenaban a media hora cada una, y eso le inventaba el
+         dia: contar "de 6 a 10 pm universidad, almorce, turno" le dejaba un
+         almuerzo a las 5 que ella nunca dijo. Ahora lo que no se puede saber
+         se queda sin hora, que ya es una forma valida de quedar anotado. */
     }
     i = j - 1;
   }
@@ -4829,6 +4827,20 @@ function diaMasTarde(fecha, dia){ return dia ? fmtDate(addDays(parseDate(fecha),
    turno ya estaba escrito y al contar el dia se creaba otro encima, asi que el
    sabado salia con dos bloques para lo mismo y las horas contadas dos veces.
    Se busca lo que ya estaba a esa hora para poder preguntarlo. */
+/* Dos cosas a la misma hora no son la misma cosa: ella hace cosas a la vez
+   (estudiar en la U, trabajar y responderle a un cliente). Se da por hecho que
+   es lo mismo solo cuando ademas se parece el nombre; si no, se le pregunta con
+   la casilla en blanco. */
+function sueneAlMismo(a, b){
+  const n = s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+  const x = n(a), y = n(b);
+  if(!x || !y) return false;
+  if(x === y || x.includes(y) || y.includes(x)) return true;
+  const px = new Set(x.split(' ').filter(w=>w.length>3));
+  return y.split(' ').some(w=>w.length>3 && px.has(w));
+}
+
 function yaEstabaEscrito(fecha, fila){
   const d = minutosDe(fila.start);
   if(d === null) return null;
@@ -4861,9 +4873,13 @@ function sePuedeRepartir(e){
 /* La caja donde lo escribe. La misma en Hoy y en el dia que este mirando. */
 function cajaContar(fecha){
   const cuando = fecha === todayStr() ? 'hoy' : niceDateShort(fecha);
+  /* un dia que no ha llegado no se cuenta, se planea: ahi la hora si importa */
+  const porVenir = fecha > todayStr();
   return `<div class="contar" data-contar="${fecha}">
-    <textarea class="contar-txt" rows="2" placeholder="De 1 a 2 almorcé, de 3 a 4 estuve con mi novio…"
-      aria-label="Cuéntame qué hiciste ${esc(cuando)}"></textarea>
+    <textarea class="contar-txt" rows="2" placeholder="${porVenir
+      ? 'Universidad de 6 a 10 pm, entrega de bases de datos de 2 a 3…'
+      : 'Almorcé, estudié, de 3 a 4 con mi novio… la hora, si quieres'}"
+      aria-label="${porVenir ? 'Qué tienes el ' + esc(cuando) : 'Cuéntame qué hiciste ' + esc(cuando)}"></textarea>
     <button class="contar-ok" type="button">Anotar</button>
   </div>`;
 }
@@ -4872,11 +4888,12 @@ function engancharContar(caja){
     const txt = box.querySelector('.contar-txt');
     const mandar = ()=>{
       const leido = leerElDia(txt.value, box.dataset.contar);
-      /* alguna hora tiene que haber: si no, no hay donde poner nada */
-      if(!leido.bloques.some(b=>b.start)){
-        avisar(leido.sinHora.length
-          ? 'No le vi la hora a eso. Escríbelo como "de 3 a 4 ' + leido.sinHora[0].slice(0,24) + '".'
-          : 'Cuéntame con horas: "de 1 a 2 almorcé".');
+      /* La hora no es requisito. Casi ningun dia se le repite y a veces hace dos
+         cosas a la vez, asi que pedirle la hora a todo era pedirle una agenda
+         que no existe: y lo que hacia era no anotar nada (D07, D11, D94).
+         Lo que venga sin hora se guarda hecho, sin hora. */
+      if(!leido.bloques.length){
+        avisar('Cuéntame qué hiciste: "almorcé, estudié, turno en Movistar".');
         return;
       }
       txt.value = '';
@@ -4891,12 +4908,18 @@ function engancharContar(caja){
 /* Lo que entendio, antes de guardarlo. Todo se puede corregir aca mismo. */
 function revisarLoQueConto(fecha, bloques, enVezDe, dias){
   const pintar = ()=>{
-    openSheet(`<h3>${dias ? '¿Así es tu semana?' : '¿Así fue tu ' + (fecha===todayStr() ? 'día' : 'día ' + niceDateShort(fecha))+'?'}</h3>
-      <div class="helptext" style="margin:-4px 0 12px;">Cámbiale lo que no quedó bien. Se guarda todo como hecho.${
-        bloques.some(b=>!b.start) ? ' A lo que quedó sin hora, ponle la hora o quítalo: así no se guarda.' : ''}</div>
+    const futuro = !dias && fecha > todayStr();
+    openSheet(`<h3>${dias ? '¿Así es tu semana?'
+      : futuro ? '¿Esto tienes el ' + niceDateShort(fecha) + '?'
+      : '¿Así fue tu ' + (fecha===todayStr() ? 'día' : 'día ' + niceDateShort(fecha))+'?'}</h3>
+      <div class="helptext" style="margin:-4px 0 12px;">Cámbiale lo que no quedó bien. ${
+        futuro ? 'Queda agendado para ese día, sin marcar.' : 'Se guarda todo como hecho.'}${
+        bloques.some(b=>!b.start) ? (futuro
+          ? ' Lo que quedó sin hora se agenda igual, sin hora.'
+          : ' Lo que quedó sin hora se guarda igual, sin hora. Ponle una solo si te sirve.') : ''}</div>
       ${bloques.map((b,i)=>`
         ${(()=>{ const ya = b.start ? yaEstabaEscrito(diaMasTarde(fecha, b.dia || 0), b) : null;
-          return ya ? `<label class="contar-mismo"><input type="checkbox" data-mismo="${i}" checked>
+          return ya ? `<label class="contar-mismo"><input type="checkbox" data-mismo="${i}" ${sueneAlMismo(b.titulo, ya.titulo) ? 'checked' : ''}>
             <span>Es lo mismo que <b>${esc(ya.titulo)}</b>, que ya estaba a esa hora</span></label>` : ''; })()}
         <div class="contar-fila" data-i="${i}" data-dia="${b.dia || 0}">
           ${b.dia ? `<div class="contar-otrodia">Ya es ${esc(dias ? DOW[(dias[0] + b.dia) % 7] : niceDateShort(diaMasTarde(fecha, b.dia)))}</div>` : ''}
@@ -4928,7 +4951,8 @@ function revisarLoQueConto(fecha, bloques, enVezDe, dias){
       pintar();
     });
     document.getElementById('contarGuardar').onclick = ()=>{
-      const v = leer().filter(b=>b.titulo && b.start);
+      /* basta el nombre: lo que no tiene hora se guarda sin hora */
+      const v = leer().filter(b=>b.titulo);
       /* si esto salio de un bloque que tenia el dia entero adentro, ese bloque
          se va: lo reemplazan los que acaban de salir de el */
       if(enVezDe){
@@ -4937,7 +4961,8 @@ function revisarLoQueConto(fecha, bloques, enVezDe, dias){
       }
       /* una rutina escrita de corrido se reparte en rutinas, no en un solo dia */
       if(dias){
-        v.forEach(b=>DATA.routines.push({ id:uid(), cat:b.cat, title:b.titulo,
+        /* una rutina sin hora no aparece en ningun dia: ahi la hora si hace falta */
+        v.filter(b=>b.start).forEach(b=>DATA.routines.push({ id:uid(), cat:b.cat, title:b.titulo,
           /* lo de la madrugada es del dia siguiente, tambien cada semana */
           days: b.dia ? dias.map(d=>(d + b.dia) % 7).sort() : [...dias],
           start:b.start, end:b.end || '' }));
@@ -4948,12 +4973,19 @@ function revisarLoQueConto(fecha, bloques, enVezDe, dias){
       let juntados = 0;
       v.forEach(b=>{
         const dia = diaMasTarde(fecha, b.dia);
+        /* Un dia que todavia no llega no se puede haber hecho. Darlo por hecho
+           le apagaba el aviso de la entrega que se acerca (D45): la entrega del
+           martes quedaba entregada el jueves anterior. */
+        const porVenir = dia > todayStr();
         /* si es lo mismo que ya estaba escrito, no se crea otro bloque encima:
            se le pone el visto al que ya estaba, y lo que ella escribio le queda
            debajo como el nombre de lo que hizo en ese rato */
         if(b.mismo){
           const ya = yaEstabaEscrito(dia, b);
           if(ya){
+            /* si ya esta en el calendario de ese dia, no hay nada que agregar
+               ni nada que marcar: todavia no pasa */
+            if(porVenir){ juntados++; return; }
             darPorHecho(dia, ya);
             if(ya.ev && !ya.ev.lugar && ya.titulo.trim() !== b.titulo.trim()) ya.ev.lugar = b.titulo;
             juntados++;
@@ -4963,12 +4995,18 @@ function revisarLoQueConto(fecha, bloques, enVezDe, dias){
         const dur = b.end ? finEnMinutos(b.start, b.end) - minutosDe(b.start) : 0;
         DATA.events.push({ id:uid(), creado:Date.now(), cat:b.cat, title:b.titulo,
           date: dia,
-          start:b.start, end:b.end || '', status:'hecho', estMin:null,
-          actualMin: dur > 0 ? dur : null, notes:'' });
+          start:b.start, end:b.end || '', status: porVenir ? 'pendiente' : 'hecho', estMin:null,
+          actualMin: !porVenir && dur > 0 ? dur : null, notes:'' });
       });
       saveData(); closeSheet(); renderAll(); refrescarDiaCalendario();
-      avisar((v.length === 1 ? 'Anotado.' : v.length + ' cosas anotadas.')
-        + (juntados ? ' ' + juntados + (juntados===1 ? ' se juntó con lo que ya estaba.' : ' se juntaron con lo que ya estaba.') : ''));
+      const n = v.length - juntados;
+      if(!n){ avisar(juntados === 1 ? 'Eso ya estaba ahí.' : 'Todo eso ya estaba ahí.'); return; }
+      avisar((futuro
+        ? (n === 1 ? 'Agendado.' : n + ' cosas agendadas.')
+        : (n === 1 ? 'Anotado.' : n + ' cosas anotadas.'))
+        + (juntados ? ' ' + juntados + (juntados===1
+          ? (futuro ? ' ya estaba.' : ' se juntó con lo que ya estaba.')
+          : (futuro ? ' ya estaban.' : ' se juntaron con lo que ya estaba.')) : ''));
     };
   };
   pintar();
