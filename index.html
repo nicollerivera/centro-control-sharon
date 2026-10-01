@@ -453,6 +453,11 @@ button.chip{font-family:inherit; line-height:1.5; cursor:pointer;}
    plegable, que apunta para el mismo lado pero sirve para otra cosa */
 .pleg-fila .flecha{flex:none; display:flex; align-items:center; justify-content:center; background:var(--surface-2); border:none; color:var(--text); width:32px; height:32px; border-radius:50%; font-size:18px; line-height:1; padding:0 0 2px; cursor:pointer;}
 .pleg-fila .flecha:disabled{opacity:.25;}
+/* un lugar no puede tener menos de cero: si lo tiene, el numero se desfaso y
+   hay que decirlo, no pintarlo rojo y seguir como si fuera un dato */
+.saldo-roto{background:var(--urgent-soft,rgba(220,38,38,.09)); border-radius:10px; padding:10px 12px; margin:10px 0 0; font-size:12.5px; line-height:1.45; color:var(--text);}
+.saldo-roto b{color:var(--urgent);}
+.bolsillo.enrojo .m{color:var(--urgent);}
 /* abierto, el gris de la cabecera tiene que cubrir tambien las flechas: si no,
    queda un bloque gris flotando entre dos pedazos blancos */
 .pleg-lista .pleg.con-flechas.abierta .pleg-head{background:none; border-bottom:none;}
@@ -3907,11 +3912,12 @@ function openPayModal(instId){
     inst.payments.push({ date:fecha, amount });
     /* la cuota es plata que sale, como cualquier otro gasto: si no se anotaba,
        lo que faltaba bajaba pero el bolsillo y el mes seguian igual */
-    DATA.events.push({ id:uid(), cat:'finanzas', type:'gasto', amount, moneda:'COP',
+    const evCuota = { id:uid(), cat:'finanzas', type:'gasto', amount, moneda:'COP',
       categoria:'Otros', title:'Cuota · ' + inst.name, date:fecha,
       notes:'Cuota ' + inst.payments.length + ' de ' + inst.cuotas,
-      start:'', end:'', status:'hecho', bolsillo, creado:Date.now(), deCuota:inst.id });
-    aplicarABolsillo(bolsillo, -amount);
+      start:'', end:'', status:'hecho', bolsillo, creado:Date.now(), deCuota:inst.id };
+    DATA.events.push(evCuota);
+    anotarAplicado(evCuota, aplicarABolsillo(bolsillo, -amount));
     if(bolsillo !== SIN_BOLSILLO) DATA.plata.ultimoBolsillo = bolsillo;
     saveData(); closeSheet(); renderPlata();
   };
@@ -5754,14 +5760,10 @@ function saldoFecha(){
 /* un paso de plata si mueve los numeros: no es adivinar nada, ella dijo de
    donde a donde. Un lugar sin numero puesto se queda sin numero. */
 function moverEntreBolsillos(de, a, monto){
-  const tocar = (nombre, signo)=>{
-    const b = bolsillos().find(x=>x.nombre===nombre);
-    if(!b || b.saldo===null || b.saldo==='') return;
-    b.saldo = Number(b.saldo) + signo*Number(monto);
-    b.fecha = todayStr();
-  };
-  if(de && de!==a) tocar(de, -1);
-  if(a && a!==de) tocar(a, +1);
+  const partes = [];
+  if(de && de!==a) partes.push(aplicarABolsillo(de, -Number(monto)));
+  if(a && a!==de) partes.push(aplicarABolsillo(a, +Number(monto)));
+  return partes.filter(Boolean);
 }
 /* Un gasto sale de algun lado y un ingreso entra a alguno: antes todo caia en
    el monton y le tocaba corregir Nequi a mano. Ahora el movimiento dice de
@@ -5769,11 +5771,72 @@ function moverEntreBolsillos(de, a, monto){
    sigue estando, para lo que no quiere que cuente. */
 const SIN_BOLSILLO = '—';
 function aplicarABolsillo(nombre, delta){
-  if(!nombre || nombre===SIN_BOLSILLO) return;
+  if(!nombre || nombre===SIN_BOLSILLO) return null;
   const b = bolsillos().find(x=>x.nombre===nombre);
-  if(!b || b.saldo===null || b.saldo==='') return;   // un lugar sin numero puesto se queda sin numero
+  if(!b || b.saldo===null || b.saldo==='') return null;   // un lugar sin numero puesto se queda sin numero
   b.saldo = Number(b.saldo) + Number(delta);
   b.fecha = todayStr();
+  return { bolsillo:nombre, delta:Number(delta) };
+}
+
+/* ---- Devolver lo que un movimiento empujo ----------------------------------
+   El saldo no se calcula sumando la lista: es un numero guardado que cada
+   movimiento empuja al anotarlo. Borrar un movimiento solo lo sacaba de la
+   lista y dejaba el empujon puesto para siempre, y editarlo no movia nada: el
+   gasto decia $100.000 y el saldo seguia con los $10.000 viejos. Cada borrado
+   y cada correccion dejaban su resto, y los restos se acumularon hasta dejar
+   Nequi en negativo, que no es un saldo: es la suma de lo que se borro.
+
+   Ahora cada movimiento lleva anotado lo que le hizo a cada lugar, y eso es lo
+   que se devuelve. */
+function anotarAplicado(ev, partes){
+  const reales = [].concat(partes||[]).filter(p=>p && p.delta);
+  if(reales.length) ev.aplicado = { cuando: Date.now(), partes: reales };
+  else delete ev.aplicado;
+  return ev;
+}
+/* Los movimientos anotados antes de esto no lo traen: se deduce de lo que el
+   movimiento dice, que es lo correcto mientras nadie lo haya editado. */
+function aplicadoDe(ev){
+  if(!ev || ev.cat!=='finanzas') return null;
+  if(ev.aplicado) return ev.aplicado;
+  const cuando = Date.parse(fechaDelMovimiento(ev)+'T12:00:00')
+    || (typeof ev.creado==='number' ? ev.creado : Date.parse(ev.creado||'')) || 0;
+  const monto = Number(ev.amount||0);
+  if(!monto) return null;
+  if(ev.type==='traslado')
+    return ev.de && ev.a ? { cuando, partes:[{bolsillo:ev.de, delta:-monto}, {bolsillo:ev.a, delta:monto}] } : null;
+  const signo = signoDelTipo(ev.type);
+  if(!signo || (ev.type==='pago' && ev.status!=='hecho')) return null;
+  if(!ev.bolsillo || ev.bolsillo===SIN_BOLSILLO) return null;
+  return { cuando, partes:[{ bolsillo:ev.bolsillo, delta: signo*monto }] };
+}
+/* Devolverlo solo vale si el saldo todavia es el que este movimiento empujo.
+   Si ella volvio a declarar cuanto tiene -leyendolo de Nequi- ese numero ya es
+   la verdad y este movimiento ya esta adentro: devolverlo lo daniaria. */
+function sigueVivo(ap){
+  return !!ap && (ap.partes||[]).every(p=>{
+    const b = bolsillos().find(x=>x.nombre===p.bolsillo);
+    return b && b.saldo!==null && b.saldo!=='' && (Number(b.declaradoEn)||0) <= ap.cuando;
+  });
+}
+/* true = los saldos quedaron limpios de este movimiento, y quien llama puede
+   aplicar la version nueva encima. false = esta metido en un saldo que ella ya
+   corrigio a mano, asi que no se toca nada y hay que decirselo. */
+function deshacerAplicado(ev){
+  const ap = aplicadoDe(ev);
+  if(!ap || !(ap.partes||[]).length){ delete ev.aplicado; return true; }
+  if(!sigueVivo(ap)) return false;
+  ap.partes.forEach(p=>aplicarABolsillo(p.bolsillo, -p.delta));
+  delete ev.aplicado;
+  return true;
+}
+/* Lo que un movimiento le hace a los saldos segun lo que dice hoy. */
+function aplicarMovimiento(ev){
+  if(ev.type==='traslado') return anotarAplicado(ev, moverEntreBolsillos(ev.de, ev.a, ev.amount));
+  const signo = signoDelTipo(ev.type);
+  if(!signo || (ev.type==='pago' && ev.status!=='hecho')) return anotarAplicado(ev, []);
+  return anotarAplicado(ev, [aplicarABolsillo(ev.bolsillo, signo*Number(ev.amount||0))]);
 }
 /* De donde sale o a donde entra cada tipo: +1 entra, -1 sale, 0 no toca nada. */
 function signoDelTipo(tipo){
@@ -6002,8 +6065,21 @@ function openMovimientoModalCon(pre, existente){
 
     const borrar = document.getElementById('m_borrar');
     if(borrar) borrar.onclick = ()=>{
+      /* borrarlo de la lista no basta: lo que le hizo al saldo tiene que
+         volver, o el gasto desaparece y la plata sigue sin aparecer */
+      const habia = aplicadoDe(existente);
+      const limpio = deshacerAplicado(existente);
       DATA.events = DATA.events.filter(x=>x.id!==existente.id);
       saveData(); closeSheet(); renderPlata();
+      if(habia && limpio){
+        const donde = [...new Set(habia.partes.map(p=>p.bolsillo))];
+        avisar('Borrado · ' + donde.map(n=>{
+          const b = bolsillos().find(x=>x.nombre===n);
+          return n + ' vuelve a ' + money(b ? b.saldo : 0);
+        }).join(' · '));
+      } else if(habia){
+        avisar('Borrado. No toqué los saldos: ya los habías corregido a mano después.');
+      }
     };
     document.getElementById('m_guardar').onclick = ()=>{
       leer();
@@ -6026,16 +6102,24 @@ function openMovimientoModalCon(pre, existente){
            monto no puede devolverlo a pendiente cuando la plata ya salio */
         status: e.type==='pago' ? (existente && existente.status==='hecho' ? 'hecho' : 'pendiente') : 'hecho'
       };
-      if(existente) Object.assign(existente, obj);
-      else {
-        DATA.events.push(Object.assign({id:uid(), creado:Date.now()}, obj));
-        /* solo al anotarlo: si despues lo editas, los numeros ya se movieron */
-        if(obj.type==='traslado') moverEntreBolsillos(obj.de, obj.a, pesos);
+      let avisoSaldo = '';
+      if(existente){
+        /* corregir el monto tiene que corregir el saldo. Antes no: cambiabas
+           $10.000 por $100.000, la lista lo decia y "Tengo ahora" se quedaba
+           con los $10.000 viejos. Lo mismo al cambiar de lugar o de tipo. */
+        const limpio = deshacerAplicado(existente);
+        Object.assign(existente, obj);
+        if(limpio) aplicarMovimiento(existente);
+        else avisoSaldo = 'Corregido en la lista. No toqué los saldos: ya los habías corregido a mano.';
+      } else {
+        const nuevo = Object.assign({id:uid(), creado:Date.now()}, obj);
+        DATA.events.push(nuevo);
         /* el pago pendiente no mueve nada todavia: mueve el dia que dice "Pagué" */
-        else if(signoDelTipo(obj.type) && obj.type!=='pago') aplicarABolsillo(obj.bolsillo, signoDelTipo(obj.type)*pesos);
-        if(obj.bolsillo && obj.bolsillo!==SIN_BOLSILLO) DATA.plata.ultimoBolsillo = obj.bolsillo;
+        aplicarMovimiento(nuevo);
       }
+      if(obj.bolsillo && obj.bolsillo!==SIN_BOLSILLO) DATA.plata.ultimoBolsillo = obj.bolsillo;
       saveData(); closeSheet(); renderPlata();
+      if(avisoSaldo) avisar(avisoSaldo);
     };
   }
   pintar();
@@ -6071,7 +6155,7 @@ function openPagarPendiente(m){
     m.amount = monto;
     m.pagadoFecha = document.getElementById('pp_fecha').value || todayStr();
     m.bolsillo = bolsillo;
-    aplicarABolsillo(bolsillo, -monto);
+    anotarAplicado(m, aplicarABolsillo(bolsillo, -monto));
     if(bolsillo !== SIN_BOLSILLO) DATA.plata.ultimoBolsillo = bolsillo;
     saveData(); closeSheet(); renderPlata();
   };
@@ -6096,10 +6180,11 @@ function openCobroModal(t){
     const fecha = document.getElementById('c_fecha').value || todayStr();
     const bolsillo = document.getElementById('c_bolsillo').value;
     t.cobrado = true; t.pagoReal = real; t.pagoFecha = fecha;
-    DATA.events.push({ id:uid(), cat:'finanzas', type:'ingreso', amount:real, moneda:'COP', bolsillo,
+    const evCobro = { id:uid(), cat:'finanzas', type:'ingreso', amount:real, moneda:'COP', bolsillo,
       title: turnoTitulo(t), date: fecha, notes:'Turno del ' + niceDateShort(t.fecha),
-      start:'', end:'', status:'hecho', creado:Date.now(), deTurno:t.id });
-    aplicarABolsillo(bolsillo, real);
+      start:'', end:'', status:'hecho', creado:Date.now(), deTurno:t.id };
+    DATA.events.push(evCobro);
+    anotarAplicado(evCobro, aplicarABolsillo(bolsillo, real));
     if(bolsillo !== SIN_BOLSILLO) DATA.plata.ultimoBolsillo = bolsillo;
     saveData(); closeSheet(); renderPlata();
   };
@@ -6161,8 +6246,14 @@ function renderPlata(){
     <div class="lbl">Tengo ahora <span class="saldo-edad">${fechaSaldo ? esc(haceCuanto(fechaSaldo)) : 'toca para ponerlo'}</span></div>
     <div class="saldo-nota">toda tu plata, venga de este mes o de antes</div>
     <div class="saldo-num mono">${tengo===null ? '—' : money(tengo)}</div>
+    ${(neg=>neg.length ? `<div class="saldo-roto">
+      <b>${neg.length===1 ? esc(neg[0].nombre) + ' está en negativo' : 'Hay lugares en negativo'}</b>
+      ${neg.length===1 ? '' : '<br>' + esc(neg.map(b=>b.nombre).join(', '))}
+      <br>No se puede tener menos de cero, así que ${neg.length===1?'ese número':'esos números'} se desfasó${neg.length===1?'':'n'}.
+      Mira cuánto ${neg.length===1 ? 'dice ' + esc(neg[0].nombre) : 'dicen de verdad'} y tóca${neg.length===1?'lo':'los'} aquí para corregir${neg.length===1?'lo':'los'}.
+    </div>` : '')(bolsillos().filter(b=>!esDeNexxa(b) && b.saldo!==null && b.saldo!=='' && Number(b.saldo)<0))}
     <div class="bolsillos">${bolsillos().filter(b=>!esDeNexxa(b)).map(b=>`
-      <button class="bolsillo" data-bolsillo="${b.id}">
+      <button class="bolsillo ${Number(b.saldo)<0 && b.saldo!==null && b.saldo!=='' ? 'enrojo' : ''}" data-bolsillo="${b.id}">
         <span class="n">${esc(b.nombre)}</span>
         <span class="m mono ${b.saldo===null||b.saldo===''?'vacio':''}">${b.saldo===null||b.saldo==='' ? 'poner' : money(b.saldo)}</span>
       </button>`).join('')}</div>
@@ -6455,6 +6546,9 @@ function openBolsilloModal(id){
     if(document.getElementById('f_bolnexxa').checked) b.de = 'nexxa'; else delete b.de;
     b.saldo = v==='' ? null : Number(v)||0;
     b.fecha = v==='' ? '' : todayStr();
+    /* a partir de aqui este numero es la verdad: los movimientos de antes ya
+       estan adentro y borrarlos no puede devolver nada */
+    b.declaradoEn = Date.now();
     DATA.plata.saldo = saldoTotal(); DATA.plata.saldoFecha = saldoFecha();
     saveData(); closeSheet(); renderPlata();
     /* si acaba de sacarlo de su plata -o de devolverlo-, el numero no "falta":
@@ -6507,7 +6601,10 @@ function openSaldoModal(){
       const b = lista.find(x=>x.id===inp.dataset.saldo); if(!b) return;
       const antes = b.saldo;
       b.saldo = inp.value==='' ? null : Number(inp.value)||0;
-      if(b.saldo!==antes) b.fecha = b.saldo===null ? '' : todayStr();
+      if(b.saldo!==antes){
+        b.fecha = b.saldo===null ? '' : todayStr();
+        b.declaradoEn = Date.now();   // de aqui en adelante, este numero manda
+      }
     });
     const nuevo = document.getElementById('f_nuevoLugar').value.trim();
     if(nuevo && !lista.some(b=>b.nombre.toLowerCase()===nuevo.toLowerCase())){
@@ -6704,15 +6801,17 @@ function openSaldarModal(d){
     const fecha = document.getElementById('s_fecha').value || todayStr();
     const anotar = document.getElementById('s_anotar');
     const bol = document.getElementById('s_bol');
-    if(resta>0 && anotar && anotar.checked){
-      DATA.events.push({ id:uid(), cat:'finanzas', type: debo?'gasto':'ingreso', amount:resta, moneda:'COP',
-        categoria: debo?'Otros':'', persona:d.nombre, title:(debo?'Pago de ':'Me pagó ')+d.nombre,
-        bolsillo: bol ? bol.value : '',
-        date:fecha, notes:'Cierre del préstamo', start:'', end:'', status:'hecho', creado:Date.now() });
-    }
     /* la plata se mueve aunque no lo anote en los movimientos: el saldo del
        lugar es lo que hay, no lo que quiso registrar */
-    if(resta>0 && bol) aplicarABolsillo(bol.value, (debo ? -1 : 1) * resta);
+    const movidoCierre = resta>0 && bol ? aplicarABolsillo(bol.value, (debo ? -1 : 1) * resta) : null;
+    if(resta>0 && anotar && anotar.checked){
+      const evCierre = { id:uid(), cat:'finanzas', type: debo?'gasto':'ingreso', amount:resta, moneda:'COP',
+        categoria: debo?'Otros':'', persona:d.nombre, title:(debo?'Pago de ':'Me pagó ')+d.nombre,
+        bolsillo: bol ? bol.value : '',
+        date:fecha, notes:'Cierre del préstamo', start:'', end:'', status:'hecho', creado:Date.now() };
+      DATA.events.push(evCierre);
+      anotarAplicado(evCierre, movidoCierre);
+    }
     d.movs = d.movs || [];
     if(resta !== 0) d.movs.push({ id:uid(), sentido: resta>0?'abono':'suma', monto:Math.abs(resta), fecha, nota:'cierre', cierre:true });
     d.saldada = true; d.saldadaFecha = fecha;
@@ -6741,12 +6840,14 @@ function openPagarSuscripcion(x){
     const monto = Number(document.getElementById('p_monto').value)||0;
     const fecha = document.getElementById('p_fecha').value || todayStr();
     const bolsillo = document.getElementById('p_bol').value;
+    const movidoSus = aplicarABolsillo(bolsillo, -monto);
     if(document.getElementById('p_anotar').checked && monto){
-      DATA.events.push({ id:uid(), cat:'finanzas', type:'gasto', amount:monto, moneda:'COP',
+      const evSus = { id:uid(), cat:'finanzas', type:'gasto', amount:monto, moneda:'COP',
         categoria:'Datos y celular', title:x.nombre, date:fecha, notes:'Cobro mensual',
-        bolsillo, start:'', end:'', status:'hecho', creado:Date.now() });
+        bolsillo, start:'', end:'', status:'hecho', creado:Date.now() };
+      DATA.events.push(evSus);
+      anotarAplicado(evSus, movidoSus);
     }
-    aplicarABolsillo(bolsillo, -monto);
     x.pagados = x.pagados || [];
     if(!x.pagados.includes(mes)) x.pagados.push(mes);
     saveData(); closeSheet(); renderPlata();
@@ -6787,12 +6888,13 @@ function openMovModal(deuda){
     deuda.movs.push({ id:uid(), sentido, monto, fecha, nota });
     /* como el cierre del prestamo: la plata que se mueve queda anotada en el
        mes, no solo dentro de la deuda */
-    DATA.events.push({ id:uid(), cat:'finanzas', type: signo>0 ? 'ingreso' : 'gasto',
+    const evDeuda = { id:uid(), cat:'finanzas', type: signo>0 ? 'ingreso' : 'gasto',
       amount:monto, moneda:'COP', categoria: signo>0 ? '' : 'Otros', persona:deuda.nombre,
       title: (sentido==='abono' ? (signo>0 ? 'Me abonó ' : 'Le abonaste a ') : (signo>0 ? 'Te prestó ' : 'Le prestaste a ')) + deuda.nombre,
       bolsillo, date:fecha, notes: nota || 'Movimiento del préstamo',
-      start:'', end:'', status:'hecho', creado:Date.now(), deDeuda:deuda.id });
-    aplicarABolsillo(bolsillo, signo * monto);
+      start:'', end:'', status:'hecho', creado:Date.now(), deDeuda:deuda.id };
+    DATA.events.push(evDeuda);
+    anotarAplicado(evDeuda, aplicarABolsillo(bolsillo, signo * monto));
     saveData(); closeSheet(); renderPlata();
   };
 }
