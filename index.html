@@ -2828,6 +2828,7 @@ function interacciones(p){ return num(p.likes)+num(p.comentarios)+num(p.comparti
 /* "Carrusel (6 slides)" y "Carrusel (7 slides)" son el mismo formato */
 function formatoCorto(f){ return String(f||'Sin formato').split(/[(+\/]/)[0].trim() || 'Sin formato'; }
 function mesAnterior(mes){ const [y,m]=mes.split('-').map(Number); const d=new Date(y,m-2,1); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function conMayuscula(t){ return t ? t[0].toUpperCase()+t.slice(1) : t; }
 function nombreMes(mes){ const [y,m]=mes.split('-').map(Number); return MONTHS[m-1] + (y!==new Date().getFullYear() ? ' '+y : ''); }
 function milesCO(n){ return Math.round(n).toLocaleString('es-CO'); }
 function cambioPct(ahora, antes){
@@ -2910,6 +2911,9 @@ function clientesDeLaMarca(){
 }
 
 let marcaMes = null;
+/* el mes que se esta mirando en Plata. Abre en el de hoy y se queda donde
+   ella lo deje mientras la app este abierta. */
+let plataMes = null;
 function renderMarca(){
   const box = document.getElementById('sub-marca');
   if(!box) return;
@@ -6170,12 +6174,20 @@ function renderPlata(){
 
   /* 2 · lo demas va plegado: cerrado se ve el nombre y un resumen, y se abre
      tocandolo. Lo vacio no aparece. */
-  const mes = todayStr().slice(0,7);
+  /* el 1 de octubre la lista amanecio vacia y septiembre no quedo en ninguna
+     parte: lo que se movio el mes pasado no deja de haber pasado por cambiar
+     de hoja. La lista se mueve de mes como la de Marca, y abre en el de hoy. */
+  const mesHoy = todayStr().slice(0,7);
+  if(!plataMes || plataMes > mesHoy) plataMes = mesHoy;
+  const mes = plataMes;
+  const esMesDeHoy = mes === mesHoy;
   /* el mes de un movimiento es el mes en que la plata se movio, no el que
      tenga escrito: asi la lista y la resta de abajo cuentan lo mismo */
   const pendienteDePago = e=>e.cat==='finanzas' && e.type==='pago' && e.status!=='hecho';
+  /* lo que esta sin pagar esta sin pagar hoy, no en septiembre: solo se cuela
+     en la lista cuando ella esta mirando el mes de hoy */
   const evMes = DATA.events.filter(e=>e.cat==='finanzas'
-    && (fechaDelMovimiento(e).startsWith(mes) || pendienteDePago(e)));
+    && (fechaDelMovimiento(e).startsWith(mes) || (esMesDeHoy && pendienteDePago(e))));
   const movidos = evMes.filter(plataYaSeMovio);
   const ingresos = movidos.filter(e=>signoDelTipo(e.type)>0).reduce((a,e)=>a+Number(e.amount||0),0);
   const gastos = movidos.filter(e=>signoDelTipo(e.type)<0).reduce((a,e)=>a+Number(e.amount||0),0);
@@ -6197,7 +6209,7 @@ function renderPlata(){
                   : `<span class="cu">${esc(cuandoCorto(fechaDelMovimiento(m)))}${paso?' · solo cambió de lugar':m.bolsillo && m.bolsillo!==SIN_BOLSILLO?' · '+esc(m.bolsillo):''}</span>`}
       <span class="mo" style="color:${pendiente?'var(--ambar)':paso?'var(--text-dim)':entra?'var(--done)':'var(--urgent)'}">${paso?'':entra?'+':'−'}${m.montoOriginal?'US$'+m.montoOriginal:money(m.amount)}</span>
     </div>`;
-  }).join('') : '<div class="helptext" style="margin:0;">Nada todavía este mes.</div>';
+  }).join('') : `<div class="helptext" style="margin:0;">${esMesDeHoy ? 'Nada todavía este mes.' : 'No anotaste nada en ' + esc(nombreMes(mes)) + '.'}</div>`;
 
   /* la resta del mes: lo que entro menos lo que salio. Los pasos de plata no
      cuentan, porque la misma plata solo cambio de lugar. Esto no toca el saldo:
@@ -6206,13 +6218,13 @@ function renderPlata(){
   const colorNeto = neto < 0 ? 'var(--urgent)' : 'var(--done)';
   const resumenMes = (ingresos || gastos)
     ? `<span style="color:${colorNeto}; font-weight:600;">${neto<0?'−':'+'}${money(Math.abs(neto))}</span>`
-    : 'nada todavía';
+    : (esMesDeHoy ? 'nada todavía' : 'no se movió nada');
   /* "Faltó este mes −$19.079" con "$30.802" arriba parecia una contradiccion:
      gastaste de mas y todavia tienes plata. No se contradicen, son dos
      preguntas distintas -lo que se movio este mes, y lo que hay hoy- y la
      diferencia es lo que traias de antes. El letrero decia "no es lo que
      tienes", que avisa pero no explica. */
-  const tengoAhora = saldoTotal();
+  const tengoAhora = esMesDeHoy ? saldoTotal() : null;
   const explicaNeto = neto<0 && tengoAhora!==null && tengoAhora>0
     ? `Es solo la resta de este mes. Tienes ${money(tengoAhora)} porque también traías plata de antes.`
     : neto>0 && tengoAhora!==null
@@ -6225,12 +6237,13 @@ function renderPlata(){
     ? `${sinLugar.length===1 ? '1 movimiento no dice' : sinLugar.length + ' movimientos no dicen'} de qué lugar salió o a cuál entró, así que ${sinLugar.length===1?'cuenta':'cuentan'} en esta resta pero no ${sinLugar.length===1?'movió':'movieron'} tu saldo.`
     : '';
   const totalHtml = (ingresos || gastos) ? `<div class="fila-p" style="cursor:default; border-top:none;">
-      <span class="nom">${neto<0 ? 'Faltó este mes' : 'Sobró este mes'}</span>
+      <span class="nom">${(neto<0 ? 'Faltó ' : 'Sobró ') + (esMesDeHoy ? 'este mes' : 'en ' + esc(nombreMes(mes)))}</span>
       <span class="cu">entró <b style="color:var(--done); font-weight:600;">${money(ingresos)}</b> · salió <b style="color:var(--urgent); font-weight:600;">${money(gastos)}</b></span>
       <span class="mo" style="color:${colorNeto}">${neto<0?'−':'+'}${money(Math.abs(neto))}</span>
     </div>${(explicaNeto || explicaSinLugar) ? `<div class="helptext" style="margin:-4px 0 6px;">${esc(explicaNeto)}${explicaNeto&&explicaSinLugar?' ':''}${esc(explicaSinLugar)}</div>` : ''}` : '';
 
-  html += plegable('mes', 'Este mes', resumenMes, totalHtml + movsHtml);
+  const navMes = `<div class="mes-nav"><button id="plataMesAntes" aria-label="Mes anterior">‹</button><span class="nom">${esc(nombreMes(mes))}</span><button id="plataMesDespues" aria-label="Mes siguiente" ${esMesDeHoy?'disabled style="opacity:.3"':''}>›</button></div>`;
+  html += plegable('mes', esMesDeHoy ? 'Este mes' : conMayuscula(nombreMes(mes)), resumenMes, navMes + totalHtml + movsHtml);
 
   const recibir = porRecibir();
   if(recibir.length){
@@ -6380,6 +6393,16 @@ function renderPlata(){
     ev.stopPropagation();
     openPagarPendiente(DATA.events.find(x=>x.id===b.dataset.pagado));
   });
+  const _b_plataMesAntes = document.getElementById('plataMesAntes');
+  if(_b_plataMesAntes) _b_plataMesAntes.onclick = (ev)=>{ ev.stopPropagation(); plataMes = mesAnterior(plataMes); abrirPlegable('mes'); renderPlata(); };
+  const _b_plataMesDespues = document.getElementById('plataMesDespues');
+  if(_b_plataMesDespues) _b_plataMesDespues.onclick = (ev)=>{
+    ev.stopPropagation();
+    if(plataMes >= todayStr().slice(0,7)) return;
+    const [y,m] = plataMes.split('-').map(Number), d = new Date(y, m, 1);
+    plataMes = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    abrirPlegable('mes'); renderPlata();
+  };
   const _b_addInstallmentBtn = document.getElementById('addInstallmentBtn'); if(_b_addInstallmentBtn) _b_addInstallmentBtn.onclick = openInstallmentModal;
   box.querySelectorAll('.sus-card').forEach(c=>c.onclick=()=>openSuscripcionModal(DATA.suscripciones.find(x=>x.id===c.dataset.id)));
   box.querySelectorAll('[data-usar-tasa]').forEach(b=>b.onclick=(ev)=>{
