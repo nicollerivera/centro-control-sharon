@@ -5502,6 +5502,16 @@ function renderChoquesSemana(){
    atras se lleva por delante lo del otro y no hay de donde sacarlo. Aca se
    baja una copia a mano, y se vuelve a meter si hace falta.
 ============================================================ */
+/* La copia, en una funcion aparte: tambien se baja sola justo antes de borrar
+   un mes, que es cuando de verdad hace falta tenerla. */
+function bajarCopia(sufijo){
+  const nombre = 'bitacora-' + todayStr() + (sufijo ? '-' + sufijo : '') + '.json';
+  const url = URL.createObjectURL(new Blob([JSON.stringify(DATA, null, 2)], { type:'application/json' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+  return nombre;
+}
 function renderRespaldo(){
   const caja = document.getElementById('respaldoBox');
   if(!caja) return;
@@ -5515,14 +5525,7 @@ function renderRespaldo(){
     <input type="file" id="respaldoArchivo" accept="application/json,.json" hidden>
     <div class="helptext" style="margin:10px 0 0;">El servidor guarda la versión de antes de cada guardado y la primera de cada día.</div>
   </div>`;
-  document.getElementById('respaldoBajar').onclick = ()=>{
-    const nombre = 'bitacora-' + todayStr() + '.json';
-    const url = URL.createObjectURL(new Blob([JSON.stringify(DATA, null, 2)], { type:'application/json' }));
-    const a = document.createElement('a');
-    a.href = url; a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url), 4000);
-    avisar('Copia guardada: ' + nombre);
-  };
+  document.getElementById('respaldoBajar').onclick = ()=>{ avisar('Copia guardada: ' + bajarCopia()); };
   document.getElementById('respaldoServidor').onclick = async ()=>{
     const cual = prompt('¿Cuál copia? Escribe "prev" para la de antes del último guardado, o una fecha como 2026-09-20.', 'prev');
     if(cual===null) return;
@@ -6404,7 +6407,13 @@ function renderPlata(){
     antes: `<button class="flecha" id="plataMesAntes" aria-label="Ver el mes anterior">‹</button>`,
     despues: `<button class="flecha" id="plataMesDespues" aria-label="Ver el mes siguiente" ${esMesDeHoy?'disabled':''}>›</button>`
   };
-  html += plegable('mes', esMesDeHoy ? 'Este mes' : conMayuscula(nombreMes(mes)), resumenMes, totalHtml + movsHtml, false, flechasMes);
+  /* Dejar un mes pasado en cero. Solo en un mes que ya paso: el de hoy es el
+     que esta llenando, y un boton que lo vacie de un toque no tiene por que
+     estar ahi. */
+  const vaciarHtml = (!esMesDeHoy && evMes.length)
+    ? `<div style="text-align:right; margin-top:8px;"><button class="small-btn" id="vaciarMesBtn">Dejar ${esc(nombreMes(mes))} en cero</button></div>`
+    : '';
+  html += plegable('mes', esMesDeHoy ? 'Este mes' : conMayuscula(nombreMes(mes)), resumenMes, totalHtml + movsHtml + vaciarHtml, false, flechasMes);
 
   /* Lo que quedo sin pagar de otro mes, aparte y con nombre propio. Sacarlo de
      "Este mes" no basta: un pago pendiente que no se ve no se puede corregir,
@@ -6585,6 +6594,8 @@ function renderPlata(){
     ev.stopPropagation();
     openPagarPendiente(DATA.events.find(x=>x.id===b.dataset.pagado));
   });
+  const _b_vaciarMes = document.getElementById('vaciarMesBtn');
+  if(_b_vaciarMes) _b_vaciarMes.onclick = (ev)=>{ ev.stopPropagation(); openVaciarMes(mes); };
   const _b_plataMesAntes = document.getElementById('plataMesAntes');
   if(_b_plataMesAntes) _b_plataMesAntes.onclick = (ev)=>{ ev.stopPropagation(); plataMes = mesAnterior(plataMes); abrirPlegable('mes'); renderPlata(); };
   const _b_plataMesDespues = document.getElementById('plataMesDespues');
@@ -6606,6 +6617,60 @@ function renderPlata(){
   box.querySelectorAll('.deuda-card').forEach(c=>c.onclick=()=>openDeudaModal(DATA.deudas.find(x=>x.id===c.dataset.id)));
   box.querySelectorAll('[data-action="payInstallment"]').forEach(b=>b.onclick=()=>openPayModal(b.dataset.id));
 
+}
+
+/* ---- Dejar un mes pasado en cero ------------------------------------------
+   Septiembre fue el mes de probar la app, y arrancar octubre con esos numeros
+   adentro era arrancar con ruido. Esto lo borra de verdad, pero sin tocar los
+   saldos: el saldo no se calcula sumando la lista, es un numero que ella
+   declara, asi que esa plata ya esta adentro y borrar la lista no la cambia.
+   Por eso no se devuelve nada -no se llama a deshacerAplicado- y se vuelve a
+   declarar cada lugar, que es como decir "de aqui en adelante este numero es
+   la verdad".
+
+   Lo que sigue sin pagar no se va por defecto: eso no es plata movida, es
+   plata que todavia debe, y borrarla le quitaria de encima una deuda que
+   existe. Se puede, pero marcandolo. */
+function openVaciarMes(mes){
+  const delMes = DATA.events.filter(e=>e.cat==='finanzas' && fechaDelMovimiento(e).startsWith(mes));
+  if(!delMes.length) return;
+  const movidos = delMes.filter(plataYaSeMovio);
+  const pend = delMes.filter(e=>e.type==='pago' && e.status!=='hecho');
+  /* se va todo lo que esta en la lista del mes menos lo que sigue sin pagar.
+     "movidos" sirve para la cuenta de entro/salio, no para contar filas: un
+     paso de plata es una fila de la lista y no entra ni sale, y contando con
+     el otro se quedaba sin borrar. */
+  const aBorrar = delMes.filter(e=>!(e.type==='pago' && e.status!=='hecho'));
+  const entro = movidos.filter(e=>signoDelTipo(e.type)>0).reduce((a,e)=>a+Number(e.amount||0),0);
+  const salio = movidos.filter(e=>signoDelTipo(e.type)<0).reduce((a,e)=>a+Number(e.amount||0),0);
+  const totalPend = pend.reduce((a,e)=>a+Number(e.amount||0),0);
+  const nombre = nombreMes(mes);
+  openSheet(`<h3>¿Dejar ${esc(nombre)} en cero?</h3>
+    <div class="helptext" style="margin:-4px 0 14px;">${aBorrar.length ? `Se borran <b>${aBorrar.length}</b> ${aBorrar.length===1?'movimiento':'movimientos'} de ${esc(nombre)}: ${money(entro)} que entró y ${money(salio)} que salió. La resta del mes queda en cero, como si no hubieras movido plata.` : `En ${esc(nombre)} no hay movimientos que borrar: lo único que hay está sin pagar.`}</div>
+    <div class="helptext" style="margin:0 0 14px;"><b>Tus saldos de hoy no se mueven.</b> Lo que tienes puesto en cada lugar sigue igual: esa plata ya está adentro, y borrar la lista no la cambia.</div>
+    ${pend.length ? `<label class="field-check"><input type="checkbox" id="v_pend">
+      <span>Borrar también ${pend.length===1?'el pago que quedó':'los ' + pend.length + ' pagos que quedaron'} sin pagar<br><span class="helptext" style="margin:2px 0 0;">Son ${money(totalPend)}. Si no lo marcas siguen en "Sin pagar, de otros meses" y siguen restando en el estimado, porque esa plata todavía la debes.</span></span></label>` : ''}
+    <div class="helptext" style="margin:14px 0 0;">Esto no se deshace desde aquí. Antes de borrar se baja una copia a este aparato, y en Yo → <b>Traer una del servidor</b> está la de hoy.</div>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" id="v_no">Mejor no</button>
+      <button class="btn btn-danger" id="v_si">Borrar ${esc(nombre)}</button>
+    </div>`);
+  document.getElementById('v_no').onclick = closeSheet;
+  document.getElementById('v_si').onclick = ()=>{
+    const chk = document.getElementById('v_pend');
+    const tambienPend = !!(chk && chk.checked);
+    const copia = bajarCopia('antes-de-borrar-' + mes);
+    const fuera = new Set((tambienPend ? delMes : aBorrar).map(e=>e.id));
+    if(!fuera.size){ closeSheet(); return; }
+    DATA.events = DATA.events.filter(e=>!fuera.has(e.id));
+    /* lo que tiene puesto en cada lugar pasa a ser la verdad a partir de ahora:
+       sin esto, un movimiento viejo podria devolver plata que ya no esta */
+    const ahora = Date.now();
+    bolsillos().forEach(b=>{ if(b.saldo!==null && b.saldo!=='') b.declaradoEn = ahora; });
+    DATA.plata.saldo = saldoTotal(); DATA.plata.saldoFecha = saldoFecha();
+    saveData(); closeSheet(); renderPlata();
+    avisar(conMayuscula(nombre) + ' quedó en cero · copia: ' + copia);
+  };
 }
 
 /* un solo lugar: el camino corto, que es el de todos los dias */
