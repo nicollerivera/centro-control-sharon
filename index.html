@@ -913,6 +913,9 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
 const STORAGE_KEY = 'centro-control-sharon';
 const DIRTY_KEY   = 'centro-control-sharon:pendiente';
 const PASS_KEY    = 'centro-control-sharon:pin';
+/* La hora de la ultima version de la nube que este aparato ya vio. Sirve para
+   saber si lo que hay alla es mas nuevo que lo de aqui o se quedo atras. */
+const VISTO_KEY   = 'centro-control-sharon:visto';
 const API_URL     = '/api/data';
 let DATA = {
   events: [],
@@ -1046,14 +1049,27 @@ async function pullRemote(){
   try{
     const out = await apiRequest('GET');
     if(out && out.data){
-      /* si lo de la nube tiene bastante menos que lo de aquí, no se pisa solo:
-         asi fue como el portatil estuvo a punto de perder el sabado */
-      if(pesoDe(DATA) > pesoDe(out.data)){
+      /* La nube con menos cosas que este aparato no es siempre un peligro: casi
+         siempre es ella, que borro algo en el otro aparato. Preguntarselo cada
+         vez que abria la app -y bastaba un dato de diferencia- convertia un
+         borrado normal en un susto diario.
+
+         Lo que de verdad distingue un borrado de un pisoton es la hora: si lo
+         de la nube se escribio despues de la ultima version que vimos, es mas
+         nuevo que lo nuestro y se acepta sin preguntar. Solo si la nube trae
+         menos y ademas se quedo atras -o no se sabe cuando se escribio- se
+         pregunta, que es el caso del sabado. Y si algo sale mal, el servidor
+         guarda la version de antes de cada guardado: Yo -> Traer una del
+         servidor -> "prev". */
+      const visto = lsGet(VISTO_KEY);
+      const masNueva = out.updatedAt && (!visto || out.updatedAt > visto);
+      if(pesoDe(DATA) > pesoDe(out.data) && !masNueva){
         setSync('sync');
         await preguntarCualCopia(out.data);
         return true;
       }
       mergeInto(out.data); cacheLocal();
+      if(out.updatedAt) lsSet(VISTO_KEY, out.updatedAt);
     }
     else if(hasLocalData()){ setDirty(true); }  // primera vez en la nube: sube lo que ya había acá
     setSync(dirty ? 'sync' : 'ok');
@@ -1072,7 +1088,8 @@ async function pushRemote(){
   pushing = true; setSync('sync');
   const before = JSON.stringify(DATA);
   try{
-    await apiRequest('POST', { data: DATA });
+    const out = await apiRequest('POST', { data: DATA });
+    if(out && out.updatedAt) lsSet(VISTO_KEY, out.updatedAt);
     if(JSON.stringify(DATA)===before){ setDirty(false); setSync('ok'); }
     else { pendingPush = true; }
     return true;
