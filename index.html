@@ -1061,10 +1061,18 @@ async function pullRemote(){
          pregunta, que es el caso del sabado. Y si algo sale mal, el servidor
          guarda la version de antes de cada guardado: Yo -> Traer una del
          servidor -> "prev". */
+      /* Sin un "visto" guardado no hay con que comparar, y no saber no es lo
+         mismo que saber que es mas nuevo: ahi se pregunta, como antes. Pasa una
+         sola vez por aparato -la primera vez que abre despues de esto, o si
+         borro los datos del navegador- y desde la primera sincronizacion ya hay
+         con que comparar. Darlo por nuevo habria hecho que un aparato con mas
+         cosas que la nube se tragara la nube en silencio, que es justo lo que
+         paso el sabado. */
       const visto = lsGet(VISTO_KEY);
-      const masNueva = out.updatedAt && (!visto || out.updatedAt > visto);
+      const masNueva = !!(out.updatedAt && visto && out.updatedAt > visto);
       if(pesoDe(DATA) > pesoDe(out.data) && !masNueva){
         setSync('sync');
+        if(out.updatedAt) lsSet(VISTO_KEY, out.updatedAt);
         await preguntarCualCopia(out.data);
         return true;
       }
