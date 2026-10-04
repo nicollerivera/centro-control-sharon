@@ -5998,8 +5998,8 @@ function saldoDeuda(d){
   return Number(d.monto) + movs;
 }
 
-function gastosDelMes(){
-  const mes = todayStr().slice(0,7);
+function gastosDelMes(mes){
+  mes = mes || todayStr().slice(0,7);
   const out = {};
   DATA.events.filter(e=>plataYaSeMovio(e) && signoDelTipo(e.type)<0 && fechaDelMovimiento(e).startsWith(mes)).forEach(e=>{
     const c = e.categoria || 'Otros';
@@ -6427,7 +6427,11 @@ function renderPlata(){
       + pendientesOtroMes.map(filaMov).join(''), atrasados.length>0 || sinFecha.length>0);
   }
 
-  const recibir = porRecibir();
+  /* "Por recibir" y "Cada mes" son lo que viene, y lo que viene es de hoy: con
+     la flecha en septiembre salian con fechas de octubre debajo de un titulo
+     que decia septiembre. Mirando un mes pasado no aparecen, y vuelven solas
+     al volver a este mes. */
+  const recibir = esMesDeHoy ? porRecibir() : [];
   if(recibir.length){
     const totalRecibir = recibir.reduce((a,x)=>a+x.monto,0);
     const recHtml = recibir.map(x=>`
@@ -6441,7 +6445,10 @@ function renderPlata(){
       recHtml);
   }
 
-  const gastado = gastosDelMes();
+  /* el presupuesto es del mes que se esta mirando: contaba siempre el gasto de
+     hoy, asi que con la flecha en septiembre la cabeza decia septiembre y las
+     barras eran las de octubre */
+  const gastado = gastosDelMes(mes);
   const conTope = CATEGORIAS_GASTO.filter(c=>Number(P.topes[c])>0);
   if(conTope.length){
     const cerca = conTope.filter(c=>(gastado[c]||0) >= Number(P.topes[c])*0.8).length;
@@ -6462,7 +6469,7 @@ function renderPlata(){
       `<div style="text-align:right; margin-bottom:8px;"><button class="small-btn" id="topesBtn">Cambiar topes</button></div>` + topesHtml, cerca>0);
   }
 
-  if(DATA.suscripciones.length){
+  if(esMesDeHoy && DATA.suscripciones.length){
     const porVencer = DATA.suscripciones.filter(x=>{
       if(!x.dia || pagadoEsteMes(x)) return false;
       if(yaSeCobro(x)) return true;                       // ya salio y falta marcarlo
@@ -6532,6 +6539,9 @@ function renderPlata(){
       <span class="cu">${DATA.plata.tasaFecha ? esc(haceCuanto(DATA.plata.tasaFecha)) : ''}</span>
       <span class="mo">${tasaUSD() ? money(tasaUSD()) : 'poner'}</span>
     </div>`);
+  /* y se dice en una linea por que la pantalla se ve mas corta: no es que se
+     haya perdido nada, es que eso es de hoy y ella esta leyendo otro mes. */
+  if(!esMesDeHoy) html += `<div class="helptext" style="margin:10px 2px 0;">Estás leyendo ${esc(nombreMes(mes))}. Lo que tienes hoy y los cobros que vienen no salen aquí porque son de este mes: toca la flecha › para volver.</div>`;
   html += `</div>`;
 
   box.innerHTML = html;
