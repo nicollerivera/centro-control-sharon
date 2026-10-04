@@ -7940,6 +7940,18 @@ if (navigator.storage && navigator.storage.persist) {
    El sello del index estaba escrito a mano y nadie lo volvio a tocar desde
    septiembre, asi que la app se comparaba consigo misma, siempre daba igual, y
    en el telefono se quedaba la version vieja sin que nada lo dijera. */
+/* Y la otra mitad del problema, que es la que dejo la PC atras: "cual version
+   esta abierta aqui" se apuntaba al vuelo, con lo primero que contestara el
+   servidor. Si la pagina que el navegador sirvio era vieja pero el servidor ya
+   tenia la nueva, la app apuntaba la nueva como si fuera la suya, se comparaba
+   consigo misma y daba igual para siempre. Solo se enteraba de una version
+   publicada mientras la app seguia abierta; si el aparato estaba cerrado
+   cuando se publico, no se enteraba nunca.
+
+   Ahora la version abierta se guarda en el aparato y solo se vuelve a apuntar
+   cuando ella toca Actualizar, que es el unico momento en que sabemos que la
+   pagina que quedo es la de verdad. */
+const BUILD_KEY = 'bitacora:build';
 let VERSION_ABIERTA = null;
 let avisandoVersion = false;
 async function mirarVersionNueva(){
@@ -7949,7 +7961,12 @@ async function mirarVersionNueva(){
     if(!r.ok) return;
     const { build } = await r.json();
     if(!build) return;
-    if(VERSION_ABIERTA === null){ VERSION_ABIERTA = build; return; }
+    if(VERSION_ABIERTA === null){
+      const guardada = lsGet(BUILD_KEY);
+      /* la primera vez no hay con que comparar: se apunta y se sigue */
+      if(!guardada){ lsSet(BUILD_KEY, build); VERSION_ABIERTA = build; return; }
+      VERSION_ABIERTA = guardada;
+    }
     if(build === VERSION_ABIERTA) return;
     avisandoVersion = true;
     const caja = document.createElement('div');
@@ -7958,9 +7975,19 @@ async function mirarVersionNueva(){
     /* se bota lo guardado antes de recargar: si no, el telefono podia volver a
        servir la misma pagina vieja y el aviso salia otra vez */
     caja.querySelector('button').onclick = async ()=>{
+      /* esta es la que va a quedar abierta despues de recargar */
+      lsSet(BUILD_KEY, build);
       try{
         const nombres = await caches.keys();
         await Promise.all(nombres.map(n=>caches.delete(n)));
+      }catch(e){}
+      /* y el service worker tambien se va: uno trabado puede seguir sirviendo
+         la pagina vieja por mucho que se borren los caches */
+      try{
+        if('serviceWorker' in navigator){
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map(r=>r.unregister()));
+        }
       }catch(e){}
       location.reload();
     };
