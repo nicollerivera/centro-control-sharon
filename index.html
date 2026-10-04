@@ -6328,10 +6328,21 @@ function renderPlata(){
   /* el mes de un movimiento es el mes en que la plata se movio, no el que
      tenga escrito: asi la lista y la resta de abajo cuentan lo mismo */
   const pendienteDePago = e=>e.cat==='finanzas' && e.type==='pago' && e.status!=='hecho';
-  /* lo que esta sin pagar esta sin pagar hoy, no en septiembre: solo se cuela
-     en la lista cuando ella esta mirando el mes de hoy */
+  /* "Este mes" tiene que ser este mes. Todo lo que seguia sin pagar se colaba
+     en la caja del mes de hoy sin importar cuando vencia, asi que el 1 de
+     octubre la caja abria llena de fechas de septiembre: el mes nuevo nunca
+     arrancaba en cero. Ahora aqui solo esta lo que vence o se movio en este
+     mes, y lo que quedo colgando de otro mes se fue a su propia caja justo
+     debajo. No se pierde: sigue restando en el estimado de arriba, que cuenta
+     todos los pagos sin pagar y los nombra uno por uno. */
   const evMes = DATA.events.filter(e=>e.cat==='finanzas'
-    && (fechaDelMovimiento(e).startsWith(mes) || (esMesDeHoy && pendienteDePago(e))));
+    && fechaDelMovimiento(e).startsWith(mes));
+  /* lo de otros meses solo cuando esta mirando el mes de hoy: en septiembre lo
+     de septiembre es lo del mes, no un arrastre */
+  const pendientesOtroMes = esMesDeHoy
+    ? DATA.events.filter(e=>pendienteDePago(e) && !fechaDelMovimiento(e).startsWith(mes))
+        .sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999'))
+    : [];
   const movidos = evMes.filter(plataYaSeMovio);
   const ingresos = movidos.filter(e=>signoDelTipo(e.type)>0).reduce((a,e)=>a+Number(e.amount||0),0);
   const gastos = movidos.filter(e=>signoDelTipo(e.type)<0).reduce((a,e)=>a+Number(e.amount||0),0);
@@ -6343,17 +6354,20 @@ function renderPlata(){
     fechaDelMovimiento(b).localeCompare(fechaDelMovimiento(a))
     || (cuandoSeAnoto(b) - cuandoSeAnoto(a))
     || (orden.get(b.id) - orden.get(a.id)));
-  const movsHtml = movs.length ? movs.map(m=>{
+  /* una fila de la lista. La misma para lo del mes y para lo que quedo
+     colgando de otro mes: una cuota sin pagar se lee igual en las dos. */
+  const filaMov = m=>{
     const entra = m.type==='ingreso' || m.type==='prestamo_recibido';
     const paso = m.type==='traslado';
     const pendiente = m.type==='pago' && m.status!=='hecho';
     return `<div class="fila-p mov-card" data-id="${m.id}" data-sel-tipo="movimiento" data-sel-id="${m.id}">
       <span class="nom">${esc(m.title)}</span>
-      ${pendiente ? `<span class="cu ${m.date < todayStr() ? 'ojo' : ''}">sin pagar · vence ${esc(cuandoCorto(m.date))}</span><button class="small-btn" data-pagado="${m.id}">Pagué</button>`
+      ${pendiente ? `<span class="cu ${m.date && m.date < todayStr() ? 'ojo' : ''}">sin pagar · ${m.date ? 'vence ' + esc(cuandoCorto(m.date)) : 'sin fecha'}</span><button class="small-btn" data-pagado="${m.id}">Pagué</button>`
                   : `<span class="cu">${esc(cuandoCorto(fechaDelMovimiento(m)))}${paso?' · solo cambió de lugar':m.bolsillo && m.bolsillo!==SIN_BOLSILLO?' · '+esc(m.bolsillo):''}</span>`}
       <span class="mo" style="color:${pendiente?'var(--ambar)':paso?'var(--text-dim)':entra?'var(--done)':'var(--urgent)'}">${paso?'':entra?'+':'−'}${m.montoOriginal?'US$'+m.montoOriginal:money(m.amount)}</span>
     </div>`;
-  }).join('') : `<div class="helptext" style="margin:0;">${esMesDeHoy ? 'Nada todavía este mes.' : 'No anotaste nada en ' + esc(nombreMes(mes)) + '.'}</div>`;
+  };
+  const movsHtml = movs.length ? movs.map(filaMov).join('') : `<div class="helptext" style="margin:0;">${esMesDeHoy ? 'Nada todavía este mes.' : 'No anotaste nada en ' + esc(nombreMes(mes)) + '.'}</div>`;
 
   /* la resta del mes: lo que entro menos lo que salio. Los pasos de plata no
      cuentan, porque la misma plata solo cambio de lugar. Esto no toca el saldo:
@@ -6391,6 +6405,27 @@ function renderPlata(){
     despues: `<button class="flecha" id="plataMesDespues" aria-label="Ver el mes siguiente" ${esMesDeHoy?'disabled':''}>›</button>`
   };
   html += plegable('mes', esMesDeHoy ? 'Este mes' : conMayuscula(nombreMes(mes)), resumenMes, totalHtml + movsHtml, false, flechasMes);
+
+  /* Lo que quedo sin pagar de otro mes, aparte y con nombre propio. Sacarlo de
+     "Este mes" no basta: un pago pendiente que no se ve no se puede corregir,
+     asi que la cabeza dice cuantos son y se pone en alerta si alguno esta
+     atrasado, aunque la caja este cerrada. */
+  if(pendientesOtroMes.length){
+    /* uno sin fecha no esta atrasado ni por venir: no se sabe, y eso es
+       justamente lo que hay que arreglar, asi que se dice aparte. */
+    const atrasados = pendientesOtroMes.filter(e=>e.date && e.date < todayStr());
+    const sinFecha  = pendientesOtroMes.filter(e=>!e.date);
+    const porVenir  = pendientesOtroMes.length - atrasados.length - sinFecha.length;
+    const resumenPend = [
+      atrasados.length && (atrasados.length===1 ? '1 atrasado' : atrasados.length + ' atrasados'),
+      porVenir && (porVenir===1 ? '1 por venir' : porVenir + ' por venir'),
+      sinFecha.length && (sinFecha.length===1 ? '1 sin fecha' : sinFecha.length + ' sin fecha')
+    ].filter(Boolean).join(' · ');
+    const totalPend = pendientesOtroMes.reduce((a,e)=>a+Number(e.amount||0),0);
+    html += plegable('pendientes-otros', 'Sin pagar, de otros meses', resumenPend,
+      `<div class="helptext" style="margin:0 0 6px;">No entran en la resta de este mes porque esa plata todavía no se movió, pero sí están restados en el estimado de arriba: ${money(totalPend)} en total.</div>`
+      + pendientesOtroMes.map(filaMov).join(''), atrasados.length>0 || sinFecha.length>0);
+  }
 
   const recibir = porRecibir();
   if(recibir.length){
