@@ -5546,6 +5546,7 @@ function renderRespaldo(){
       <button class="btn btn-primary" id="respaldoBajar">Guardar una copia</button>
       <button class="small-btn" id="respaldoSubir">Restaurar de una copia</button>
       <button class="small-btn" id="respaldoServidor">Traer una del servidor</button>
+      <button class="small-btn" id="respaldoParcial">Traer solo deudas y cobros</button>
     </div>
     <input type="file" id="respaldoArchivo" accept="application/json,.json" hidden>
     <div class="helptext" style="margin:10px 0 0;">El servidor guarda la versión de antes de cada guardado y la primera de cada día.</div>
@@ -5565,19 +5566,71 @@ function renderRespaldo(){
     }catch(e){ alert('No se pudo traer: ' + e.message); }
   };
   const archivo = document.getElementById('respaldoArchivo');
-  document.getElementById('respaldoSubir').onclick = ()=>archivo.click();
+  document.getElementById('respaldoSubir').onclick = ()=>{ RESPALDO_MODO = 'todo'; archivo.click(); };
+  document.getElementById('respaldoParcial').onclick = ()=>{ RESPALDO_MODO = 'parcial'; archivo.click(); };
   archivo.onchange = async ()=>{
     const f = archivo.files && archivo.files[0];
+    const modo = RESPALDO_MODO;
     archivo.value = '';
     if(!f) return;
     let leido = null;
     try{ leido = JSON.parse(await f.text()); }catch(e){ alert('Ese archivo no se pudo leer.'); return; }
     if(!leido || typeof leido!=='object'){ alert('Ese archivo no es una copia de Bitácora.'); return; }
+    if(modo === 'parcial') return traerSoloDeudasYCobros(leido);
     if(!confirm('La copia tiene ' + pesoDe(leido) + ' cosas y aquí hay ' + pesoDe(DATA)
       + '.\n\nSe reemplaza todo por lo de la copia, en este aparato y en la nube. ¿Sigo?')) return;
     mergeInto(leido); cacheLocal(); setDirty(true); await pushRemote();
     renderAll(); renderRespaldo();
     avisar('Restaurado.');
+  };
+}
+
+/* ---- Traer de una copia solo las deudas y los cobros -----------------------
+   Despues de empezar la plata de cero, lo que de verdad hacia falta de vuelta
+   no eran los movimientos -esos eran el revuelto- sino las deudas, las cuotas
+   y los cobros de cada mes, que no se los sabe de memoria y nadie los puede
+   adivinar por ella. Restaurar la copia entera los traia, pero traia tambien
+   todo lo demas y le borraba los saldos que acababa de poner.
+
+   Esto trae las tres listas y nada mas. Lo que ya este puesto con el mismo
+   nombre no se duplica, que es como empezo el problema del estimado. */
+var RESPALDO_MODO = 'todo';
+function traerSoloDeudasYCobros(copia){
+  const n = x => sinTildes(String(x||'')).trim();
+  const ya = (lista, campo) => new Set((lista||[]).map(x=>n(x[campo])));
+  const yaDeuda = ya(DATA.deudas,'nombre'), yaCuota = ya(DATA.installments,'name'), yaCobro = ya(DATA.suscripciones,'nombre');
+  const deudas = (copia.deudas||[]).filter(d=>d && d.nombre && !yaDeuda.has(n(d.nombre)));
+  const cuotas = (copia.installments||[]).filter(i=>i && i.name && !yaCuota.has(n(i.name)));
+  const cobros = (copia.suscripciones||[]).filter(x=>x && x.nombre && !yaCobro.has(n(x.nombre)));
+  const repetidos = (copia.deudas||[]).length - deudas.length
+    + (copia.installments||[]).length - cuotas.length
+    + (copia.suscripciones||[]).length - cobros.length;
+  if(!deudas.length && !cuotas.length && !cobros.length){
+    alert(repetidos ? 'Esa copia no trae nada que no tengas ya puesto.' : 'Esa copia no tiene deudas ni cuotas ni cobros.');
+    return;
+  }
+  const lista = (titulo, items, nombre) => items.length
+    ? `<div style="margin-bottom:10px;"><b>${esc(titulo)}</b><br>${items.map(x=>'· ' + esc(nombre(x))).join('<br>')}</div>` : '';
+  openSheet(`<h3>Traer de la copia</h3>
+    <div class="helptext" style="margin:-4px 0 14px;">Se agregan tal como estaban. No se toca nada más: ni tus movimientos, ni los saldos que acabas de poner.</div>
+    <div class="helptext" style="margin:0 0 14px;">
+      ${lista('Debo y me deben', deudas, d=>d.nombre + ' · ' + money(saldoDeuda(d)))}
+      ${lista('Compras a cuotas', cuotas, i=>i.name + ' · ' + money(i.total))}
+      ${lista('Cada mes', cobros, x=>x.nombre + ' · ' + (x.moneda==='USD' ? 'US$'+x.monto : money(x.monto)))}
+    </div>
+    ${repetidos ? `<div class="helptext" style="margin:0 0 14px;">${repetidos === 1 ? 'Hay 1 que ya tienes puesto y no se trae' : 'Hay ' + repetidos + ' que ya tienes puestos y no se traen'}, para no contarlo dos veces.</div>` : ''}
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" id="tr_no">Mejor no</button>
+      <button class="btn btn-primary" id="tr_si">Traerlos</button>
+    </div>`);
+  document.getElementById('tr_no').onclick = closeSheet;
+  document.getElementById('tr_si').onclick = ()=>{
+    /* id nuevo: el de la copia podria chocar con algo que ella anoto despues */
+    DATA.deudas = (DATA.deudas||[]).concat(deudas.map(d=>Object.assign({}, d, { id:uid() })));
+    DATA.installments = (DATA.installments||[]).concat(cuotas.map(i=>Object.assign({}, i, { id:uid() })));
+    DATA.suscripciones = (DATA.suscripciones||[]).concat(cobros.map(x=>Object.assign({}, x, { id:uid() })));
+    saveData(); closeSheet(); renderAll(); renderRespaldo();
+    avisar('Listo: ' + (deudas.length + cuotas.length + cobros.length) + ' de vuelta.');
   };
 }
 
