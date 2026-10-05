@@ -379,6 +379,24 @@ button.chip{font-family:inherit; line-height:1.5; cursor:pointer;}
 .mini-tag{display:inline-block; font-size:11px; background:var(--surface-3); color:var(--text-muted); padding:2px 8px; border-radius:8px; margin-top:6px; margin-right:5px;}
 
 /* ---------- trabajo ---------- */
+.gym-card{padding:14px; background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--c-salud); border-radius:var(--radius); margin-bottom:10px;}
+.gym-card .head{display:flex; align-items:flex-start; justify-content:space-between; gap:10px;}
+.gym-card .name{font-weight:700; font-size:15px;}
+.gym-card .cuando{font-size:12px; color:var(--text-dim); margin-top:2px;}
+.gym-ejs{margin-top:10px; display:flex; flex-direction:column; gap:5px;}
+.gym-ej{display:flex; align-items:baseline; justify-content:space-between; gap:10px; font-size:13px;}
+.gym-ej .cual{color:var(--text);}
+.gym-ej .cuanto{color:var(--text-dim); font-size:12px; white-space:nowrap;}
+.gym-acciones{display:flex; gap:8px; margin-top:12px;}
+.gym-fila{display:flex; align-items:center; gap:8px; margin-bottom:8px;}
+.gym-fila input{min-width:0;}
+.gym-fila .quitar{flex-shrink:0; background:none; border:none; color:var(--text-dim); font-size:17px; padding:4px 6px; cursor:pointer;}
+.gym-marca{display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--border);}
+.gym-marca:last-child{border-bottom:none;}
+.gym-marca .cual{flex:1; min-width:0; font-size:13.5px; font-weight:600;}
+.field .gym-marca input.peso{width:96px; flex-shrink:0;}
+.field .gym-marca input[type=text]{padding:7px 9px; font-size:13px;}
+.gym-marca.sinhacer .cual{color:var(--text-dim); text-decoration:line-through;}
 .client-card{padding:14px; background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--c-work); border-radius:var(--radius); margin-bottom:10px;}
 .client-card .head{display:flex; justify-content:space-between; align-items:flex-start;}
 .client-card .name{font-weight:700; font-size:15px;}
@@ -844,6 +862,7 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
         <button class="subtab" data-sub="marca">Marca personal</button>
         <button class="subtab" data-sub="nexxa">Nexxa</button>
         <button class="subtab" data-sub="trabajo">Trabajo</button>
+        <button class="subtab" data-sub="gym">Gym</button>
       </div>
     </div>
     <div id="sub-listas">
@@ -854,6 +873,7 @@ html[data-tema="oscuro"] .cal-cell.selected .dots span{background:rgba(16,18,24,
     <div id="sub-marca" style="display:none"></div>
     <div id="sub-nexxa" style="display:none"></div>
     <div id="sub-trabajo" style="display:none"></div>
+    <div id="sub-gym" style="display:none"></div>
     <div id="sub-curso" hidden></div>
   </div>
 
@@ -942,6 +962,10 @@ let DATA = {
   marca: { ideas:[], publicaciones:[] },             // marca personal (D73)
   diario: {},                                        // {fecha:{sueno:[],animo,cerrado}}
   suscripciones: [],   // {id,nombre,monto,moneda,dia,nota} — vuelven cada mes
+  /* El gym no va por dias de la semana: sus dias no se repiten. Son rutinas
+     con nombre (Pierna, Espalda) y ella entrena la que le toca el dia que
+     puede ir. */
+  gym: { rutinas: [], sesiones: [] },   // rutinas:{id,nombre,nota,ejercicios:[{id,nombre,series,reps,peso}]} · sesiones:{id,rutinaId,fecha,hechos:[],pesos:{},nota}
   deudas: [],          // {id,nombre,sentido,monto,fecha,fechaHasta,aprox,nota,movs:[]}
   compromisosSembrados: false,
   platoSembrado: false
@@ -990,6 +1014,7 @@ function pesoDe(d){
   let n = 0;
   LISTAS_DE_DATOS.forEach(k=>{ if(Array.isArray(d[k])) n += d[k].length; });
   if(d.diario && typeof d.diario==='object') n += Object.keys(d.diario).length;
+  if(d.gym && typeof d.gym==='object') n += (d.gym.rutinas||[]).length + (d.gym.sesiones||[]).length;
   return n;
 }
 /* Cuando una copia tiene bastante menos que la otra, no se decide sola: la
@@ -1318,7 +1343,7 @@ function syncSourceFromEvent(e){
 ============================================================ */
 const views = ['hoy','calendario','pendientes','plata','yo'];
 /* Cada subpestaña sabe en qué sección vive, porque Gestión desapareció (D137). */
-const SUB_VIEW = { listas:'pendientes', materias:'pendientes', marca:'pendientes', nexxa:'pendientes', trabajo:'pendientes', finanzas:'plata', personal:'yo', rutinas:'calendario' };
+const SUB_VIEW = { listas:'pendientes', materias:'pendientes', marca:'pendientes', nexxa:'pendientes', trabajo:'pendientes', gym:'pendientes', finanzas:'plata', personal:'yo', rutinas:'calendario' };
 function showView(v){
   views.forEach(x=>{ document.getElementById('view-'+x).classList.toggle('active', x===v); });
   document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
@@ -1468,7 +1493,7 @@ function bindItemClicks(){
 
 /* Un evento del calendario que nace de otra sección se edita en su sección:
    llevamos ahí en vez de avisar dónde queda. */
-const LINKED_SUBTAB = { academicTask:'materias', nexxaEvent:'nexxa', personalItem:'personal' };
+const LINKED_SUBTAB = { academicTask:'materias', nexxaEvent:'nexxa', personalItem:'personal', gymSesion:'gym' };
 function goToSubtab(sub){
   showView(SUB_VIEW[sub] || 'pendientes');
   const tab = document.querySelector(`.subtab[data-sub="${sub}"]`);
@@ -1484,6 +1509,10 @@ function openLinkedSource(type, id){
   if(type==='personalItem'){
     const it = DATA.personalItems.find(x=>x.id===id);
     if(it) openPersonalModal(it);
+  }
+  if(type==='gymSesion'){
+    const s = gymData().sesiones.find(x=>x.id===id);
+    if(s) openGymSesionModal(s.rutinaId, s);
   }
 }
 
@@ -3911,6 +3940,236 @@ function openSessionModal(clientId){
   };
 }
 
+
+/* ---- Gym ----
+   Sus dias no se repiten, asi que la rutina no se cuelga de los dias de la
+   semana: son rutinas con nombre y ella anota la que hizo el dia que fue.
+   El peso se escribe libre (kg, lb, "la barra sola") porque es lo que ella
+   lee en la maquina, no un numero que la app tenga que entender. */
+function gymData(){
+  if(!DATA.gym || typeof DATA.gym!=='object') DATA.gym = { rutinas:[], sesiones:[] };
+  if(!Array.isArray(DATA.gym.rutinas))  DATA.gym.rutinas  = [];
+  if(!Array.isArray(DATA.gym.sesiones)) DATA.gym.sesiones = [];
+  return DATA.gym;
+}
+function gymRutina(id){ return gymData().rutinas.find(r=>r.id===id); }
+function gymSesionesDe(id){
+  return gymData().sesiones.filter(s=>s.rutinaId===id).sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
+}
+/* Lo que levanto la ultima vez, para no tener que acordarse. */
+function gymUltimoPeso(rutinaId, ejId){
+  for(const s of gymSesionesDe(rutinaId)){
+    const p = s.pesos && s.pesos[ejId];
+    if(p) return p;
+  }
+  return '';
+}
+function gymHaceCuanto(fecha){
+  if(!fecha) return '';
+  const d = daysBetween(fecha, todayStr());
+  if(d === 0) return 'hoy';
+  if(d === 1) return 'ayer';
+  if(d < 0)   return niceDateShort(fecha);
+  if(d < 7)   return 'hace ' + d + ' días';
+  if(d < 14)  return 'hace una semana';
+  if(d < 60)  return 'hace ' + Math.round(d/7) + ' semanas';
+  return niceDateShort(fecha);
+}
+function gymCuanto(ej){
+  const partes = [];
+  if(ej.series && ej.reps) partes.push(ej.series + '×' + ej.reps);
+  else if(ej.series) partes.push(ej.series + ' series');
+  else if(ej.reps)   partes.push(ej.reps + ' reps');
+  if(ej.peso) partes.push(ej.peso);
+  return partes.join(' · ');
+}
+
+function renderGym(){
+  const box = document.getElementById('sub-gym');
+  const g = gymData();
+  const mes = todayStr().slice(0,7);
+  const esteMes = g.sesiones.filter(s=>(s.fecha||'').slice(0,7)===mes).length;
+
+  const cards = g.rutinas.map(r=>{
+    const ses = gymSesionesDe(r.id);
+    const ultima = ses[0];
+    const color = colorDeCosa(r.nombre);
+    const ejs = r.ejercicios || [];
+    return `<div class="gym-card" data-id="${r.id}" style="border-left-color:${color};">
+      <div class="head">
+        <div>
+          <div class="name">${esc(r.nombre)}</div>
+          <div class="cuando">${ejs.length ? ejs.length + (ejs.length===1?' ejercicio':' ejercicios') : 'sin ejercicios todavía'}${ultima ? ' · última vez ' + esc(gymHaceCuanto(ultima.fecha)) : ' · nunca la has hecho'}</div>
+        </div>
+      </div>
+      ${r.nota ? `<div class="cuando" style="margin-top:6px;">${esc(r.nota)}</div>` : ''}
+      ${ejs.length ? `<div class="gym-ejs">${ejs.map(ej=>{
+        const last = gymUltimoPeso(r.id, ej.id);
+        const cuanto = gymCuanto(ej);
+        return `<div class="gym-ej"><span class="cual">${esc(ej.nombre)}</span><span class="cuanto">${esc(cuanto)}${last && last!==ej.peso ? ' · última ' + esc(last) : ''}</span></div>`;
+      }).join('')}</div>` : ''}
+      <div class="gym-acciones">
+        <button class="small-btn" data-action="gymEntrenar" data-id="${r.id}" style="color:var(--accent); font-weight:700;">Entrené esto</button>
+        <button class="small-btn" data-action="gymEditar" data-id="${r.id}">Cambiar la rutina</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  const hist = [...g.sesiones].sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||'')).slice(0,10);
+
+  box.innerHTML = `<div class="helptext" style="margin-top:0;">Tus rutinas del gym: cada una con sus ejercicios y lo que levantas. No van pegadas a un día de la semana — haces la que te toque el día que vayas y la anotas acá.</div>
+    ${g.rutinas.length ? cards : '<div class="empty-card">Todavía no tienes ninguna rutina. Dale al + y arma la primera.</div>'}
+    ${g.sesiones.length ? `
+      <div class="section-title" style="margin-top:28px;"><span>Cuándo fuiste</span><span class="count">${esteMes} ${esteMes===1?'vez':'veces'} este mes</span></div>
+      ${hist.map(s=>{
+        const r = gymRutina(s.rutinaId);
+        const hechos = (s.hechos||[]).length;
+        return `<div class="subject-row gym-sesion" data-id="${s.id}" style="border-left-color:${colorDeCosa(r?r.nombre:'gym')}; cursor:pointer;">
+          <div class="info">
+            <div class="name">${esc(r ? r.nombre : 'Rutina borrada')}</div>
+            <div class="time">${esc(niceDateShort(s.fecha))} · ${esc(gymHaceCuanto(s.fecha))}${hechos ? ' · ' + hechos + (hechos===1?' ejercicio':' ejercicios') : ''}${s.nota ? ' · ' + esc(s.nota) : ''}</div>
+          </div>
+        </div>`;
+      }).join('')}` : ''}`;
+
+  box.querySelectorAll('[data-action="gymEntrenar"]').forEach(b=>{ b.onclick = ()=>openGymSesionModal(b.dataset.id); });
+  box.querySelectorAll('[data-action="gymEditar"]').forEach(b=>{ b.onclick = ()=>openGymRutinaModal(gymRutina(b.dataset.id)); });
+  box.querySelectorAll('.gym-sesion').forEach(row=>{
+    row.onclick = ()=>{
+      const s = gymData().sesiones.find(x=>x.id===row.dataset.id);
+      if(s) openGymSesionModal(s.rutinaId, s);
+    };
+  });
+}
+
+function filaEjercicioHTML(ej){
+  return `<div class="gym-fila" data-ej="${ej.id}">
+    <input type="text" class="gym-nom" value="${esc(ej.nombre||'')}" placeholder="Ejercicio" style="flex:2;">
+    <input type="text" class="gym-ser" value="${esc(ej.series||'')}" placeholder="Series" inputmode="numeric" style="flex:1;">
+    <input type="text" class="gym-rep" value="${esc(ej.reps||'')}" placeholder="Reps" inputmode="numeric" style="flex:1;">
+    <input type="text" class="gym-pes" value="${esc(ej.peso||'')}" placeholder="Peso" style="flex:1.2;">
+    <button type="button" class="quitar" title="Quitar">✕</button>
+  </div>`;
+}
+
+function openGymRutinaModal(existente){
+  const r = existente || { id:null, nombre:'', nota:'', ejercicios:[] };
+  const ejs = (r.ejercicios && r.ejercicios.length) ? r.ejercicios : [{id:uid()},{id:uid()},{id:uid()}];
+  openSheet(`<h3>${existente ? 'Cambiar rutina' : 'Rutina del gym'}</h3>
+    <div class="field"><label>¿Cómo le dices?</label><input type="text" id="f_gnombre" value="${esc(r.nombre)}" placeholder="Ej: Pierna, Espalda y bíceps, Full body"></div>
+    <div class="field"><label>Ejercicios</label>
+      <div id="gymFilas">${ejs.map(filaEjercicioHTML).join('')}</div>
+      <button class="btn btn-ghost" id="gymMas" style="padding:4px 0;">+ Otro ejercicio</button>
+      <div class="helptext">El peso se escribe como quieras: "20 kg", "la barra sola", "nivel 6". Al entrenar se guarda lo de ese día, así ves si estás subiendo.</div>
+    </div>
+    <div class="field"><label>Nota (opcional)</label><input type="text" id="f_gnota" value="${esc(r.nota||'')}" placeholder="Ej: calentar 10 min antes"></div>
+    <div class="sheet-actions">
+      ${existente ? `<button class="btn btn-ghost" id="gymBorrar">Borrar</button>` : ''}
+      <button class="btn btn-primary" id="gymGuardar">Guardar</button>
+    </div>`);
+
+  const filas = document.getElementById('gymFilas');
+  function engancharQuitar(){
+    filas.querySelectorAll('.quitar').forEach(b=>{
+      b.onclick = ()=>{ if(filas.children.length > 1) b.closest('.gym-fila').remove(); else b.closest('.gym-fila').querySelectorAll('input').forEach(i=>i.value=''); };
+    });
+  }
+  engancharQuitar();
+  document.getElementById('gymMas').onclick = ()=>{
+    filas.insertAdjacentHTML('beforeend', filaEjercicioHTML({id:uid()}));
+    engancharQuitar();
+    filas.lastElementChild.querySelector('.gym-nom').focus();
+  };
+
+  const borrar = document.getElementById('gymBorrar');
+  if(borrar) borrar.onclick = ()=>{
+    const cuantas = gymSesionesDe(existente.id).length;
+    if(!confirm(`¿Borrar "${existente.nombre}"?` + (cuantas ? ` También se van los ${cuantas} días que la anotaste.` : ''))) return;
+    const g = gymData();
+    gymSesionesDe(existente.id).forEach(s=>removeLinkedEvent('gymSesion', s.id));
+    g.sesiones = g.sesiones.filter(s=>s.rutinaId!==existente.id);
+    g.rutinas  = g.rutinas.filter(x=>x.id!==existente.id);
+    saveData(); closeSheet(); renderGym();
+  };
+
+  document.getElementById('gymGuardar').onclick = ()=>{
+    const nombre = document.getElementById('f_gnombre').value.trim();
+    if(!nombre){ alert('Ponle un nombre a la rutina'); return; }
+    const ejercicios = [...filas.querySelectorAll('.gym-fila')].map(f=>({
+      id: f.dataset.ej,
+      nombre: f.querySelector('.gym-nom').value.trim(),
+      series: f.querySelector('.gym-ser').value.trim(),
+      reps:   f.querySelector('.gym-rep').value.trim(),
+      peso:   f.querySelector('.gym-pes').value.trim()
+    })).filter(e=>e.nombre);
+    const datos = { nombre, nota: document.getElementById('f_gnota').value.trim(), ejercicios };
+    if(existente) Object.assign(existente, datos);
+    else gymData().rutinas.push(Object.assign({ id:uid(), creado:todayStr() }, datos));
+    saveData(); closeSheet(); renderGym();
+  };
+}
+
+function openGymSesionModal(rutinaId, existente){
+  const r = gymRutina(rutinaId);
+  if(!r){ avisar('Esa rutina ya no está'); return; }
+  const ejs = r.ejercicios || [];
+  const hechos = existente ? (existente.hechos||[]) : ejs.map(e=>e.id);
+  openSheet(`<h3>${existente ? 'Ese día' : 'Entrené'} — ${esc(r.nombre)}</h3>
+    <div class="field"><label>Día</label><input type="date" id="f_gfecha" value="${esc(existente ? existente.fecha : todayStr())}"></div>
+    ${ejs.length ? `<div class="field"><label>Qué hiciste y con cuánto</label>
+      <div id="gymMarcas">${ejs.map(ej=>{
+        const marcado = hechos.includes(ej.id);
+        const peso = existente ? ((existente.pesos||{})[ej.id] || '') : gymUltimoPeso(r.id, ej.id) || ej.peso || '';
+        return `<div class="gym-marca ${marcado?'':'sinhacer'}" data-ej="${ej.id}">
+          <input type="checkbox" class="gym-chk" ${marcado?'checked':''}>
+          <span class="cual">${esc(ej.nombre)}${gymCuanto({series:ej.series,reps:ej.reps}) ? ' <span style="color:var(--text-dim); font-weight:500;">· '+esc(gymCuanto({series:ej.series,reps:ej.reps}))+'</span>' : ''}</span>
+          <input type="text" class="peso" value="${esc(peso)}" placeholder="Peso">
+        </div>`;
+      }).join('')}</div>
+      <div class="helptext">Lo que escribas acá queda como lo último que levantaste y sale sugerido la próxima vez.</div>
+    </div>` : '<div class="helptext">Esta rutina todavía no tiene ejercicios. Igual puedes anotar que fuiste.</div>'}
+    <div class="field"><label>Nota del día (opcional)</label><input type="text" id="f_gsnota" value="${esc(existente ? (existente.nota||'') : '')}" placeholder="Ej: me dolió la rodilla, día flojo"></div>
+    <div class="sheet-actions">
+      ${existente ? `<button class="btn btn-ghost" id="gymSBorrar">Borrar</button>` : ''}
+      <button class="btn btn-primary" id="gymSGuardar">Guardar</button>
+    </div>`);
+
+  document.querySelectorAll('#gymMarcas .gym-chk').forEach(c=>{
+    c.onchange = ()=>c.closest('.gym-marca').classList.toggle('sinhacer', !c.checked);
+  });
+
+  const borrar = document.getElementById('gymSBorrar');
+  if(borrar) borrar.onclick = ()=>{
+    if(!confirm('¿Borrar ese día del gym?')) return;
+    const g = gymData();
+    g.sesiones = g.sesiones.filter(x=>x.id!==existente.id);
+    removeLinkedEvent('gymSesion', existente.id);
+    saveData(); closeSheet(); renderAll();
+  };
+
+  document.getElementById('gymSGuardar').onclick = ()=>{
+    const fecha = document.getElementById('f_gfecha').value || todayStr();
+    const marcados = [], pesos = {};
+    document.querySelectorAll('#gymMarcas .gym-marca').forEach(m=>{
+      const id = m.dataset.ej;
+      if(m.querySelector('.gym-chk').checked) marcados.push(id);
+      const p = m.querySelector('.peso').value.trim();
+      if(p) pesos[id] = p;
+    });
+    const nota = document.getElementById('f_gsnota').value.trim();
+    const datos = { rutinaId:r.id, fecha, hechos:marcados, pesos, nota };
+    let ses = existente;
+    if(ses) Object.assign(ses, datos);
+    else { ses = Object.assign({ id:uid() }, datos); gymData().sesiones.push(ses); }
+    /* El dia que fue al gym queda tambien en el calendario, ya marcado: fue
+       algo que hizo, no algo que le falta. */
+    removeLinkedEvent('gymSesion', ses.id);
+    addLinkedEvent('personal', 'Gym · ' + r.nombre, fecha, '', '', 'gymSesion', ses.id, { status:'hecho' });
+    saveData(); closeSheet(); renderAll();
+    if(!existente) avisar('Anotado. ' + (marcados.length ? marcados.length + (marcados.length===1?' ejercicio':' ejercicios') : 'Fuiste') + ' el ' + niceDateShort(fecha));
+  };
+}
+
 /* ---- Finanzas ---- */
 function openInstallmentModal(){
   openSheet(`<h3>Compra a cuotas</h3>
@@ -4380,6 +4639,13 @@ function opcionesDeAgregar(){
     ];
     if(sub==='nexxa') return [{ que:'Un evento de Nexxa', nota:'', hacer:()=>openNexxaModal() }];
     if(sub==='trabajo') return [{ que:'Un cliente o empresa', nota:'', hacer:()=>openClientModal() }];
+    if(sub==='gym'){
+      const rs = gymData().rutinas;
+      return [
+        { que:'Una rutina del gym', nota:'pierna, espalda, lo que sea', hacer:()=>openGymRutinaModal() },
+        ...(rs.length ? [{ que:'Un día que entrenaste', nota:'anotarlo sin abrir la rutina', hacer:()=>openGymSesionModal(rs[0].id) }] : [])
+      ];
+    }
     return [
       { que:'Una lista nueva', nota:'como una nota de Keep', hacer:()=>openListaModal(null) },
       { que:'Algo con fecha', nota:'lo sin fecha va en su lista', hacer:()=>openEventModal() },
@@ -7933,7 +8199,7 @@ function renderAll(){
   const active = views.find(v=>document.getElementById('view-'+v).classList.contains('active'));
   if(active==='hoy') renderHoy();
   if(active==='calendario'){ renderCalendar(); renderChoquesSemana(); renderTurnos(); renderRutinas(); }
-  if(active==='pendientes'){ renderTareasView(); renderMaterias(); renderMarca(); renderNexxaGestion(); renderTrabajo(); }
+  if(active==='pendientes'){ renderTareasView(); renderMaterias(); renderMarca(); renderNexxaGestion(); renderTrabajo(); renderGym(); }
   if(active==='plata') renderPlata();
   if(active==='yo'){ renderYo(); renderAvisos(); renderPersonalGestion(); renderRespaldo(); }
   pintarSeleccion();
