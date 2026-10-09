@@ -6216,6 +6216,25 @@ function deshacerAplicado(ev){
   delete ev.aplicado;
   return true;
 }
+/* Un prestamo tambien empuja saldos, y lo mismo que con los movimientos: si no
+   queda anotado lo que empujo, borrarlo -o decir que esa plata nunca entro- no
+   puede devolverlo, y el empujon se queda puesto para siempre. */
+function anotarAplicadoDeuda(d, parte){
+  if(parte && parte.delta) d.aplicado = { cuando: Date.now(), partes:[parte] };
+  else delete d.aplicado;
+}
+function deshacerAplicadoDeuda(d){
+  const ap = d && d.aplicado;
+  if(!ap || !(ap.partes||[]).length){ if(d) delete d.aplicado; return true; }
+  if(!sigueVivo(ap)) return false;
+  ap.partes.forEach(p=>aplicarABolsillo(p.bolsillo, -p.delta));
+  delete d.aplicado;
+  return true;
+}
+function bolsilloDeAplicado(d){
+  const ap = d && d.aplicado;
+  return ap && (ap.partes||[])[0] ? ap.partes[0].bolsillo : '';
+}
 /* Lo que un movimiento le hace a los saldos segun lo que dice hoy. */
 function aplicarMovimiento(ev){
   if(ev.type==='traslado') return anotarAplicado(ev, moverEntreBolsillos(ev.de, ev.a, ev.amount));
@@ -7296,6 +7315,7 @@ function openDeudaModal(existente){
           ? `<button class="small-btn" id="reabrirDeuda">Volver a abrirla</button>`
           : `<button class="small-btn" id="addMov">+ Abono</button>
              <button class="small-btn" id="saldarDeuda" style="color:var(--done); border-color:var(--done);">Ya quedó paga</button>`}
+        ${d.aplicado ? `<button class="small-btn" id="desaplicarDeuda">Esa plata no ${d.sentido==='meDeben'?'salió':'entró'}</button>` : ''}
       </div></div>`:''}
     <div class="field"><label>¿Con quién o qué es?</label><input type="text" id="f_dname" value="${esc(d.nombre)}" placeholder="Ej: Jerson, cuota del celular"></div>
     <div class="field"><label>Sentido</label><select id="f_dsentido">
@@ -7303,31 +7323,71 @@ function openDeudaModal(existente){
       <option value="meDeben" ${d.sentido==='meDeben'?'selected':''}>Me deben a mí</option>
     </select></div>
     <div class="field"><label>Cuánto era al principio</label><input type="number" id="f_dmonto" inputmode="numeric" value="${d.monto}"></div>
-    ${existente ? '' : `<div class="field">
-      <label id="f_dbollbl">${d.sentido==='meDeben' ? '¿De dónde salió?' : '¿A dónde entró?'}</label>
-      ${selectBolsillo('f_dbol', bolsilloPorDefecto())}
-      <div class="helptext">Prestar 10.000 por Nequi le baja 10.000 a Nequi. Si no quieres que toque los saldos, ponlo en "Sin tocar saldos".</div>
-    </div>`}
     <div class="field-row">
       <div class="field"><label>Fecha (o desde)</label><input type="date" id="f_dfecha" value="${d.fecha}"></div>
       <div class="field"><label>Hasta (opcional)</label><input type="date" id="f_dhasta" value="${d.fechaHasta||''}"></div>
     </div>
     <label class="field-check"><input type="checkbox" id="f_daprox" ${d.aprox?'checked':''}>
       <span>La fecha es un estimado<br><span class="helptext" style="margin:2px 0 0;">La corriges cuando la sepas de verdad.</span></span></label>
+    ${existente ? '' : `<div class="field">
+      <label id="f_dbollbl"></label>
+      ${selectBolsillo('f_dbol', SIN_BOLSILLO)}
+      <div class="helptext" id="f_dbolhelp"></div>
+    </div>`}
     <div class="field"><label>Nota (opcional)</label><input type="text" id="f_dnota" value="${esc(d.nota||'')}" placeholder="Ej: creo que es la última cuota"></div>
     <div class="sheet-actions">
       ${existente?`<button class="btn btn-ghost" id="delDeuda">Borrar</button>`:''}
       <button class="btn btn-primary" id="saveDeuda">Guardar</button>
     </div>`);
+  /* Una deuda de hace rato no es plata que entre hoy: lo que le prestaron ya
+     entro y ya se gasto. Anotarla asumiendo que entra le subia el saldo de
+     Nequi por una deuda vieja -los 655.000 de Jerson aparecian como plata que
+     tiene-, asi que el lugar solo se escoge cuando la fecha dice que la plata
+     se movio hoy. Sin fecha, o con fecha de antes, no se toca ningun saldo. */
   const sentidoSel = document.getElementById('f_dsentido');
+  const fechaInput = document.getElementById('f_dfecha');
+  const bolSel = document.getElementById('f_dbol');
   const bolLbl = document.getElementById('f_dbollbl');
-  if(sentidoSel && bolLbl) sentidoSel.onchange = ()=>{
-    bolLbl.textContent = sentidoSel.value==='meDeben' ? '¿De dónde salió?' : '¿A dónde entró?';
-  };
+  const bolHelp = document.getElementById('f_dbolhelp');
+  let bolEscogido = false;
+  function sincronizarBolsillo(){
+    if(!bolSel) return;
+    const debo = sentidoSel.value !== 'meDeben';
+    const hoy = fechaInput.value === todayStr();
+    if(!bolEscogido) bolSel.value = hoy ? bolsilloPorDefecto() : SIN_BOLSILLO;
+    bolLbl.textContent = hoy
+      ? (debo ? '¿A dónde entró?' : '¿De dónde salió?')
+      : (debo ? '¿Esa plata entra hoy?' : '¿Esa plata sale hoy?');
+    bolHelp.textContent = hoy
+      ? (debo ? 'Te prestaron hoy, así que esa plata entra al lugar que escojas. Si ya la anotaste aparte, ponlo en "Sin tocar saldos".'
+              : 'Prestar 10.000 por Nequi le baja 10.000 a Nequi. Si no quieres que toque los saldos, ponlo en "Sin tocar saldos".')
+      : (debo ? 'Esta deuda no es de hoy: esa plata ya entró y ya se gastó, así que queda en "Sin tocar saldos" y no se le suma a ningún lado. Escoge un lugar solo si te la prestaron hoy.'
+              : 'Esto no es de hoy: esa plata ya salió, así que queda en "Sin tocar saldos". Escoge un lugar solo si lo prestaste hoy.');
+  }
+  if(bolSel){
+    bolSel.onchange = ()=>{ bolEscogido = true; };
+    fechaInput.oninput = sincronizarBolsillo;
+    fechaInput.onchange = sincronizarBolsillo;
+    sincronizarBolsillo();
+  }
+  if(sentidoSel) sentidoSel.onchange = sincronizarBolsillo;
   const mov = document.getElementById('addMov');
   if(mov) mov.onclick = ()=>openMovModal(existente);
   const saldar = document.getElementById('saldarDeuda');
   if(saldar) saldar.onclick = ()=>openSaldarModal(existente);
+  /* La salida cuando ya se anoto mal: devolverle al lugar lo que esta deuda le
+     sumo, sin tener que corregir el saldo a mano ni borrar la deuda. */
+  const desap = document.getElementById('desaplicarDeuda');
+  if(desap) desap.onclick = ()=>{
+    const donde = bolsilloDeAplicado(existente);
+    if(deshacerAplicadoDeuda(existente)){
+      saveData(); closeSheet(); renderPlata();
+      avisar(donde + ' volvió a como estaba: esta deuda ya no le suma nada.');
+    } else {
+      alert('Después de anotar esta deuda volviste a declarar cuánto tenías en ' + donde
+        + ', y ese número ya es el bueno: no se le puede restar encima.\n\nSi quedó de más, corrige ' + donde + ' a mano.');
+    }
+  };
   const reabrir = document.getElementById('reabrirDeuda');
   if(reabrir) reabrir.onclick = ()=>{
     existente.saldada = false; existente.saldadaFecha = '';
@@ -7336,7 +7396,13 @@ function openDeudaModal(existente){
     saveData(); closeSheet(); renderPlata();
   };
   const del = document.getElementById('delDeuda');
-  if(del) del.onclick = ()=>{ DATA.deudas = DATA.deudas.filter(x=>x.id!==existente.id); saveData(); closeSheet(); renderPlata(); };
+  if(del) del.onclick = ()=>{
+    /* si al anotarla le sumo plata a un lugar, borrarla se la devuelve */
+    const donde = bolsilloDeAplicado(existente);
+    if(donde && !deshacerAplicadoDeuda(existente)
+       && !confirm('Esto le habia movido plata a ' + donde + ', pero despues volviste a declarar ese saldo a mano, asi que ese numero ya es el bueno y no se le puede restar.\n\n¿La borro igual?')) return;
+    DATA.deudas = DATA.deudas.filter(x=>x.id!==existente.id); saveData(); closeSheet(); renderPlata();
+  };
   document.getElementById('saveDeuda').onclick = ()=>{
     const datos = {
       nombre: document.getElementById('f_dname').value.trim(),
@@ -7350,10 +7416,11 @@ function openDeudaModal(existente){
     if(!datos.nombre){ alert('Ponle nombre.'); return; }
     if(existente) Object.assign(existente, datos);
     else {
-      DATA.deudas.push(Object.assign({id:uid(), movs:[]}, datos));
+      const nueva = Object.assign({id:uid(), movs:[]}, datos);
+      DATA.deudas.push(nueva);
       /* solo al anotarlo: si despues lo edita, la plata ya se movio */
       const bol = document.getElementById('f_dbol');
-      if(bol) aplicarABolsillo(bol.value, signoDePrestamo(datos.sentido) * datos.monto);
+      if(bol) anotarAplicadoDeuda(nueva, aplicarABolsillo(bol.value, signoDePrestamo(datos.sentido) * datos.monto));
     }
     saveData(); closeSheet(); renderPlata();
   };
