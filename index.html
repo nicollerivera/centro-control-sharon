@@ -3750,7 +3750,9 @@ function renderNexxaGestion(){
     <div class="card nexxa-plata">
       <div class="lbl">La plata de Nexxa</div>
       <div class="saldo-num mono">${c.hayColchon ? money(c.enColchon) : '\u2014'}</div>
-      <div class="helptext" style="margin:2px 0 0;">${c.hayColchon
+      <div class="helptext" style="margin:2px 0 0;">${c.enColchon < 0
+        ? 'Dice menos de cero: hay gastos de Nexxa anotados sin el abono de donde salieron. Anota el abono como ingreso y márcalo "es de Nexxa".'
+        : c.hayColchon
         ? 'En ' + esc(c.colchones.map(b=>b.nombre).join(' y ')) + '. No entra en tu plata.'
         : 'Marca en Plata el lugar donde la guardas como colch\u00f3n de Nexxa y aqu\u00ed sale el n\u00famero exacto.'}</div>
       <div class="nexxa-filas">
@@ -4386,7 +4388,9 @@ function resumenDe(desde, hasta){
   const clientesNuevos = deMarca.filter(c=>c.creado && enRango(c.creado)).length;
 
   /* plata del rango */
-  const movs = DATA.events.filter(e=>plataYaSeMovio(e) && enRango(fechaDelMovimiento(e)));
+  /* la plata de Nexxa paso por sus manos pero no es suya: no cuenta como que
+     entro ni como que salio */
+  const movs = DATA.events.filter(e=>plataYaSeMovio(e) && !esPlataAjena(e) && enRango(fechaDelMovimiento(e)));
   const entro = movs.filter(e=>signoDelTipo(e.type)>0).reduce((a,e)=>a+Number(e.amount||0),0);
   const salio = movs.filter(e=>signoDelTipo(e.type)<0).reduce((a,e)=>a+Number(e.amount||0),0);
 
@@ -6131,11 +6135,41 @@ function bolsillosNexxa(){ return bolsillos().filter(esDeNexxa); }
 function plataDeNexxa(){
   return bolsillosNexxa().reduce((a,b)=>a + (b.saldo===null||b.saldo==='' ? 0 : Number(b.saldo)), 0);
 }
+/* La plata de Nexxa casi nunca esta en otra cuenta: esta en el mismo Nequi,
+   revuelta con la suya. Por eso un colchon puede vivir *dentro* de un bolsillo
+   suyo: el numero de Nequi sigue siendo el que dice Nequi -ella lo lee de ahi-
+   y lo que es de Nexxa se le resta a "Tengo ahora", que es lo unico que es de
+   ella. Un colchon sin dentroDe es plata aparte (un sobre, otra cuenta) y no
+   se le resta a nada. */
+function anfitrionDe(c){ return c && c.dentroDe ? bolsillos().find(b=>b.id===c.dentroDe) : null; }
+function colchonDeBolsillo(host, crear){
+  if(!host) return null;
+  let c = bolsillosNexxa().find(x=>x.dentroDe===host.id);
+  if(!c && crear){
+    /* arranca en cero: asi, si gasta plata de Nexxa que nunca anoto entrando,
+       el colchon queda en negativo y eso se ve y se puede cuadrar */
+    c = { id:uid(), nombre:'Nexxa en ' + host.nombre, de:'nexxa', dentroDe:host.id,
+          saldo:0, fecha:todayStr(), declaradoEn:0 };
+    bolsillos().push(c);
+  }
+  return c || null;
+}
+/* Lo de Nexxa que esta metido dentro de bolsillos suyos con numero puesto.
+   Un colchon en negativo no se resta: negativo quiere decir que gasto plata de
+   Nexxa que nunca anoto entrando, y esa plata ya no esta, asi que lo que hay
+   en Nequi hoy es suyo. El negativo se le avisa aparte para que lo cuadre. */
+function plataDeNexxaDentro(){
+  return bolsillosNexxa()
+    .filter(c=>{ const h = anfitrionDe(c); return h && h.saldo!==null && h.saldo!==''; })
+    .reduce((a,c)=>a + Math.max(0, c.saldo===null||c.saldo==='' ? 0 : Number(c.saldo)), 0);
+}
 /* la suma de lo que declaro, sin los colchones de Nexxa. null si no ha puesto
    ninguno todavia */
 function saldoTotal(){
   const puestos = bolsillosMios();
-  return puestos.length ? puestos.reduce((a,b)=>a+Number(b.saldo), 0) : null;
+  if(!puestos.length) return null;
+  /* lo que hay en sus lugares, menos lo que de eso es de Nexxa */
+  return puestos.reduce((a,b)=>a+Number(b.saldo), 0) - plataDeNexxaDentro();
 }
 /* la fecha del numero mas viejo: es la que manda para el "hace X dias" (D122) */
 function saldoFecha(){
@@ -6145,9 +6179,9 @@ function saldoFecha(){
 /* un paso de plata si mueve los numeros: no es adivinar nada, ella dijo de
    donde a donde. Un lugar sin numero puesto se queda sin numero. */
 function moverEntreBolsillos(de, a, monto){
-  const partes = [];
-  if(de && de!==a) partes.push(aplicarABolsillo(de, -Number(monto)));
-  if(a && a!==de) partes.push(aplicarABolsillo(a, +Number(monto)));
+  let partes = [];
+  if(de && de!==a) partes = partes.concat(aplicarABolsillo(de, -Number(monto)));
+  if(a && a!==de) partes = partes.concat(aplicarABolsillo(a, +Number(monto)));
   return partes.filter(Boolean);
 }
 /* Un gasto sale de algun lado y un ingreso entra a alguno: antes todo caia en
@@ -6155,13 +6189,32 @@ function moverEntreBolsillos(de, a, monto){
    donde salio o a donde entro, y ese numero se mueve solo. "Sin tocar saldos"
    sigue estando, para lo que no quiere que cuente. */
 const SIN_BOLSILLO = '—';
-function aplicarABolsillo(nombre, delta){
-  if(!nombre || nombre===SIN_BOLSILLO) return null;
-  const b = bolsillos().find(x=>x.nombre===nombre);
+function bolsilloPorNombre(nombre){ return bolsillos().find(x=>x.nombre===nombre); }
+/* el empujon crudo a un solo lugar, sin arrastrar a nadie mas. Deshacer usa
+   este, porque las partes guardadas ya traen cada lugar que se movio. */
+function empujarSaldo(b, delta){
   if(!b || b.saldo===null || b.saldo==='') return null;   // un lugar sin numero puesto se queda sin numero
   b.saldo = Number(b.saldo) + Number(delta);
   b.fecha = todayStr();
-  return { bolsillo:nombre, delta:Number(delta) };
+  return { bolsillo:b.nombre, delta:Number(delta) };
+}
+/* Devuelve las partes que se movieron, que pueden ser dos. Un gasto de la
+   plata de Nexxa pagado por Nequi mueve dos numeros: Nequi, porque de ahi
+   salio de verdad, y el colchon de Nexxa que vive dentro de Nequi. Los dos
+   bajan lo mismo, asi que "Tengo ahora" -que es Nequi menos el colchon- no se
+   mueve: esa plata nunca fue suya. */
+function aplicarABolsillo(nombre, delta, deNexxa){
+  if(!nombre || nombre===SIN_BOLSILLO) return [];
+  const b = bolsilloPorNombre(nombre);
+  if(!b) return [];
+  const propio = empujarSaldo(b, delta);
+  if(!propio) return [];
+  const partes = [propio];
+  /* si lo que se movio fue el colchon, el bolsillo donde vive baja igual; si
+     fue un gasto suyo marcado como de Nexxa, baja el colchon de ese bolsillo */
+  const otro = anfitrionDe(b) || (deNexxa && !esDeNexxa(b) ? colchonDeBolsillo(b, true) : null);
+  if(otro){ const p = empujarSaldo(otro, delta); if(p) partes.push(p); }
+  return partes;
 }
 
 /* ---- Devolver lo que un movimiento empujo ----------------------------------
@@ -6175,7 +6228,7 @@ function aplicarABolsillo(nombre, delta){
    Ahora cada movimiento lleva anotado lo que le hizo a cada lugar, y eso es lo
    que se devuelve. */
 function anotarAplicado(ev, partes){
-  const reales = [].concat(partes||[]).filter(p=>p && p.delta);
+  const reales = [].concat(partes||[]).flat().filter(p=>p && p.delta);
   if(reales.length) ev.aplicado = { cuando: Date.now(), partes: reales };
   else delete ev.aplicado;
   return ev;
@@ -6194,7 +6247,11 @@ function aplicadoDe(ev){
   const signo = signoDelTipo(ev.type);
   if(!signo || (ev.type==='pago' && ev.status!=='hecho')) return null;
   if(!ev.bolsillo || ev.bolsillo===SIN_BOLSILLO) return null;
-  return { cuando, partes:[{ bolsillo:ev.bolsillo, delta: signo*monto }] };
+  const partes = [{ bolsillo:ev.bolsillo, delta: signo*monto }];
+  const b = bolsilloPorNombre(ev.bolsillo);
+  const otro = anfitrionDe(b) || (ev.deNexxa && b && !esDeNexxa(b) ? colchonDeBolsillo(b, false) : null);
+  if(otro) partes.push({ bolsillo:otro.nombre, delta: signo*monto });
+  return { cuando, partes };
 }
 /* Devolverlo solo vale si el saldo todavia es el que este movimiento empujo.
    Si ella volvio a declarar cuanto tiene -leyendolo de Nequi- ese numero ya es
@@ -6212,22 +6269,23 @@ function deshacerAplicado(ev){
   const ap = aplicadoDe(ev);
   if(!ap || !(ap.partes||[]).length){ delete ev.aplicado; return true; }
   if(!sigueVivo(ap)) return false;
-  ap.partes.forEach(p=>aplicarABolsillo(p.bolsillo, -p.delta));
+  ap.partes.forEach(p=>empujarSaldo(bolsilloPorNombre(p.bolsillo), -p.delta));
   delete ev.aplicado;
   return true;
 }
 /* Un prestamo tambien empuja saldos, y lo mismo que con los movimientos: si no
    queda anotado lo que empujo, borrarlo -o decir que esa plata nunca entro- no
    puede devolverlo, y el empujon se queda puesto para siempre. */
-function anotarAplicadoDeuda(d, parte){
-  if(parte && parte.delta) d.aplicado = { cuando: Date.now(), partes:[parte] };
+function anotarAplicadoDeuda(d, partes){
+  const reales = [].concat(partes||[]).flat().filter(p=>p && p.delta);
+  if(reales.length) d.aplicado = { cuando: Date.now(), partes: reales };
   else delete d.aplicado;
 }
 function deshacerAplicadoDeuda(d){
   const ap = d && d.aplicado;
   if(!ap || !(ap.partes||[]).length){ if(d) delete d.aplicado; return true; }
   if(!sigueVivo(ap)) return false;
-  ap.partes.forEach(p=>aplicarABolsillo(p.bolsillo, -p.delta));
+  ap.partes.forEach(p=>empujarSaldo(bolsilloPorNombre(p.bolsillo), -p.delta));
   delete d.aplicado;
   return true;
 }
@@ -6240,7 +6298,7 @@ function aplicarMovimiento(ev){
   if(ev.type==='traslado') return anotarAplicado(ev, moverEntreBolsillos(ev.de, ev.a, ev.amount));
   const signo = signoDelTipo(ev.type);
   if(!signo || (ev.type==='pago' && ev.status!=='hecho')) return anotarAplicado(ev, []);
-  return anotarAplicado(ev, [aplicarABolsillo(ev.bolsillo, signo*Number(ev.amount||0))]);
+  return anotarAplicado(ev, aplicarABolsillo(ev.bolsillo, signo*Number(ev.amount||0), ev.deNexxa));
 }
 /* De donde sale o a donde entra cada tipo: +1 entra, -1 sale, 0 no toca nada. */
 function signoDelTipo(tipo){
@@ -6364,10 +6422,18 @@ function saldoDeuda(d){
   return Number(d.monto) + movs;
 }
 
+/* Plata que paso por sus manos pero no es suya: la de Nexxa. Se ve en la lista
+   del mes, porque ella la anoto y quiere verla, pero no entra en su resta del
+   mes ni se come sus topes: no la gasto ella, la gasto el evento. */
+function esPlataAjena(e){
+  if(e && e.deNexxa) return true;
+  const b = e && e.bolsillo ? bolsilloPorNombre(e.bolsillo) : null;
+  return !!(b && esDeNexxa(b));
+}
 function gastosDelMes(mes){
   mes = mes || todayStr().slice(0,7);
   const out = {};
-  DATA.events.filter(e=>plataYaSeMovio(e) && signoDelTipo(e.type)<0 && fechaDelMovimiento(e).startsWith(mes)).forEach(e=>{
+  DATA.events.filter(e=>plataYaSeMovio(e) && !esPlataAjena(e) && signoDelTipo(e.type)<0 && fechaDelMovimiento(e).startsWith(mes)).forEach(e=>{
     const c = e.categoria || 'Otros';
     out[c] = (out[c]||0) + Number(e.amount||0);
   });
@@ -6399,6 +6465,9 @@ function openMovimientoModalCon(pre, existente){
   const e = existente || pre || { id:null, cat:'finanzas', type:'gasto', amount:'', moneda:'COP',
     categoria:'Otros', persona:'', title:'', date:todayStr(), notes:'', status:'hecho' };
   if(!e.bolsillo && signoDelTipo(e.type)) e.bolsillo = bolsilloPorDefecto();
+  /* si lo que tiene guardado es el colchon mismo, se lee como lo que es: plata
+     de Nexxa que estaba en el bolsillo donde el colchon vive */
+  (b=>{ if(b && esDeNexxa(b)){ const h = anfitrionDe(b); if(h){ e.deNexxa = true; e.bolsillo = h.nombre; } } })(e.bolsillo ? bolsilloPorNombre(e.bolsillo) : null);
   let verDetalles = !!existente;
 
   function pintar(){
@@ -6415,13 +6484,15 @@ function openMovimientoModalCon(pre, existente){
       ${esPrestamo ? `<div class="field"><label>¿Con quién?</label><input type="text" id="m_persona" value="${esc(e.persona)}" placeholder="Nombre"></div>` : ''}
       ${esTraslado ? `
       <div class="field-row">
-        <div class="field" style="flex:1;"><label>De</label><select id="m_de">${bolsillos().map(b=>`<option value="${esc(b.nombre)}" ${e.de===b.nombre?'selected':''}>${esc(b.nombre)}</option>`).join('')}</select></div>
-        <div class="field" style="flex:1;"><label>A</label><select id="m_a">${bolsillos().map(b=>`<option value="${esc(b.nombre)}" ${e.a===b.nombre?'selected':''}>${esc(b.nombre)}</option>`).join('')}</select></div>
+        <div class="field" style="flex:1;"><label>De</label><select id="m_de">${bolsillos().filter(b=>!esDeNexxa(b)).map(b=>`<option value="${esc(b.nombre)}" ${e.de===b.nombre?'selected':''}>${esc(b.nombre)}</option>`).join('')}</select></div>
+        <div class="field" style="flex:1;"><label>A</label><select id="m_a">${bolsillos().filter(b=>!esDeNexxa(b)).map(b=>`<option value="${esc(b.nombre)}" ${e.a===b.nombre?'selected':''}>${esc(b.nombre)}</option>`).join('')}</select></div>
       </div>
       <div class="helptext" style="margin:-8px 0 14px;">No suma ni resta en el mes: es la misma plata cambiando de lugar. Se baja de un lugar y se sube al otro.</div>` : ''}
       ${signo ? `<div class="field"><label>${signo>0 ? '¿A dónde entró?' : '¿De dónde sale?'}</label>
-        <div class="chiprow envuelve" id="m_bols">${bolsillos().map(b=>chip(b.nombre, b.nombre, (e.bolsillo||bolsilloPorDefecto())===b.nombre, 'data-bol')).join('')}${chip(SIN_BOLSILLO, 'Sin tocar saldos', e.bolsillo===SIN_BOLSILLO, 'data-bol')}</div>
-        <div class="helptext">${existente ? 'Ya se movió cuando lo anotaste; si le cambias el monto, corrige el saldo a mano.' : e.type==='pago' ? 'Se descuenta de ahí el día que toques “Pagué”.' : signo>0 ? 'Se le suma a ese lugar al guardar.' : 'Se le resta a ese lugar al guardar.'}</div></div>` : ''}
+        <div class="chiprow envuelve" id="m_bols">${bolsillos().filter(b=>!esDeNexxa(b)).map(b=>chip(b.nombre, b.nombre, (e.bolsillo||bolsilloPorDefecto())===b.nombre, 'data-bol')).join('')}${chip(SIN_BOLSILLO, 'Sin tocar saldos', e.bolsillo===SIN_BOLSILLO, 'data-bol')}</div>
+        <div class="helptext">${existente ? 'Ya se movió cuando lo anotaste; si le cambias el monto, corrige el saldo a mano.' : e.type==='pago' ? 'Se descuenta de ahí el día que toques “Pagué”.' : signo>0 ? 'Se le suma a ese lugar al guardar.' : 'Se le resta a ese lugar al guardar.'}</div></div>
+      ${e.bolsillo && e.bolsillo!==SIN_BOLSILLO ? `<label class="field-check"><input type="checkbox" id="m_nexxa" ${e.deNexxa?'checked':''}>
+        <span>Esta plata es de Nexxa, no tuya<br><span class="helptext" style="margin:2px 0 0;">${signo>0 ? 'Entra a ' + esc(e.bolsillo) + ' pero no es tuya: sube la plata de Nexxa, no tu "Tengo ahora".' : 'Sale de ' + esc(e.bolsillo) + ' porque de ahí salió de verdad, pero no baja tu "Tengo ahora": era plata de los eventos. Tampoco cuenta en la resta del mes ni en tus topes.'}</span></span></label>` : ''}` : ''}
       ${e.type==='pago' ? `<div class="field"><label>Se vence el</label><input type="date" id="m_fecha_pago" value="${esc(e.date)}"></div>` : ''}
       <button type="button" class="mas-campos ${verDetalles?'abierto':''}" id="m_mas">${verDetalles ? 'Menos detalles' : 'Más detalles'}</button>
       <div id="m_detalles" ${verDetalles?'':'hidden'}>
@@ -6452,6 +6523,7 @@ function openMovimientoModalCon(pre, existente){
       e.date = (g('m_fecha_pago') || g('m_fecha')).value || todayStr();
       e.notes = g('m_nota').value.trim();
       if(g('m_persona')) e.persona = g('m_persona').value.trim();
+      if(g('m_nexxa')) e.deNexxa = g('m_nexxa').checked;
     }
     /* las categorias y los bolsillos se eligen tocando, sin volver a pintar todo */
     document.querySelectorAll('#m_cats [data-cat]').forEach(b=>b.onclick = ()=>{
@@ -6459,8 +6531,10 @@ function openMovimientoModalCon(pre, existente){
       document.querySelectorAll('#m_cats [data-cat]').forEach(x=>x.classList.toggle('active', x===b));
     });
     document.querySelectorAll('#m_bols [data-bol]').forEach(b=>b.onclick = ()=>{
+      leer();
       e.bolsillo = b.dataset.bol;
-      document.querySelectorAll('#m_bols [data-bol]').forEach(x=>x.classList.toggle('active', x===b));
+      if(e.bolsillo===SIN_BOLSILLO) e.deNexxa = false;
+      pintar();   // el aviso de Nexxa nombra el lugar, asi que se vuelve a pintar
     });
     document.getElementById('m_mas').onclick = ()=>{ leer(); verDetalles = !verDetalles; pintar(); };
     /* el formulario cambia segun el tipo: no le mostramos campos que no aplican */
@@ -6498,6 +6572,7 @@ function openMovimientoModalCon(pre, existente){
       const obj = {
         cat:'finanzas', type:e.type, amount:pesos, moneda:e.moneda,
         de: e.de || '', a: e.a || '', bolsillo: signoDelTipo(e.type) ? (e.bolsillo || bolsilloPorDefecto()) : '',
+        deNexxa: !!(e.deNexxa && signoDelTipo(e.type) && e.bolsillo && e.bolsillo!==SIN_BOLSILLO),
         montoOriginal: e.moneda==='USD' ? Number(e.amount) : null,
         categoria: e.type==='gasto' ? e.categoria : '',
         persona: e.persona || '', title:e.title, date:e.date, notes:e.notes,
@@ -6688,8 +6763,9 @@ function renderPlata(){
       </button>`).join('')}</div>
     ${bolsillosNexxa().length ? `<div class="colchones">
       <div class="rot">De Nexxa · no es tuyo</div>
+      ${(neg=>neg.length ? `<div class="helptext" style="margin:0 0 8px; color:var(--urgent);">${esc(neg.map(b=>b.nombre).join(', '))} dice menos de cero: se anotaron gastos de Nexxa sin el abono de donde salieron. Anota ese abono como ingreso y márcalo "es de Nexxa", y queda cuadrado.</div>` : '')(bolsillosNexxa().filter(b=>b.saldo!==null && b.saldo!=='' && Number(b.saldo)<0))}
       ${bolsillosNexxa().map(b=>`<button class="bolsillo nexxa" data-bolsillo="${b.id}">
-        <span class="n">${esc(b.nombre)}</span>
+        <span class="n">${esc(b.nombre)}${(h=>h && !b.nombre.includes(h.nombre) ? ' · dentro de '+esc(h.nombre) : '')(anfitrionDe(b))}</span>
         <span class="m mono ${b.saldo===null||b.saldo===''?'vacio':''}">${b.saldo===null||b.saldo==='' ? 'poner' : money(b.saldo)}</span>
       </button>`).join('')}
     </div>` : ''}
@@ -6736,7 +6812,8 @@ function renderPlata(){
     ? DATA.events.filter(e=>pendienteDePago(e) && !fechaDelMovimiento(e).startsWith(mes))
         .sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999'))
     : [];
-  const movidos = evMes.filter(plataYaSeMovio);
+  const movidos = evMes.filter(e=>plataYaSeMovio(e) && !esPlataAjena(e));
+  const deNexxaMes = evMes.filter(e=>plataYaSeMovio(e) && esPlataAjena(e));
   const ingresos = movidos.filter(e=>signoDelTipo(e.type)>0).reduce((a,e)=>a+Number(e.amount||0),0);
   const gastos = movidos.filter(e=>signoDelTipo(e.type)<0).reduce((a,e)=>a+Number(e.amount||0),0);
   /* como en Nequi: lo mas reciente arriba. A igual fecha manda lo ultimo
@@ -6753,10 +6830,11 @@ function renderPlata(){
     const entra = m.type==='ingreso' || m.type==='prestamo_recibido';
     const paso = m.type==='traslado';
     const pendiente = m.type==='pago' && m.status!=='hecho';
+    const ajena = esPlataAjena(m);
     return `<div class="fila-p mov-card" data-id="${m.id}" data-sel-tipo="movimiento" data-sel-id="${m.id}">
       <span class="nom">${esc(m.title)}</span>
       ${pendiente ? `<span class="cu ${m.date && m.date < todayStr() ? 'ojo' : ''}">sin pagar · ${m.date ? 'vence ' + esc(cuandoCorto(m.date)) : 'sin fecha'}</span><button class="small-btn" data-pagado="${m.id}">Pagué</button>`
-                  : `<span class="cu">${esc(cuandoCorto(fechaDelMovimiento(m)))}${paso?' · solo cambió de lugar':m.bolsillo && m.bolsillo!==SIN_BOLSILLO?' · '+esc(m.bolsillo):''}</span>`}
+                  : `<span class="cu">${esc(cuandoCorto(fechaDelMovimiento(m)))}${paso?' · solo cambió de lugar':m.bolsillo && m.bolsillo!==SIN_BOLSILLO?' · '+esc(m.bolsillo):''}${ajena?' · de Nexxa':''}</span>`}
       <span class="mo" style="color:${pendiente?'var(--ambar)':paso?'var(--text-dim)':entra?'var(--done)':'var(--urgent)'}">${paso?'':entra?'+':'−'}${m.montoOriginal?'US$'+m.montoOriginal:money(m.amount)}</span>
     </div>`;
   };
@@ -6769,7 +6847,7 @@ function renderPlata(){
   const colorNeto = neto < 0 ? 'var(--urgent)' : 'var(--done)';
   const resumenMes = (ingresos || gastos)
     ? `<span style="color:${colorNeto}; font-weight:600;">${neto<0?'−':'+'}${money(Math.abs(neto))}</span>`
-    : (esMesDeHoy ? 'nada todavía' : 'no se movió nada');
+    : (deNexxaMes.length ? 'solo plata de Nexxa' : esMesDeHoy ? 'nada todavía' : 'no se movió nada');
   /* "Faltó este mes −$19.079" con "$30.802" arriba parecia una contradiccion:
      gastaste de mas y todavia tienes plata. No se contradicen, son dos
      preguntas distintas -lo que se movio este mes, y lo que hay hoy- y la
@@ -6787,11 +6865,18 @@ function renderPlata(){
   const explicaSinLugar = sinLugar.length
     ? `${sinLugar.length===1 ? '1 movimiento no dice' : sinLugar.length + ' movimientos no dicen'} de qué lugar salió o a cuál entró, así que ${sinLugar.length===1?'cuenta':'cuentan'} en esta resta pero no ${sinLugar.length===1?'movió':'movieron'} tu saldo.`
     : '';
+  /* y lo que se anoto con plata de Nexxa: esta en la lista pero no en la resta,
+     porque no era suya. Sin decirlo, la resta y la lista no cuadraban. */
+  const totalNexxaMes = deNexxaMes.reduce((a,e)=>a+Number(e.amount||0),0);
+  const explicaNexxa = deNexxaMes.length
+    ? `${deNexxaMes.length===1 ? '1 movimiento es' : deNexxaMes.length + ' movimientos son'} de la plata de Nexxa (${money(totalNexxaMes)}): ${deNexxaMes.length===1?'se ve':'se ven'} en la lista pero no ${deNexxaMes.length===1?'entra':'entran'} en esta resta ni en tus topes.`
+    : '';
   const totalHtml = (ingresos || gastos) ? `<div class="fila-p" style="cursor:default; border-top:none;">
       <span class="nom">${(neto<0 ? 'Faltó ' : 'Sobró ') + (esMesDeHoy ? 'este mes' : 'en ' + esc(nombreMes(mes)))}</span>
       <span class="cu">entró <b style="color:var(--done); font-weight:600;">${money(ingresos)}</b> · salió <b style="color:var(--urgent); font-weight:600;">${money(gastos)}</b></span>
       <span class="mo" style="color:${colorNeto}">${neto<0?'−':'+'}${money(Math.abs(neto))}</span>
-    </div>${(explicaNeto || explicaSinLugar) ? `<div class="helptext" style="margin:-4px 0 6px;">${esc(explicaNeto)}${explicaNeto&&explicaSinLugar?' ':''}${esc(explicaSinLugar)}</div>` : ''}` : '';
+    </div>${(explicaNeto || explicaSinLugar || explicaNexxa) ? `<div class="helptext" style="margin:-4px 0 6px;">${[explicaNeto, explicaSinLugar, explicaNexxa].filter(Boolean).map(esc).join(' ')}</div>` : ''}`
+    : (explicaNexxa ? `<div class="helptext" style="margin:-4px 0 6px;">${esc(explicaNexxa)}</div>` : '');
 
   const flechasMes = {
     antes: `<button class="flecha" id="plataMesAntes" aria-label="Ver el mes anterior">‹</button>`,
@@ -7131,16 +7216,30 @@ function openBolsilloModal(id){
     <div class="helptext">${b.fecha ? 'Lo pusiste ' + esc(haceCuanto(b.fecha)) + '.' : ''} Bitácora no lo calcula sola: lo corriges cuando te des cuenta.</div>
     <label class="field-check"><input type="checkbox" id="f_bolnexxa" ${esDeNexxa(b)?'checked':''}>
       <span>Este es un colchón de Nexxa<br><span class="helptext" style="margin:2px 0 0;">No entra en "Tengo ahora": es plata de los eventos, no tuya. Se ve aparte, y Nexxa dice cuánto hay.</span></span></label>
+    <div class="field" id="f_bolnexxadondeField" style="display:${esDeNexxa(b)?'block':'none'};"><label>¿Dónde está esa plata?</label>
+      <select id="f_bolnexxadentro">
+        <option value="" ${!b.dentroDe?'selected':''}>Aparte, en su propio lugar</option>
+        ${bolsillos().filter(x=>!esDeNexxa(x)).map(x=>`<option value="${esc(x.id)}" ${b.dentroDe===x.id?'selected':''}>Dentro de ${esc(x.nombre)}</option>`).join('')}
+      </select>
+      <div class="helptext">Si la plata de los eventos está en el mismo Nequi que la tuya, dilo aquí: el número de Nequi sigue siendo el que dice Nequi, y esto se le resta a "Tengo ahora".</div></div>
     <div class="sheet-actions">
       <button class="btn btn-ghost" id="verTodos">Ver todos</button>
       <button class="btn btn-primary" id="saveBol">Guardar</button>
     </div>`);
+  /* la pregunta de donde esta la plata solo tiene sentido si es de Nexxa */
+  document.getElementById('f_bolnexxa').onchange = ev=>{
+    document.getElementById('f_bolnexxadondeField').style.display = ev.target.checked ? 'block' : 'none';
+  };
   document.getElementById('verTodos').onclick = ()=>{ closeSheet(); openSaldoModal(); };
   document.getElementById('saveBol').onclick = ()=>{
     const v = document.getElementById('f_bol').value;
     const antes = b.saldo;
     const eraDeNexxa = esDeNexxa(b);
-    if(document.getElementById('f_bolnexxa').checked) b.de = 'nexxa'; else delete b.de;
+    if(document.getElementById('f_bolnexxa').checked){
+      b.de = 'nexxa';
+      const dentro = document.getElementById('f_bolnexxadentro').value;
+      if(dentro) b.dentroDe = dentro; else delete b.dentroDe;
+    } else { delete b.de; delete b.dentroDe; }
     b.saldo = v==='' ? null : Number(v)||0;
     b.fecha = v==='' ? '' : todayStr();
     /* a partir de aqui este numero es la verdad: los movimientos de antes ya
@@ -7160,7 +7259,7 @@ function openBolsilloModal(id){
    pero se ofrece, no se hace sola (D16), porque puede que el gasto ya este
    anotado y entonces quedaria contado dos veces. */
 function preguntarPorLaDiferencia(b, falta){
-  if(!falta) return;
+  if(!falta || esDeNexxa(b)) return;   // esa plata no es suya: no es un gasto que explicar
   const salio = falta > 0, monto = Math.abs(falta);
   openSheet(`<h3>${salio ? 'Se fueron ' + money(monto) : 'Aparecieron ' + money(monto)}</h3>
     <div class="helptext" style="margin:-4px 0 16px;">En ${esc(b.nombre)} hay ${money(monto)} ${salio?'menos':'más'} de lo que decía Bitácora. Si ya anotaste ese ${salio?'gasto':'ingreso'}, no lo anotes otra vez.</div>
