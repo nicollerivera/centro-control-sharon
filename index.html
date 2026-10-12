@@ -3732,6 +3732,8 @@ function openModuleModal(){
    cobrar de cada evento (lo pactado menos lo abonado). */
 function cuentaNexxa(){
   const enColchon = plataDeNexxa();
+  const dMia = deudaDeNexxa(false);
+  const teResta = dMia ? Math.max(0, saldoDeuda(dMia)) : 0;
   let abonado = 0, pactado = 0, faltaCobrar = 0;
   (DATA.nexxaEvents||[]).forEach(e=>{
     if(e.status === 'cotizado') return;              // todavia no es plata de nadie
@@ -3739,7 +3741,7 @@ function cuentaNexxa(){
     pactado += v; abonado += ab;
     faltaCobrar += Math.max(0, v - ab);
   });
-  return { enColchon, abonado, pactado, faltaCobrar,
+  return { enColchon, abonado, pactado, faltaCobrar, teResta,
     colchones: bolsillosNexxa(), hayColchon: bolsillosNexxa().length > 0 };
 }
 function renderNexxaGestion(){
@@ -3758,6 +3760,7 @@ function renderNexxaGestion(){
       <div class="nexxa-filas">
         <div class="fila-res"><span class="que">Pactado</span><span class="val">${esc(money(c.pactado))}</span></div>
         <div class="fila-res"><span class="que">Ya abonado</span><span class="val">${esc(money(c.abonado))}</span></div>
+        ${c.teResta ? `<div class="fila-res"><span class="que">Te resta a ti</span><span class="val">${esc(money(c.teResta))}</span></div>` : ''}
         <div class="fila-res"><span class="que">Falta cobrar</span><span class="val" style="color:${c.faltaCobrar?'var(--urgent)':'inherit'}">${esc(money(c.faltaCobrar))}</span></div>
       </div>
     </div>
@@ -6424,11 +6427,52 @@ function saldoDeuda(d){
 
 /* Plata que paso por sus manos pero no es suya: la de Nexxa. Se ve en la lista
    del mes, porque ella la anoto y quiere verla, pero no entra en su resta del
-   mes ni se come sus topes: no la gasto ella, la gasto el evento. */
+   mes ni se come sus topes: no la gasto ella, la gasto el evento.
+
+   Lo otro distinto es sacar de la plata de Nexxa para una cosa suya: ahi el
+   gasto si es suyo -cuenta en su mes y en sus topes- y lo que queda es que le
+   debe esa plata a Nexxa. Eso es nexxaMio. */
 function esPlataAjena(e){
-  if(e && e.deNexxa) return true;
+  if(e && e.deNexxa) return !e.nexxaMio;
   const b = e && e.bolsillo ? bolsilloPorNombre(e.bolsillo) : null;
-  return !!(b && esDeNexxa(b));
+  return !!(b && esDeNexxa(b) && !(e && e.nexxaMio));
+}
+/* Lo que Nexxa le va restando: cada gasto suyo pagado con la plata de los
+   eventos entra en una sola deuda con Nexxa, que se salda cuando cuadren
+   cuentas (en la deuda, "Ya quedó paga", sin anotar movimiento: no es plata
+   que se mueva hoy, es un descuento). */
+function deudaDeNexxa(crear){
+  DATA.deudas = DATA.deudas || [];
+  let d = DATA.deudas.find(x=>!x.saldada && x.sentido!=='meDeben' && sinTildes(x.nombre||'').trim()==='nexxa');
+  if(!d && crear){
+    d = { id:uid(), nombre:'Nexxa', sentido:'debo', monto:0, fecha:todayStr(), movs:[],
+          nota:'Lo que sacaste de la plata de Nexxa para cosas tuyas' };
+    DATA.deudas.push(d);
+  }
+  return d || null;
+}
+function quitarRestaDeNexxa(ev){
+  const r = ev && ev.restaNexxa;
+  if(!r) return;
+  const d = (DATA.deudas||[]).find(x=>x.id===r.deuda);
+  if(d){
+    d.movs = (d.movs||[]).filter(m=>m.id!==r.mov);
+    /* si era lo unico que Nexxa le restaba, la deuda no tiene de que hablar */
+    if(!d.movs.length && !Number(d.monto) && !d.saldada) DATA.deudas = DATA.deudas.filter(x=>x.id!==d.id);
+  }
+  delete ev.restaNexxa;
+}
+/* Devuelve la deuda si este movimiento le resto algo, para poder decirselo. */
+function anotarRestaDeNexxa(ev){
+  quitarRestaDeNexxa(ev);
+  if(!(ev && ev.deNexxa && ev.nexxaMio && plataYaSeMovio(ev) && signoDelTipo(ev.type)<0 && Number(ev.amount))) return null;
+  const d = deudaDeNexxa(true);
+  const mov = { id:uid(), sentido:'suma', monto:Number(ev.amount), fecha:fechaDelMovimiento(ev),
+                nota: ev.title || 'Gasto tuyo' };
+  d.movs = d.movs || [];
+  d.movs.push(mov);
+  ev.restaNexxa = { deuda:d.id, mov:mov.id };
+  return d;
 }
 function gastosDelMes(mes){
   mes = mes || todayStr().slice(0,7);
@@ -6492,7 +6536,12 @@ function openMovimientoModalCon(pre, existente){
         <div class="chiprow envuelve" id="m_bols">${bolsillos().filter(b=>!esDeNexxa(b)).map(b=>chip(b.nombre, b.nombre, (e.bolsillo||bolsilloPorDefecto())===b.nombre, 'data-bol')).join('')}${chip(SIN_BOLSILLO, 'Sin tocar saldos', e.bolsillo===SIN_BOLSILLO, 'data-bol')}</div>
         <div class="helptext">${existente ? 'Ya se movió cuando lo anotaste; si le cambias el monto, corrige el saldo a mano.' : e.type==='pago' ? 'Se descuenta de ahí el día que toques “Pagué”.' : signo>0 ? 'Se le suma a ese lugar al guardar.' : 'Se le resta a ese lugar al guardar.'}</div></div>
       ${e.bolsillo && e.bolsillo!==SIN_BOLSILLO ? `<label class="field-check"><input type="checkbox" id="m_nexxa" ${e.deNexxa?'checked':''}>
-        <span>Esta plata es de Nexxa, no tuya<br><span class="helptext" style="margin:2px 0 0;">${signo>0 ? 'Entra a ' + esc(e.bolsillo) + ' pero no es tuya: sube la plata de Nexxa, no tu "Tengo ahora".' : 'Sale de ' + esc(e.bolsillo) + ' porque de ahí salió de verdad, pero no baja tu "Tengo ahora": era plata de los eventos. Tampoco cuenta en la resta del mes ni en tus topes.'}</span></span></label>` : ''}` : ''}
+        <span>Esta plata es de Nexxa, no tuya<br><span class="helptext" style="margin:2px 0 0;">${signo>0 ? 'Entra a ' + esc(e.bolsillo) + ' pero no es tuya: sube la plata de Nexxa, no tu "Tengo ahora".' : 'Sale de ' + esc(e.bolsillo) + ' porque de ahí salió de verdad, pero no baja tu "Tengo ahora": era plata de los eventos.'}</span></span></label>
+      ${signo<0 && e.deNexxa ? `<div class="field"><label>¿De quién es el gasto?</label>
+        <div class="chiprow envuelve" id="m_nexxaquien">${chip('evento','Del evento', !e.nexxaMio, 'data-quien')}${chip('mio','Mío · Nexxa me lo resta', !!e.nexxaMio, 'data-quien')}</div>
+        <div class="helptext">${e.nexxaMio
+          ? 'El gasto es tuyo: cuenta en la resta del mes y en tus topes, y te queda como que le debes esa plata a Nexxa.'
+          : 'Lo gastó el evento: no cuenta en la resta del mes ni en tus topes.'}</div></div>` : ''}` : ''}` : ''}
       ${e.type==='pago' ? `<div class="field"><label>Se vence el</label><input type="date" id="m_fecha_pago" value="${esc(e.date)}"></div>` : ''}
       <button type="button" class="mas-campos ${verDetalles?'abierto':''}" id="m_mas">${verDetalles ? 'Menos detalles' : 'Más detalles'}</button>
       <div id="m_detalles" ${verDetalles?'':'hidden'}>
@@ -6524,6 +6573,7 @@ function openMovimientoModalCon(pre, existente){
       e.notes = g('m_nota').value.trim();
       if(g('m_persona')) e.persona = g('m_persona').value.trim();
       if(g('m_nexxa')) e.deNexxa = g('m_nexxa').checked;
+      if(!e.deNexxa) e.nexxaMio = false;
     }
     /* las categorias y los bolsillos se eligen tocando, sin volver a pintar todo */
     document.querySelectorAll('#m_cats [data-cat]').forEach(b=>b.onclick = ()=>{
@@ -6536,6 +6586,12 @@ function openMovimientoModalCon(pre, existente){
       if(e.bolsillo===SIN_BOLSILLO) e.deNexxa = false;
       pintar();   // el aviso de Nexxa nombra el lugar, asi que se vuelve a pintar
     });
+    /* marcarla como plata de Nexxa abre la otra pregunta: de quien es el gasto */
+    const chkNexxa = document.getElementById('m_nexxa');
+    if(chkNexxa) chkNexxa.onchange = ()=>{ leer(); pintar(); };
+    document.querySelectorAll('#m_nexxaquien [data-quien]').forEach(b=>b.onclick = ()=>{
+      leer(); e.nexxaMio = b.dataset.quien==='mio'; pintar();
+    });
     document.getElementById('m_mas').onclick = ()=>{ leer(); verDetalles = !verDetalles; pintar(); };
     /* el formulario cambia segun el tipo: no le mostramos campos que no aplican */
     document.getElementById('m_tipo').onchange = ()=>{ leer(); pintar(); };
@@ -6547,6 +6603,7 @@ function openMovimientoModalCon(pre, existente){
          volver, o el gasto desaparece y la plata sigue sin aparecer */
       const habia = aplicadoDe(existente);
       const limpio = deshacerAplicado(existente);
+      quitarRestaDeNexxa(existente);   // si Nexxa le habia restado esto, deja de restarselo
       DATA.events = DATA.events.filter(x=>x.id!==existente.id);
       saveData(); closeSheet(); renderPlata();
       if(habia && limpio){
@@ -6573,6 +6630,7 @@ function openMovimientoModalCon(pre, existente){
         cat:'finanzas', type:e.type, amount:pesos, moneda:e.moneda,
         de: e.de || '', a: e.a || '', bolsillo: signoDelTipo(e.type) ? (e.bolsillo || bolsilloPorDefecto()) : '',
         deNexxa: !!(e.deNexxa && signoDelTipo(e.type) && e.bolsillo && e.bolsillo!==SIN_BOLSILLO),
+        nexxaMio: !!(e.deNexxa && e.nexxaMio && signoDelTipo(e.type)<0),
         montoOriginal: e.moneda==='USD' ? Number(e.amount) : null,
         categoria: e.type==='gasto' ? e.categoria : '',
         persona: e.persona || '', title:e.title, date:e.date, notes:e.notes,
@@ -6581,7 +6639,7 @@ function openMovimientoModalCon(pre, existente){
            monto no puede devolverlo a pendiente cuando la plata ya salio */
         status: e.type==='pago' ? (existente && existente.status==='hecho' ? 'hecho' : 'pendiente') : 'hecho'
       };
-      let avisoSaldo = '';
+      let avisoSaldo = '', deudaNexxa = null;
       if(existente){
         /* corregir el monto tiene que corregir el saldo. Antes no: cambiabas
            $10.000 por $100.000, la lista lo decia y "Tengo ahora" se quedaba
@@ -6590,15 +6648,19 @@ function openMovimientoModalCon(pre, existente){
         Object.assign(existente, obj);
         if(limpio) aplicarMovimiento(existente);
         else avisoSaldo = 'Corregido en la lista. No toqué los saldos: ya los habías corregido a mano.';
+        deudaNexxa = anotarRestaDeNexxa(existente);
       } else {
         const nuevo = Object.assign({id:uid(), creado:Date.now()}, obj);
         DATA.events.push(nuevo);
         /* el pago pendiente no mueve nada todavia: mueve el dia que dice "Pagué" */
         aplicarMovimiento(nuevo);
+        deudaNexxa = anotarRestaDeNexxa(nuevo);
       }
       if(obj.bolsillo && obj.bolsillo!==SIN_BOLSILLO) DATA.plata.ultimoBolsillo = obj.bolsillo;
       saveData(); closeSheet(); renderPlata();
       if(avisoSaldo) avisar(avisoSaldo);
+      /* lo que pidio ella: que diga que Nexxa se lo resto, y cuanto lleva */
+      else if(deudaNexxa) avisar('Nexxa te resta ' + money(obj.amount) + ' · le debes ' + money(saldoDeuda(deudaNexxa)));
     };
   }
   pintar();
@@ -6634,7 +6696,8 @@ function openPagarPendiente(m){
     m.amount = monto;
     m.pagadoFecha = document.getElementById('pp_fecha').value || todayStr();
     m.bolsillo = bolsillo;
-    anotarAplicado(m, aplicarABolsillo(bolsillo, -monto));
+    anotarAplicado(m, aplicarABolsillo(bolsillo, -monto, m.deNexxa));
+    anotarRestaDeNexxa(m);
     if(bolsillo !== SIN_BOLSILLO) DATA.plata.ultimoBolsillo = bolsillo;
     saveData(); closeSheet(); renderPlata();
   };
@@ -6834,7 +6897,7 @@ function renderPlata(){
     return `<div class="fila-p mov-card" data-id="${m.id}" data-sel-tipo="movimiento" data-sel-id="${m.id}">
       <span class="nom">${esc(m.title)}</span>
       ${pendiente ? `<span class="cu ${m.date && m.date < todayStr() ? 'ojo' : ''}">sin pagar · ${m.date ? 'vence ' + esc(cuandoCorto(m.date)) : 'sin fecha'}</span><button class="small-btn" data-pagado="${m.id}">Pagué</button>`
-                  : `<span class="cu">${esc(cuandoCorto(fechaDelMovimiento(m)))}${paso?' · solo cambió de lugar':m.bolsillo && m.bolsillo!==SIN_BOLSILLO?' · '+esc(m.bolsillo):''}${ajena?' · de Nexxa':''}</span>`}
+                  : `<span class="cu">${esc(cuandoCorto(fechaDelMovimiento(m)))}${paso?' · solo cambió de lugar':m.bolsillo && m.bolsillo!==SIN_BOLSILLO?' · '+esc(m.bolsillo):''}${ajena?' · de Nexxa':m.nexxaMio?' · con plata de Nexxa':''}</span>`}
       <span class="mo" style="color:${pendiente?'var(--ambar)':paso?'var(--text-dim)':entra?'var(--done)':'var(--urgent)'}">${paso?'':entra?'+':'−'}${m.montoOriginal?'US$'+m.montoOriginal:money(m.amount)}</span>
     </div>`;
   };
